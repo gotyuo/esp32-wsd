@@ -1,0 +1,41 @@
+# 构建产物（顶层）
+.pio/
+**/.pio/
+release/
+*.bin
+*.elf
+*.hex
+.firwmare-build/*.bin
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# 日志
+*.log
+
+# Docker 容器/外部生成的文件
+.data/
+mosquitto/config/passwd
+mosquitto/data/
+**/mosquitto/config/passwd
+**/mosquitto/data/
+
+# Flash 工具配置（可选）
+.platformio/### 备份/临时文件
+*.bak
+*.diag_bak

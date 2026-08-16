@@ -1,0 +1,47 @@
+# ============================================================
+# 物联网环境监测系统 - Docker Compose 部署
+#
+# 非常规端口设计（降低扫描风险）:
+#   MQTT 对外 18830（设备接入）
+#   Web  对外 8627 （管理仪表盘/API）
+# 可通过 .env 文件覆盖: MQTT_PORT / WEB_PORT / MQTT_USER / MQTT_PASS / ADMIN_TOKEN
+# ============================================================
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: envmon-broker
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-18830}:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u $${MQTT_USER:-envmon} -P $${MQTT_PASS:-envmon-secret} -t '$$SYS/#' -C 1 -i healthcheck -W 3 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  backend:
+    build: .
+    container_name: envmon-backend
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8627}:8000"
+    environment:
+      - DB_PATH=/data/envmon.db
+      - SCHEMA_FILE=/app/schema.sql
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_USER=${MQTT_USER:-envmon}
+      - MQTT_PASS=${MQTT_PASS:-envmon-secret}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-}
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASS=${ADMIN_PASS:-admin123}
+      - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-168}
+      - RAW_RETENTION_DAYS=${RAW_RETENTION_DAYS:-7}
+      - MINUTE_RETENTION_DAYS=${MINUTE_RETENTION_DAYS:-400}
+    volumes:
+      - ./data:/data
+    depends_on:
+      - mosquitto
