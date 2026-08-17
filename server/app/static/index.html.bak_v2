@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>环境监测系统</title>
+<style>
+:root{
+  --bg:#0b1120; --panel:#111a2e; --panel2:#0f172a; --line:#1e293b;
+  --txt:#e2e8f0; --sub:#94a3b8; --dim:#64748b;
+  --blue:#38bdf8; --green:#34d399; --orange:#fb923c; --red:#f87171; --cyan:#22d3ee;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;min-height:100vh}
+.hidden{display:none!important}
+a{color:var(--blue);text-decoration:none}
+
+/* ============ 登录页 ============ */
+#loginView{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(800px 400px at 50% -10%,#12203f 0%,var(--bg) 60%)}
+.loginBox{width:340px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:32px 28px}
+.loginBox h1{font-size:20px;margin-bottom:4px}
+.loginBox .sub{color:var(--dim);font-size:13px;margin-bottom:24px}
+.loginBox label{display:block;font-size:12px;color:var(--sub);margin:14px 0 5px}
+.loginBox input{width:100%;padding:11px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--txt);font-size:15px}
+.loginBox button{width:100%;margin-top:20px;padding:12px;border:0;border-radius:9px;background:var(--blue);color:#00141f;font-size:15px;font-weight:700;cursor:pointer}
+#loginErr{color:var(--red);font-size:13px;margin-top:12px;min-height:18px}
+
+/* ============ 主界面 ============ */
+.top{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:10px;background:rgba(17,26,46,.6);backdrop-filter:blur(8px);position:sticky;top:0;z-index:50}
+.top .left{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.top h1{font-size:18px;font-weight:700}
+.badge{font-size:12px;color:var(--sub);background:var(--panel);border:1px solid var(--line);padding:3px 10px;border-radius:20px;white-space:nowrap}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:var(--dim)}
+.dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+.dot.off{background:var(--red)}
+select,input[type=text],input[type=number],input[type=password]{padding:8px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt);font-size:14px}
+select:focus,input:focus{outline:1px solid var(--blue)}
+button{padding:9px 16px;border-radius:8px;border:none;background:var(--blue);color:#00141f;font-weight:600;font-size:13px;cursor:pointer}
+button.secondary{background:var(--panel2);color:var(--txt);border:1px solid var(--line);font-weight:400}
+button.danger{background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.4)}
+button.small{padding:5px 10px;font-size:12px}
+button:disabled{opacity:.5;cursor:not-allowed}
+.container{padding:20px;max-width:1200px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card .label{color:var(--sub);font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.card .value{font-size:32px;font-weight:700;letter-spacing:-0.5px}
+.card .unit{font-size:15px;color:var(--sub);font-weight:400;margin-left:4px}
+.card .sub{font-size:12px;color:var(--dim);margin-top:6px}
+.t .value{color:var(--orange)} .h .value{color:var(--cyan)} .p .value{color:var(--blue)}
+.section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+.section h2{font-size:15px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{font-size:12px;padding:5px 14px;border-radius:8px;background:var(--panel2);color:var(--sub);cursor:pointer;border:1px solid var(--line)}
+.tab.active{background:var(--blue);color:#00141f;font-weight:600;border-color:var(--blue)}
+canvas{width:100%;height:170px;display:block}
+.legend{display:flex;gap:14px;margin-top:8px;flex-wrap:wrap}
+.legend span{font-size:12px;color:var(--sub)}
+.sw{width:10px;height:3px;border-radius:2px;display:inline-block;margin-right:5px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{color:var(--sub);font-weight:500;font-size:12px}
+.lvl{padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600}
+.lvl1{background:rgba(251,146,60,.15);color:var(--orange)}
+.lvl2{background:rgba(248,113,113,.15);color:var(--red)}
+.ok{color:var(--green)}.warn{color:var(--orange)}.bad{color:var(--red)}
+.empty{color:var(--dim);text-align:center;padding:20px;font-size:13px}
+form.th{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.th label{font-size:12px;color:var(--sub);display:block;margin-bottom:4px}
+.th input,.th select{width:100%;padding:8px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt);font-size:14px}
+.th .row{display:flex;gap:8px}.th .row input{width:50%}
+.actions{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.switchrow{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--sub);margin-top:6px}
+input[type=checkbox]{width:17px;height:17px;accent-color:var(--blue)}
+#saveMsg{font-size:13px;color:var(--green)}
+.devtable td{font-size:12px}
+.menu{position:relative}
+.menuBtn{display:flex;align-items:center;gap:8px}
+.menuDrop{position:absolute;right:0;top:calc(100%+6px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px;min-width:170px;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:100}
+.menuDrop div{padding:9px 12px;border-radius:7px;font-size:13px;cursor:pointer;color:var(--sub)}
+.menuDrop div:hover{background:var(--panel2);color:var(--txt)}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:8px 14px;font-size:13px;align-items:center}
+.kv label{color:var(--sub)}
+.toastWrap{position:fixed;top:64px;right:18px;z-index:200;display:flex;flex-direction:column;gap:8px}
+.toast{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--blue);border-radius:10px;padding:11px 14px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.45);animation:slideIn .25s ease;max-width:340px}
+.toast.alarm{border-left-color:var(--red)} .toast.warn{border-left-color:var(--orange)}
+.toast b{display:block;margin-bottom:2px}
+@keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+/* 报警横幅 */
+#alarmBanner{position:fixed;left:0;right:0;top:0;background:linear-gradient(90deg,rgba(248,113,113,.95),rgba(220,60,60,.95));color:#fff;text-align:center;padding:9px;font-size:14px;font-weight:700;z-index:300;display:none;animation:slideDown .3s ease}
+@keyframes slideDown{from{transform:translateY(-100%)}to{transform:none}}
+</style>
+</head>
+<body>
+
+<!-- ============ 登录 ============ -->
+<div id="loginView">
+  <div class="loginBox">
+    <h1>🔧 环境监测系统</h1>
+    <div class="sub">多终端远程监控管理平台</div>
+    <form onsubmit="doLogin(event)">
+      <label>用户名</label>
+      <input id="lgUser" autocomplete="username" required>
+      <label>密码</label>
+      <input id="lgPass" type="password" autocomplete="current-password" required>
+      <button type="submit">登 录</button>
+      <div id="loginErr"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ 主界面 ============ -->
+<div id="mainView" class="hidden">
+<div id="alarmBanner"></div>
+<div class="top">
+  <div class="left">
+    <h1>环境监测系统</h1>
+    <div class="viewtabs">
+      <span class="vtab active" data-view="dashboard" onclick="switchView('dashboard')">📊 仪表盘</span>
+      <span class="vtab" data-view="devices" onclick="switchView('devices')">🖥 设备管理</span>
+      <span class="vtab" data-view="alarms" onclick="switchView('alarms')">🚨 报警</span>
+    </div>
+  </div>
+  <div class="left">
+    <span class="badge" id="lastSeen">最后上报 -</span>
+    <button class="secondary" onclick="loadAll()">刷新</button>
+    <div class="menu">
+      <button class="secondary menuBtn" onclick="toggleMenu(event)">👤 <span id="userName">-</span> ▾</button>
+      <div class="menuDrop hidden" id="userMenu">
+        <div onclick="showUsers()" id="mUsers">👥 用户管理</div>
+        <div onclick="showPwd()">🔑 修改密码</div>
+        <div onclick="toggleSound()" id="mSound">🔔 报警声音：开</div>
+        <div onclick="doLogout()">🚪 退出登录</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <!-- 实时卡片 -->
+  <div class="grid">
+    <div class="card t"><div class="label">🌡 温度</div>
+      <div class="value" id="vTemp">--</div><span class="unit">℃</span>
+      <div class="sub" id="sTemp">阈值 --</div></div>
+    <div class="card h"><div class="label">💧 湿度</div>
+      <div class="value" id="vHum">--</div><span class="unit">%RH</span>
+      <div class="sub" id="sHum">阈值 --</div></div>
+    <div class="card p"><div class="label">🧭 气压</div>
+      <div class="value" id="vPres">--</div><span class="unit">hPa</span>
+      <div class="sub" id="sPres">阈值 --</div></div>
+    <div class="card"><div class="label">📡 状态</div>
+      <div class="value" id="vAlarm" style="font-size:22px">--</div>
+      <div class="sub" id="vRssi">--</div></div>
+  </div>
+
+  <!-- 历史趋势 -->
+  <div class="section">
+    <h2>历史趋势
+      <span class="tabs">
+        <span class="tab" data-h="1">1 小时</span>
+        <span class="tab active" data-h="24">24 小时</span>
+        <span class="tab" data-h="168">7 天</span>
+        <span class="tab" data-h="720">30 天</span>
+      </span>
+    </h2>
+    <canvas id="chartT"></canvas>
+    <canvas id="chartH"></canvas>
+    <canvas id="chartP"></canvas>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--orange)"></span>温度 ℃</span>
+      <span><span class="sw" style="background:var(--cyan)"></span>湿度 %</span>
+      <span><span class="sw" style="background:var(--blue)"></span>气压 hPa</span>
+      <span><span class="sw" style="background:var(--red)"></span>报警区间</span>
+    </div>
+  </div>
+
+  <!-- 终端设置 -->
+  <div class="section" id="devSettings">
+    <h2>⚙ 终端设置 <span class="badge" id="cfgDev">-</span></h2>
+    <form class="th" id="thForm" onsubmit="saveTh(event)">
+      <div><label>设备（* = 全局默认）</label><input name="device_id" id="fDev" value="*"></div>
+      <div><label>温度范围 ℃</label>
+        <div class="row"><input type="number" step="0.1" name="temp_min" id="fTmin"><input type="number" step="0.1" name="temp_max" id="fTmax"></div></div>
+      <div><label>湿度范围 %RH</label>
+        <div class="row"><input type="number" step="0.1" name="hum_min" id="fHmin"><input type="number" step="0.1" name="hum_max" id="fHmax"></div></div>
+      <div><label>气压范围 hPa</label>
+        <div class="row"><input type="number" step="0.1" name="pres_min" id="fPmin"><input type="number" step="0.1" name="pres_max" id="fPmax"></div></div>
+      <div><label>上报间隔（秒）</label><input type="number" min="3" max="3600" name="report_interval" id="fIv"></div>
+      <div><label>报警配置</label>
+        <div class="switchrow">
+          <input type="checkbox" id="fEn"><span>启用报警</span>
+          <input type="checkbox" id="fSnd" style="margin-left:14px"><span>终端蜂鸣</span>
+        </div></div>
+    </form>
+    <div class="actions">
+      <button type="submit" form="thForm">保存并下发到终端</button>
+      <span id="saveMsg"></span>
+    </div>
+  </div>
+
+  <!-- 设备列表 -->
+  <div class="section">
+    <h2>📋 设备列表 <button class="secondary small" onclick="loadDevices(true)">刷新</button></h2>
+    <table class="devtable">
+      <thead><tr><th>设备 ID</th><th>名称</th><th>状态</th><th>固件</th><th>最后上报</th><th>IP</th><th>操作</th></tr></thead>
+      <tbody id="devBody"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- 报警记录 -->
+  <div class="section">
+    <h2>🚨 报警记录 <button class="secondary small" onclick="loadAlarms()">刷新</button></h2>
+    <table>
+      <thead><tr><th>时间</th><th>设备</th><th>级别</th><th>原因</th><th>数值</th><th>状态</th></tr></thead>
+      <tbody id="alarmBody"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 模态框 -->
+<div id="modalBox" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:400">
+  <div style="background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;width:440px;max-width:92vw" id="modalInner"></div>
+</div>
+
+<div class="toastWrap" id="toastWrap"></div>
+
+<script>
+"use strict";
+var TOKEN=localStorage.getItem("envmon_token")||"";
+var ME=null, DEV=null, RANGE=24, HIST=[], ws=null, SOUND=true;
+function $(id){return document.getElementById(id)}
+function fmt(v,d){return (v==null||isNaN(v))?"--":Number(v).toFixed(d==null?1:d)}
+function fmtTime(s){if(!s)return"--";return s.replace("T"," ").replace("Z","").slice(0,19)}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+
+// ============ API 封装 ============
+function api(path,opt){
+  opt=opt||{};opt.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opt.headers||{});
+  return fetch(path,opt).then(function(r){
+    if(r.status===401){showLogin();throw new Error("unauthorized");}
+    if(r.status===403){alert("需要管理员权限");throw new Error("forbidden");}
+    return r.json();
+  });
+}
+
+// ============ 登录 ============
+function showLogin(){TOKEN="";localStorage.removeItem("envmon_token");$("mainView").classList.add("hidden");$("loginView").classList.remove("hidden");$("lgUser").focus();}
+function doLogin(ev){
+  ev.preventDefault();
+  var u=$("lgUser").value.trim(),p=$("lgPass").value;
+  fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({username:u,password:p})}).then(function(r){
+      if(!r.ok){$("loginErr").textContent="用户名或密码错误";throw new Error("fail");}
+      return r.json();
+    }).then(function(d){
+      TOKEN=d.token;localStorage.setItem("envmon_token",TOKEN);ME=d.user;
+      $("loginErr").textContent="";enterApp();
+    }).catch(function(){});
+}
+function enterApp(){
+  $("loginView").classList.add("hidden");$("mainView").classList.remove("hidden");
+  $("userName").textContent=(ME&&(ME.display_name||ME.username))||"-";
+  $("mSound").textContent="🔔 报警声音："+(ME&&ME.sound_alarm?"开":"关");
+  SOUND=!(ME&&ME.sound_alarm===0);
+  loadAll();loadUsers();connectWS();
+}
+function doLogout(){api("/api/logout",{method:"POST"}).then(function(){showLogin();}).catch(function(){showLogin();});}
+function toggleMenu(ev){ev.stopPropagation();$("userMenu").classList.toggle("hidden");}
+document.addEventListener("click",function(){var m=$("userMenu");if(m&&!m.classList.contains("hidden"))m.classList.add("hidden");});
+function toggleSound(){
+  SOUND=!SOUND;
+  api("/api/me/sound",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({sound_alarm:SOUND})}).then(function(){
+    $("mSound").textContent="🔔 报警声音："+(SOUND?"开":"关");toast(SOUND?"已开启报警声音":"已关闭报警声音");
+  }).catch(function(){SOUND=!SOUND;});
+}
+function showPwd(){
+  $("modalInner").innerHTML="<h2 style='font-size:16px;margin-bottom:16px'>修改密码</h2>"+
+    "<div class='kv'><label>原密码</label><input type='password' id='pOld'>"+
+    "<label>新密码</label><input type='password' id='pNew' minlength='6'>"+
+    "<label>确认新密码</label><input type='password' id='pNew2'></div>"+
+    "<div class='actions'><button onclick='doPwd()'>确认修改</button><button class='secondary' onclick='closeModal()'>取消</button></div>"+
+    "<div id='pwdErr' style='color:var(--red);font-size:13px;margin-top:10px'></div>";
+  $("modalBox").classList.remove("hidden");
+}
+function doPwd(){
+  var o=$("pOld").value,n=$("pNew").value,n2=$("pNew2").value;
+  if(n.length<6){$("pwdErr").textContent="新密码至少 6 位";return;}
+  if(n!==n2){$("pwdErr").textContent="两次密码不一致";return;}
+  api("/api/me/password",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({old_password:o,new_password:n})})
+    .then(function(){toast("密码已修改");closeModal();})
+    .catch(function(e){});
+}
+function closeModal(){$("modalBox").classList.add("hidden");}
+$("modalBox").addEventListener("click",function(e){if(e.target===$("modalBox"))closeModal();});
+
+// ============ 用户管理 ============
+function loadUsers(){
+  api("/api/users").then(function(d){
+    var u=d.users||[];if(!u.length)return;
+    $("mUsers").classList.remove("hidden");
+  }).catch(function(){$("mUsers").classList.add("hidden");});
+}
+function showUsers(){
+  api("/api/users").then(function(d){
+    var u=d.users||[],rows=u.map(function(x){
+      return "<tr><td>"+esc(x.username)+"</td><td>"+esc(x.display_name||"-")+"</td>"+
+        "<td>"+(x.role==="admin"?"管理员":"观察者")+"</td><td>"+fmtTime(x.last_login)+"</td>"+
+        "<td>"+(ME&&x.id===ME.id?"<span class='bad'>当前用户</span>":
+          "<button class='danger small' onclick='delUser("+x.id+")'>删除</button>")+"</td></tr>";
+    }).join("");
+    $("modalInner").innerHTML="<h2 style='font-size:16px;margin-bottom:12px'>用户管理</h2>"+
+      "<table><thead><tr><th>用户名</th><th>显示名</th><th>角色</th><th>最后登录</th><th>操作</th></tr></thead><tbody>"+rows+"</tbody></table>"+
+      "<div style='margin-top:16px;border-top:1px solid var(--line);padding-top:14px'>"+
+      "<div class='kv'><label>新用户名</label><input id='uName' placeholder='字母数字_-.'>"+
+      "<label>显示名</label><input id='uDisp' placeholder='可选'>"+
+      "<label>密码</label><input id='uPass' type='password' placeholder='至少6位'>"+
+      "<label>角色</label><select id='uRole'><option value='viewer'>观察者(只读)</option><option value='admin'>管理员</option></select></div>"+
+      "<div class='actions'><button onclick='addUser()'>创建用户</button><button class='secondary' onclick='closeModal()'>关闭</button></div></div>";
+    $("modalBox").classList.remove("hidden");
+  }).catch(function(){});
+}
+function addUser(){
+  var body={username:$("uName").value.trim(),display_name:$("uDisp").value.trim(),password:$("uPass").value,role:$("uRole").value};
+  if(!body.username||body.password.length<6){alert("用户名必填，密码至少6位");return;}
+  api("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
+    toast("用户已创建");showUsers();
+  }).catch(function(){});
+}
+function delUser(id){
+  if(!confirm("确定删除该用户？"))return;
+  api("/api/users/"+id,{method:"DELETE"}).then(function(){toast("用户已删除");showUsers();}).catch(function(){});
+}
+
+// ============ 数据加载 ============
+function loadDevices(pick){
+  return api("/api/devices").then(function(d){
+    var devs=d.devices||[];
+    var sel=$("devSel");
+    sel.innerHTML=devs.map(function(x){return "<option value=\""+esc(x.id)+"\">"+esc(x.name||x.id)+"</option>";}).join("");
+    if(!devs.length){sel.innerHTML="<option value=''>无设备</option>";DEV=null;}
+    else if(!DEV||!devs.some(function(x){return x.id===DEV;})){DEV=devs[0].id;}
+    sel.value=DEV||"";
+    // 设备表
+    var tb=$("devBody");
+    if(!devs.length){tb.innerHTML="<tr><td colspan='7' class='empty'>暂无设备上线</td></tr>";}
+    else tb.innerHTML=devs.map(function(x){
+      return "<tr><td>"+esc(x.id)+"</td><td>"+esc(x.name||"-")+"</td>"+
+        "<td><span class='"+(x.online?"ok":"bad")+"'>"+(x.online?"● 在线":"○ 离线")+"</span></td>"+
+        "<td>"+esc(x.fw_version||"-")+"</td><td>"+fmtTime(x.last_seen)+"</td><td>"+esc(x.ip_addr||"-")+"</td>"+
+        "<td><button class='secondary small' onclick='renameDev(\""+esc(x.id)+"\")'>重命名</button> "+
+        "<button class='danger small' onclick='delDev(\""+esc(x.id)+"\")'>删除</button></td></tr>";
+    }).join("");
+    loadReal();loadHistory();loadTh();loadAlarms();
+    return devs;
+  }).catch(function(){return[];});
+}
+function renameDev(id){
+  var n=prompt("新名称：",id);if(n==null)return;
+  api("/api/devices/"+encodeURIComponent(id)+"?name="+encodeURIComponent(n.trim()),{method:"PUT"}).then(function(){toast("已重命名");loadDevices();});
+}
+function delDev(id){
+  if(!confirm("删除设备 "+id+"？将清除其全部历史数据！"))return;
+  api("/api/devices/"+encodeURIComponent(id),{method:"DELETE"}).then(function(){toast("设备已删除");if(DEV===id)DEV=null;loadDevices();});
+}
+function switchDevice(){DEV=$("devSel").value;loadReal();loadHistory();loadTh();}
+function loadReal(){
+  api("/api/realtime"+(DEV?"?device="+encodeURIComponent(DEV):"")).then(function(d){
+    var list=d.devices||[];
+    list.forEach(function(x){
+      var L=x.latest;if(!L)return;
+      $("vTemp").textContent=fmt(L.temp_c);$("vHum").textContent=fmt(L.hum_pct);
+      $("vPres").textContent=fmt(L.pres_hpa,1);
+      $("vRssi").textContent="信号 "+(L.rssi==null?"--":L.rssi)+" dBm · 固件 "+(x.device.fw_version||"--");
+      $("lastSeen").textContent="最后上报: "+fmtTime(L.ts);
+      $("devDot").className="dot "+(x.device.online?"on":"off");
+      $("devLabel").textContent=x.device.online?"在线":"离线";
+      $("cfgDev").textContent=DEV||"*";
+      paintAlarm(L.alarm_level);
+    });
+  }).catch(function(){});
+}
+function paintAlarm(l){
+  var el=$("vAlarm");
+  if(l==2){el.textContent="报警";el.className="value bad";}
+  else if(l==1){el.textContent="预警";el.className="value warn";}
+  else{el.textContent="正常";el.className="value ok";}
+}
+function loadHistory(){
+  if(!DEV)return;
+  api("/api/history?device="+encodeURIComponent(DEV)+"&hours="+RANGE).then(function(d){
+    HIST=d.points||[];drawAll();
+  }).catch(function(){});
+}
+function loadTh(){
+  api("/api/thresholds?device="+(DEV?encodeURIComponent(DEV):"*")).then(function(t){
+    $("fDev").value=t.device_id||"*";
+    $("fTmin").value=t.temp_min;$("fTmax").value=t.temp_max;
+    $("fHmin").value=t.hum_min;$("fHmax").value=t.hum_max;
+    $("fPmin").value=t.pres_min;$("fPmax").value=t.pres_max;
+    $("fIv").value=t.report_interval;$("fEn").checked=!!t.alarm_enabled;$("fSnd").checked=!!t.alarm_sound;
+    $("sTemp").textContent="阈值 "+fmt(t.temp_min)+" ~ "+fmt(t.temp_max)+" ℃";
+    $("sHum").textContent="阈值 "+fmt(t.hum_min)+" ~ "+fmt(t.hum_max)+" %";
+    $("sPres").textContent="阈值 "+fmt(t.pres_min)+" ~ "+fmt(t.pres_max)+" hPa";
+  }).catch(function(){});
+}
+function loadAlarms(){
+  api("/api/alarms?limit=50").then(function(d){
+    var a=d.alarms||[],tb=$("alarmBody");
+    if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}
+    tb.innerHTML=a.map(function(x){
+      var lv=x.level==2?'<span class="lvl lvl2">报警</span>':'<span class="lvl lvl1">预警</span>';
+      var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';
+      return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+
+        "</td><td>"+fmt(x.temp_c)+"℃ "+fmt(x.hum_pct)+"% "+fmt(x.pres_hpa)+"hPa</td><td>"+st+"</td></tr>";
+    }).join("");
+  }).catch(function(){});
+}
+function loadAll(){loadDevices();}
+function saveTh(ev){
+  ev.preventDefault();
+  var body={device_id:$("fDev").value||"*",
+    temp_min:+$("fTmin").value,temp_max:+$("fTmax").value,
+    hum_min:+$("fHmin").value,hum_max:+$("fHmax").value,
+    pres_min:+$("fPmin").value,pres_max:+$("fPmax").value,
+    report_interval:+$("fIv").value,alarm_enabled:$("fEn").checked,alarm_sound:$("fSnd").checked};
+  api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+   .then(function(d){
+     $("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后自动同步）")):"保存失败";
+     setTimeout(function(){$("saveMsg").textContent="";},5000);
+   }).catch(function(){});
+}
+
+// ============ 绘图 ============
+function setupCanvas(id){
+  var c=$(id),dpr=window.devicePixelRatio||1,w=c.clientWidth||800,h=170;
+  c.width=w*dpr;c.height=h*dpr;c.style.height=h+"px";
+  var ctx=c.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);return{ctx:ctx,w:w,h:h};
+}
+function niceRange(min,max){
+  if(min==null||max==null||min==max){min=(min==null?0:min);max=min+1;}
+  var pad=(max-min)*0.15||1;min-=pad;max+=pad;return[min,max];
+}
+function drawChart(canvasId,key,color){
+  if(!HIST.length)return;
+  var s=setupCanvas(canvasId),ctx=s.ctx,W=s.w,H=s.h;
+  ctx.clearRect(0,0,W,H);
+  var vals=HIST.map(function(p){return p[key]}).filter(function(v){return v!=null&&!isNaN(v)});
+  if(!vals.length)return;
+  var r=niceRange(Math.min.apply(null,vals),Math.max.apply(null,vals)),lo=r[0],hi=r[1];
+  var padL=42,padR=8,padT=8,padB=20,pw=W-padL-padR,ph=H-padT-padB,n=HIST.length;
+  function X(i){return padL+pw*(n<=1?0:i/(n-1));}
+  function Y(v){return padT+ph*(1-(v-lo)/(hi-lo));}
+  ctx.strokeStyle="#1e293b";ctx.fillStyle="#64748b";ctx.font="10px sans-serif";ctx.lineWidth=1;
+  for(var g=0;g<=4;g++){var gv=lo+(hi-lo)*g/4,gy=Y(gv);
+    ctx.beginPath();ctx.moveTo(padL,gy);ctx.lineTo(W-padR,gy);ctx.stroke();
+    ctx.fillText(gv.toFixed(Math.abs(hi-lo)<10?1:0),4,gy+3);}
+  var step=Math.max(1,Math.floor(n/5));
+  for(var i2=0;i2<n;i2+=step){var t=HIST[i2].ts||"";var lab=t.slice(11,16)||t.slice(5,16);
+    ctx.fillText(lab,X(i2)-12,H-6);}
+  ctx.fillStyle="rgba(248,113,113,0.08)";
+  HIST.forEach(function(p,idx){if(p.alarm>=2&&idx>0){ctx.fillRect(X(idx-1),padT,X(idx)-X(idx-1),ph);}});
+  ctx.strokeStyle=color;ctx.lineWidth=1.6;ctx.beginPath();var started=false;
+  HIST.forEach(function(p,idx){var v=p[key];
+    if(v==null||isNaN(v)){started=false;return;}
+    if(!started){ctx.moveTo(X(idx),Y(v));started=true;}else ctx.lineTo(X(idx),Y(v));});
+  ctx.stroke();
+  var grad=ctx.createLinearGradient(0,padT,0,padT+ph);
+  grad.addColorStop(0,color+"33");grad.addColorStop(1,color+"00");
+  ctx.lineTo(X(n-1),padT+ph);ctx.lineTo(X(0),padT+ph);ctx.closePath();
+  ctx.fillStyle=grad;ctx.fill();
+}
+function drawAll(){drawChart("chartT","t","#fb923c");drawChart("chartH","h","#22d3ee");drawChart("chartP","p","#38bdf8");}
+document.querySelectorAll(".tab").forEach(function(t){
+  t.onclick=function(){document.querySelectorAll(".tab").forEach(function(x){x.classList.remove("active")});
+    t.classList.add("active");RANGE=+t.dataset.h;loadHistory();};
+});
+window.addEventListener("resize",function(){drawAll();});
+
+// ============ 报警声音 + 通知 ============
+var audioCtx=null, alarmActive={}, bannerTimer=null;
+function beep(freq,dur,gap,count){
+  try{
+    if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    for(var i=0;i<count;i++){
+      (function(i){
+        var t0=audioCtx.currentTime+i*(dur+gap);
+        var osc=audioCtx.createOscillator(),gain=audioCtx.createGain();
+        osc.type="square";osc.frequency.value=freq;
+        gain.gain.setValueAtTime(0.35,t0);
+        gain.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+        osc.connect(gain);gain.connect(audioCtx.destination);
+        osc.start(t0);osc.stop(t0+dur+0.05);
+      })(i);
+    }
+  }catch(e){}
+}
+function alarmSound(level){
+  if(!SOUND)return;
+  if(level>=2)beep(880,.18,.12,4);       // 报警: 4 声高音
+  else if(level===1)beep(660,.15,.15,2); // 预警: 2 声中音
+}
+function toast(html,cls){
+  var t=document.createElement("div");t.className="toast "+(cls||"");t.innerHTML=html;
+  $("toastWrap").appendChild(t);
+  setTimeout(function(){t.style.opacity="0";t.style.transition="opacity .4s";setTimeout(function(){t.remove();},450);},6000);
+}
+function showBanner(level,dev,reason){
+  clearTimeout(bannerTimer);
+  var b=$("alarmBanner");
+  b.textContent=(level>=2?"🚨 报警":"⚠️ 预警")+" · "+dev+(reason?" · "+reason:"");
+  b.style.display="block";b.style.background=level>=2?"linear-gradient(90deg,rgba(248,113,113,.95),rgba(220,60,60,.95))":"linear-gradient(90deg,rgba(251,146,60,.95),rgba(220,120,40,.95))";
+  bannerTimer=setTimeout(function(){b.style.display="none";},8000);
+}
+function connectWS(){
+  try{ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws?token="+encodeURIComponent(TOKEN));}
+  catch(e){return;}
+  ws.onopen=function(){$("wsState").textContent="WS 已连接";$("wsState").style.color="var(--green)";};
+  ws.onclose=function(){$("wsState").textContent="WS 断开，重连中…";$("wsState").style.color="var(--red)";setTimeout(connectWS,3000);};
+  ws.onerror=function(){try{ws.close()}catch(e){}};
+  ws.onmessage=function(ev){
+    var m;try{m=JSON.parse(ev.data)}catch(e){return;}
+    if(m.type==="telemetry"){
+      var d=m.data||{};
+      if(m.device_id===DEV){
+        $("vTemp").textContent=fmt(d.t);$("vHum").textContent=fmt(d.h);
+        $("vPres").textContent=fmt(d.p,1);
+        $("vRssi").textContent="信号 "+(d.rssi==null?"--":d.rssi)+" dBm · 固件 "+(d.fw||"--");
+        $("lastSeen").textContent="最后上报: "+fmtTime(m.ts);
+        paintAlarm(d.alarm);
+        HIST.push({ts:m.ts,t:d.t,h:d.h,p:d.p,alarm:d.alarm});
+        if(HIST.length>4000)HIST.shift();
+        if(RANGE<=1)drawAll();
+      }
+    }
+    else if(m.type==="status"){loadDevices();}
+    else if(m.type==="alarm"){
+      toast("<b>🚨 "+esc(m.device_id)+" 报警</b>"+esc(m.reason||""),"alarm");
+      alarmSound(m.level||2);showBanner(m.level||2,m.device_id,m.reason||"");
+      if(m.device_id===DEV)paintAlarm(m.level||2);
+      loadAlarms();
+    }
+    else if(m.type==="alarm_cleared"){
+      toast("<b>✅ "+esc(m.device_id)+" 已恢复</b>","");
+      if(m.device_id===DEV)paintAlarm(0);
+      loadAlarms();
+    }
+  };
+}
+
+// ============ 启动 ============
+if(TOKEN){
+  api("/api/me").then(function(u){
+    ME=u;SOUND=u.sound_alarm!==0;
+    enterApp();
+  }).catch(function(){showLogin();});
+}else{showLogin();}
+</script>
+</body>
+</html>

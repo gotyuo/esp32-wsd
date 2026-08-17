@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .aggregator import Aggregator
-from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn
+from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn, RegisterDeviceIn
 from .mqtt_bridge import MqttBridge
 
 logging.basicConfig(level=logging.INFO,
@@ -348,6 +348,20 @@ def devices():
     return {"devices": db.list_devices()}
 
 
+@app.post("/api/devices", dependencies=[Depends(require_admin)])
+def register_device(body: RegisterDeviceIn):
+    db.register_device(body.device_id, body.name)
+    return {"ok": True}
+
+
+@app.get("/api/devices/{device_id}")
+def get_device_detail(device_id: str):
+    d = db.device_detail(device_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    return d
+
+
 @app.put("/api/devices/{device_id}", dependencies=[Depends(require_admin)])
 def rename_device(device_id: str, name: str = Query(..., max_length=64),
                   _: Dict = Depends(require_admin)):
@@ -455,6 +469,82 @@ def push_config(device_id: str):
     ok = bridge.push_config(device_id)
     return {"ok": ok}
 
+
+# ================================================================ OTA
+from fastapi import UploadFile, File
+from fastapi.responses import Response, JSONResponse
+
+@app.get("/api/ota/version")
+def ota_version():
+    """返回当前最新版本元数据（无需登录）。"""
+    latest = db.ota_get_latest()
+    if not latest:
+        raise HTTPException(status_code=404, detail="no firmware uploaded")
+    return {
+        "version": latest["version"],
+        "size": latest["size"],
+        "sha256": latest["sha256"],
+        "id": latest["id"],
+        "uploaded": latest["uploaded"],
+    }
+
+@app.get("/api/ota/image")
+def ota_image():
+    """返回当前最新版本固件二进制。"""
+    latest = db.ota_get_latest()
+    if not latest:
+        raise HTTPException(status_code=404, detail="no firmware uploaded")
+    bin_data = db.ota_get_binary(latest["id"])
+    if not bin_data:
+        raise HTTPException(status_code=404, detail="binary not found")
+    return Response(
+        content=bin_data,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Length": str(latest["size"]),
+            "Content-Disposition": f'attachment; filename="envmon-{latest["version"]}.bin"',
+            "X-OTA-Version": latest["version"],
+            "X-OTA-SHA256": latest["sha256"],
+        },
+    )
+
+@app.get("/api/ota/list", dependencies=[Depends(require_admin)])
+def ota_list():
+    return {"images": db.ota_list()}
+
+@app.post("/api/ota/upload", dependencies=[Depends(require_admin)])
+async def ota_upload(file: UploadFile = File(...), version: str = Query(...)):
+    """上传固件 bin 并标记为 latest。校验 sha256。"""
+    content = await file.read()
+    import hashlib
+    sha = hashlib.sha256(content).hexdigest()
+    if len(content) < 1024:
+        raise HTTPException(status_code=400, detail="file too small")
+    oid = db.ota_upload(version, sha, content)
+    return {"ok": True, "id": oid, "version": version, "size": len(content), "sha256": sha}
+
+@app.delete("/api/ota/{image_id}", dependencies=[Depends(require_admin)])
+def ota_delete(image_id: int):
+    db.ota_delete(image_id)
+    return {"ok": True}
+
+@app.post("/api/ota/push/{device_id}", dependencies=[Depends(require_admin)])
+def ota_push(device_id: str):
+    """通过 MQTT 触发设备立即检查 OTA。"""
+    payload = {"action": "check"}
+    latest = db.ota_get_latest()
+    if latest:
+        payload["version"] = latest["version"]
+        payload["sha256"] = latest["sha256"]
+    topic = f"envmon/{device_id}/ota"
+    try:
+        import paho.mqtt.client as mqtt
+        if bridge.client and bridge.connected:
+            res = bridge.client.publish(topic, __import__("json").dumps(payload), qos=1)
+            return {"ok": res.rc == mqtt.MQTT_ERR_SUCCESS, "topic": topic}
+        return {"ok": False, "topic": topic, "error": "mqtt offline"}
+    except Exception as e:
+        return {"ok": False, "topic": topic, "error": str(e)}
 
 # ================================================================ WebSocket
 @app.websocket("/ws")

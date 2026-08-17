@@ -102,3 +102,18 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+
+-- ============================================================
+-- 固件 OTA 版本表（v2.0 固件远程升级）
+-- 存版本元数据 + SHA256 + bin 数据
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ota_images (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    version    TEXT NOT NULL,                 -- 版本号, 如 1.7.0
+    size       INTEGER NOT NULL,              -- 字节数
+    sha256     TEXT NOT NULL,                 -- SHA256 校验
+    uploaded   TEXT NOT NULL,                 -- UTC ISO8601
+    is_latest  INTEGER NOT NULL DEFAULT 0,   -- 1=当前最新版本
+    binary     BLOB NOT NULL                  -- 固件 bin
+);
+CREATE INDEX IF NOT EXISTS idx_ota_latest ON ota_images(is_latest);

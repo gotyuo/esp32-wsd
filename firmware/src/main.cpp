@@ -18,6 +18,7 @@
 #include "alarm.h"
 #include "net_mgr.h"
 #include "mqtt_mgr.h"
+#include "ota_mgr.h"
 
 static SensorHub   g_sensors;
 static DisplayUI   g_ui;
@@ -86,13 +87,15 @@ static void handleSerialCmd() {
         }
         Serial.println();
     } else if (cmd == "adcall") {
-        // 扫描全部 ADC1 引脚 (GPIO 1-10)
         const int pins[] = {1,2,3,4,5,6,7,8,9,10};
         for (int pi = 0; pi < 10; pi++) {
             analogSetPinAttenuation(pins[pi], ADC_11db);
             Serial.printf("  GPIO%d=%d\n", pins[pi], analogRead(pins[pi]));
         }
         Serial.println("[ADC] scan done");
+    } else if (cmd == "otacheck") {
+        Serial.println("[CMD] OTA 手动检查...");
+        ota_check(true);
     }
 }
 
@@ -128,9 +131,17 @@ void setup() {
     g_net.setConfig(&g_cfg);
     g_net.begin();
 
+    // 根据保存的 MQTT host 自动推断 OTA 服务器
+    ota_set_server((String(g_cfg.mqtt_host) + ":" + String(g_cfg.mqtt_port)).c_str(), nullptr);
+
     initMic();  // 初始化麦克风
 
-    delay(1500);   // 显示启动画面
+    // 启动时自动检查一次 OTA（首次引导会顺便完成 boot_count 回滚判定）
+    delay(500);
+    ota_setup();
+    ota_check(false);
+
+    delay(1000);   // 显示启动画面
 }
 
 void loop() {

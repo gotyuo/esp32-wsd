@@ -42,6 +42,11 @@ class ThresholdsOut(BaseModel):
     updated_at: Optional[str] = None
 
 
+class RegisterDeviceIn(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=32)
+    name: str = Field(default="", max_length=64)
+
+
 # ================================================================ 认证
 class LoginIn(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
