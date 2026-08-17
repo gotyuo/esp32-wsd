@@ -37,6 +37,9 @@ class MqttBridge:
         self.on_telemetry: Optional[Callable] = None
         self.on_status: Optional[Callable] = None
         self.on_ack: Optional[Callable] = None
+        self.on_vitals: Optional[Callable] = None
+        self.on_order: Optional[Callable] = None
+        self.on_lab: Optional[Callable] = None
 
     # ------------------------------------------------------------ lifecycle
     def start(self):
@@ -97,6 +100,18 @@ class MqttBridge:
                 log.info("config ack from %s", device_id)
                 if self.on_ack:
                     self.on_ack(device_id)
+            elif kind == "vitals":
+                payload = json.loads(msg.payload.decode("utf-8", "ignore"))
+                if self.on_vitals:
+                    self.on_vitals(device_id, payload)
+            elif kind == "order":
+                payload = json.loads(msg.payload.decode("utf-8", "ignore"))
+                if self.on_order:
+                    self.on_order(device_id, payload)
+            elif kind == "lab":
+                payload = json.loads(msg.payload.decode("utf-8", "ignore"))
+                if self.on_lab:
+                    self.on_lab(device_id, payload)
         except Exception as e:  # noqa: BLE001
             log.exception("handle %s from %s failed: %s", kind, device_id, e)
 

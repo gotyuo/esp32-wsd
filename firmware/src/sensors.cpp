@@ -39,11 +39,38 @@ bool SensorHub::read(EnvData &out) {
 
     if (_bmp_ok && bmp.read(t, p)) {
         out.pres_hpa = p;
-        // 若 AHT20 失效，用 BMP280 温度兜底
         if (isnan(out.temp_c)) out.temp_c = t;
         got = true;
     }
 
     out.valid = got;
     return got;
+}
+
+// ---------- 体征 ADC 读取（需信号调理） ----------
+void SensorHub::readVitals(EnvData &out) {
+    out.sp_o2  = NAN;
+    out.pr_hr  = NAN;
+    out.ecg_hr = NAN;
+    out.rr_bpm = NAN;
+    out.glucose = NAN;
+
+    #ifdef PIN_VITAL_ECG
+        analogSetPinAttenuation(PIN_VITAL_ECG, ADC_11db);
+        int32_t s1 = 0;
+        for (int i = 0; i < 32; i++) s1 += analogRead(PIN_VITAL_ECG);
+        out.ecg_hr = (float)(s1 / 32) / 30.0f;
+    #endif
+    #ifdef PIN_VITAL_PULSE
+        analogSetPinAttenuation(PIN_VITAL_PULSE, ADC_11db);
+        int32_t s2 = 0;
+        for (int i = 0; i < 32; i++) s2 += analogRead(PIN_VITAL_PULSE);
+        out.pr_hr = (float)(s2 / 32) / 30.0f;
+    #endif
+    #ifdef PIN_VITAL_BREATH
+        analogSetPinAttenuation(PIN_VITAL_BREATH, ADC_11db);
+        int32_t s3 = 0;
+        for (int i = 0; i < 32; i++) s3 += analogRead(PIN_VITAL_BREATH);
+        out.rr_bpm = (float)(s3 / 32) / 200.0f;
+    #endif
 }

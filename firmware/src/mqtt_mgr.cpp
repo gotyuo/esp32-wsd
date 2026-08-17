@@ -138,6 +138,31 @@ bool MqttMgr::publishTelemetry(const EnvData &d, int alarm_level) {
     return _client.publish(_topicTele, buf, (size_t)n, false, 0);
 }
 
+bool MqttMgr::publishVitals(const EnvData &d) {
+    if (!_client.connected()) return false;
+
+    char buf[512];
+    int n = snprintf(buf, sizeof(buf),
+        "{\"device_id\":\"%s\""
+        ",\"source\":\"esp32\""
+        ",\"sp_o2\":%s,\"pr_hr\":%s,\"ecg_hr\":%s"
+        ",\"rr_bpm\":%s,\"glucose\":%s"
+        ",\"temp_c\":%s,\"hum_pct\":%s,\"pres_hpa\":%s"
+        ",\"fw\":\"%s\"}",
+        g_cfg.device_id,
+        isnan(d.sp_o2)   ? "null" : String(d.sp_o2, 1).c_str(),
+        isnan(d.pr_hr)   ? "null" : String(d.pr_hr, 1).c_str(),
+        isnan(d.ecg_hr)  ? "null" : String(d.ecg_hr, 1).c_str(),
+        isnan(d.rr_bpm)  ? "null" : String(d.rr_bpm, 1).c_str(),
+        isnan(d.glucose) ? "null" : String(d.glucose, 2).c_str(),
+        isnan(d.temp_c)  ? "null" : String(d.temp_c, 2).c_str(),
+        isnan(d.hum_pct) ? "null" : String(d.hum_pct, 2).c_str(),
+        isnan(d.pres_hpa)? "null" : String(d.pres_hpa, 2).c_str(),
+        FW_VERSION);
+
+    return _client.publish(_topicTele, buf, (size_t)n, false, 0);
+}
+
 void MqttMgr::applyConfigPayload(const String &json) {
     if (json.length() < 2 || json.indexOf('{') < 0) {
         Serial.println(F("[MQTT] Bad config payload"));

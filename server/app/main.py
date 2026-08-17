@@ -30,6 +30,8 @@ from fastapi.staticfiles import StaticFiles
 from . import db
 from .aggregator import Aggregator
 from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn, RegisterDeviceIn
+from . import icu
+from .models import PatientCreate, PatientUpdate, LinkDeviceIn, VitalIn, OrderIn, LabResultIn
 from .mqtt_bridge import MqttBridge
 
 logging.basicConfig(level=logging.INFO,
@@ -225,21 +227,112 @@ def handle_status(device_id: str, online: bool):
     hub.broadcast_threadsafe({"type": "status", "device_id": device_id, "online": online})
 
 
+def handle_vitals(device_id: str, payload: dict):
+    """MQTT 接收来自 ESP32/仪器的多参数生命体征。"""
+    from .icu import _get_conn
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT p.id AS patient_id, p.pid AS pid, pd.role FROM patient_devices pd "
+        "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=?",
+        (device_id,),
+    ).fetchall()
+    if not rows:
+        return
+    target = next((r for r in rows if r["role"] == "primary"), rows[0])
+    patient_id = target["patient_id"]
+    pid = target["pid"]
+    source = payload.get("source", "esp32")
+    ts = payload.get("ts", icu._now())
+    icu.insert_vital(patient_id, ts, source, source_device=device_id)
+    hub.broadcast_threadsafe({"type": "vital", "patient_id": patient_id, "pid": pid, "ts": ts, "source": source})
+
+
+def handle_order(device_id: str, payload: dict):
+    rows = icu.query_rows(
+        "SELECT p.id AS patient_id, p.pid AS pid FROM patient_devices pd "
+        "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=?", (device_id,)
+    )
+    from .icu import _get_conn
+    conn = _get_conn()
+    r = conn.execute(
+        "SELECT p.id AS patient_id, p.pid AS pid FROM patient_devices pd "
+        "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=?",
+        (device_id,),
+    ).fetchone()
+    if not r:
+        return
+    order_id = icu.order_insert(
+        r["patient_id"], payload.get("source", "his"),
+        payload.get("order_no"), payload.get("drug_name"),
+        payload.get("dosage"), payload.get("route"),
+        payload.get("start_ts"), payload.get("end_ts"),
+        payload.get("rate_mlph"), operator=payload.get("operator"),
+    )
+    hub.broadcast_threadsafe({"type": "order", "patient_id": r["patient_id"], "pid": r["pid"], "order_id": order_id})
+
+
+def handle_lab(device_id: str, payload: dict):
+    from .icu import _get_conn
+    conn = _get_conn()
+    r = conn.execute(
+        "SELECT p.id AS patient_id, p.pid AS pid FROM patient_devices pd "
+        "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=?",
+        (device_id,),
+    ).fetchone()
+    if not r:
+        return
+    lid = icu.lab_result_insert(
+        r["patient_id"], payload.get("source", "lis"),
+        payload.get("item_code"), payload.get("item_name"),
+        payload.get("value"), payload.get("unit"),
+        payload.get("ref_min"), payload.get("ref_max"),
+        payload.get("result_ts"), 1 if payload.get("critical") else 0,
+    )
+    hub.broadcast_threadsafe({"type": "lab", "patient_id": r["patient_id"], "pid": r["pid"], "lab_id": lid})
+
+
+# ================================================================ 定期备份
+async def _backup_loop():
+    """每 3 天备份一次，并清理 3 天前的旧备份。"""
+    import asyncio as aio
+    while True:
+        await aio.sleep(3 * 24 * 3600)
+        try:
+            info = icu.do_backup()
+            log.info("scheduled backup: %s (%d bytes)", info["path"], info["size"])
+        except Exception as e:  # noqa: BLE001
+            log.error("scheduled backup failed: %s", e)
+
+
+_backup_task: Optional[asyncio.Task] = None
+
+
+def start_backup_scheduler():
+    global _backup_task
+    _backup_task = asyncio.create_task(_backup_loop())
+
+
 # ================================================================ lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
-    bootstrap_admin()          # 首次启动创建管理员
+    bootstrap_admin()
     db.cleanup_expired_sessions()
     hub.attach_loop(asyncio.get_running_loop())
     bridge.on_telemetry = handle_telemetry
     bridge.on_status = handle_status
+    bridge.on_vitals = handle_vitals
+    bridge.on_order = handle_order
+    bridge.on_lab = handle_lab
     bridge.start()
     aggregator.start()
+    start_backup_scheduler()
     log.info("EnvMon backend started")
     yield
     aggregator.stop()
     bridge.stop()
+    if _backup_task:
+        _backup_task.cancel()
 
 
 app = FastAPI(title="EnvMon Backend", version="2.0.0", lifespan=lifespan)
@@ -558,6 +651,185 @@ async def ws_endpoint(ws: WebSocket):
     await hub.connect(ws)
     try:
         while True:
-            await ws.receive_text()   # 客户端心跳/消息（当前无需处理）
+            await ws.receive_text()
     except WebSocketDisconnect:
         hub.discard(ws)
+
+
+# ================================================================ ICU 重症监护路由组
+# ---------- 患者 ----------
+@app.get("/api/patients", dependencies=[Depends(require_user)])
+def list_patients(limit: int = Query(200, ge=1, le=1000)):
+    return {"patients": icu.list_patients(limit)}
+
+
+@app.post("/api/patients", dependencies=[Depends(require_admin)])
+def create_patient(body: PatientCreate):
+    existing = icu.patient_by_pid(body.pid)
+    if existing:
+        raise HTTPException(409, f"患者编号 {body.pid} 已存在")
+    pid_id = icu.patient_create(
+        body.pid, body.name, body.gender, body.age, body.bed_no,
+        body.admit_ts, body.diagnosis, body.doctor, body.phone,
+    )
+    return {"ok": True, "patient_id": pid_id, "pid": body.pid}
+
+
+@app.get("/api/patients/{pid}", dependencies=[Depends(require_user)])
+def get_patient(pid: str):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return p
+
+
+@app.put("/api/patients/{pid}", dependencies=[Depends(require_admin)])
+def update_patient(pid: str, body: PatientUpdate):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    icu.patient_update(p["id"], **body.model_dump())
+    return {"ok": True}
+
+
+@app.delete("/api/patients/{pid}", dependencies=[Depends(require_admin)])
+def delete_patient(pid: str):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    icu.patient_delete(p["id"])
+    return {"ok": True}
+
+
+# ---------- 患者-设备关联 ----------
+@app.post("/api/patients/{pid}/link/{device_id}", dependencies=[Depends(require_admin)])
+def link_device(pid: str, device_id: str, role: str = Query("primary", pattern=r"^(primary|secondary)$")):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    icu.link_device(p["id"], device_id, role)
+    return {"ok": True}
+
+
+@app.delete("/api/patients/{pid}/unlink/{device_id}", dependencies=[Depends(require_admin)])
+def unlink_device(pid: str, device_id: str):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    ok = icu.unlink_device(p["id"], device_id)
+    return {"ok": ok}
+
+
+@app.get("/api/patients/{pid}/devices")
+def patient_devices(pid: str):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return {"devices": icu.devices_for_patient(p["id"])}
+
+
+# ---------- 生命体征 ----------
+@app.post("/api/patients/{pid}/vitals", dependencies=[Depends(require_admin)])
+def add_vital(pid: str, body: VitalIn):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    ts = body.ts or icu._now()
+    kwargs = body.model_dump()
+    kwargs.pop("source", None)
+    kwargs.pop("source_device", None)
+    kwargs.pop("ts", None)
+    icu.insert_vital(
+        p["id"], ts, body.source,
+        source_device=body.source_device or None,
+        **kwargs,
+    )
+    hub.broadcast_threadsafe({
+        "type": "vital", "patient_id": p["id"], "pid": pid,
+        "ts": ts, "source": body.source,
+    })
+    return {"ok": True}
+
+
+@app.get("/api/patients/{pid}/vitals")
+def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
+               fields: str = Query("", description="逗号分隔字段名"),
+               hours: Optional[int] = Query(None, ge=1)):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    if hours:
+        from datetime import timedelta
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(hours=hours)
+        end = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        start = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
+    rows = icu.patient_vitals(p["id"], start or "1970-01-01T00:00:00Z",
+                              end or "9999-12-31T00:00:00Z", field_list)
+    return {"patient_id": p["id"], "count": len(rows), "points": rows}
+
+
+# ---------- 医嘱 ----------
+@app.post("/api/patients/{pid}/orders", dependencies=[Depends(require_admin)])
+def add_order(pid: str, body: OrderIn):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    oid = icu.order_insert(
+        p["id"], body.source, body.order_no, body.drug_name, body.dosage,
+        body.route, body.start_ts, body.end_ts, body.rate_mlph,
+        operator=body.operator or None,
+    )
+    return {"ok": True, "order_id": oid}
+
+
+@app.get("/api/patients/{pid}/orders")
+def get_orders(pid: str, start: Optional[str] = None, end: Optional[str] = None):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return {"orders": icu.orders_for_patient(p["id"], start, end)}
+
+
+@app.post("/api/patients/{pid}/orders/{order_id}/stop", dependencies=[Depends(require_admin)])
+def stop_order(pid: str, order_id: int):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    ok = icu.order_stop(order_id)
+    return {"ok": ok}
+
+
+# ---------- LIS 检验 ----------
+@app.post("/api/patients/{pid}/lab", dependencies=[Depends(require_admin)])
+def add_lab(pid: str, body: LabResultIn):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    lid = icu.lab_result_insert(
+        p["id"], body.source, body.item_code, body.item_name,
+        body.value, body.unit, body.ref_min, body.ref_max,
+        body.result_ts or None, 1 if body.critical else 0,
+    )
+    return {"ok": True, "lab_id": lid}
+
+
+@app.get("/api/patients/{pid}/lab")
+def get_lab(pid: str, start: Optional[str] = None, end: Optional[str] = None):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return {"results": icu.lab_results_for_patient(p["id"], start, end)}
+
+
+# ---------- 备份 ----------
+@app.post("/api/backup", dependencies=[Depends(require_admin)])
+def trigger_backup():
+    info = icu.do_backup()
+    return {"ok": True, **info}
+
+
+@app.get("/api/backup")
+def list_backups(limit: int = Query(20, ge=1, le=100)):
+    return {"backups": icu.list_backups(limit)}

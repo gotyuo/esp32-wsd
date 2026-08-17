@@ -55,6 +55,21 @@ AlarmLevel AlarmDevice::evaluate(const EnvData &d, const DeviceConfig &cfg) {
     worst = max(worst, band(d.hum_pct,  cfg.hum_min,  cfg.hum_max));
     worst = max(worst, band(d.pres_hpa, cfg.pres_min, cfg.pres_max));
 
+    // 体征阈值（固定医学正常范围）+ 突变检测
+    worst = max(worst, band(d.sp_o2,   95, 100));
+    worst = max(worst, band(d.pr_hr,   60, 100));
+    worst = max(worst, band(d.ecg_hr,  60, 100));
+    worst = max(worst, band(d.rr_bpm,  12, 25));
+    worst = max(worst, band(d.glucose, 3.9, 6.1));
+
+    // 心率突变检测：与上一次差值 >30% 视为突变
+    static float s_prev_hr = NAN;
+    if (!isnan(d.ecg_hr) && !isnan(s_prev_hr)) {
+        float delta = fabsf(d.ecg_hr - s_prev_hr) / fmaxf(s_prev_hr, 1.0f);
+        if (delta > 0.30f) worst = max(worst, 2);
+    }
+    if (!isnan(d.ecg_hr)) s_prev_hr = d.ecg_hr;
+
     _level = (worst == 2) ? AL_ALARM : (worst == 1) ? AL_WARNING : AL_NORMAL;
     return _level;
 }

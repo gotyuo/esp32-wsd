@@ -39,5 +39,16 @@
 // 无源蜂鸣器: + 接 GPIO18，- 接 GND（需 PWM 驱动发声）
 #define PIN_BUZZER 18
 
+// ---------- 体征传感器 ADC（心电/脉搏/呼吸） ----------
+// 三个 ADC1 通道，需外接放大/滤波电路才能拿到有用信号
+//   心电 (ECG)  : GPIO25 (ADC1_CH11)  -- 需 ECG 前置放大 + 带通滤波器
+//   脉搏 (PPG)  : GPIO27 (ADC1_CH12)  -- 需光电反射 PPG 传感器
+//   呼吸 (BR)   : GPIO14 (ADC1_CH10)  -- 需胸带/阻抗呼吸传感器
+//
+// ※ 直接接 3.3V 电压信号无效，务必经过信号调理
+#define PIN_VITAL_ECG   25
+#define PIN_VITAL_PULSE 27
+#define PIN_VITAL_BREATH 14
+
 // ---------- 其他 ----------
 #define FW_VER FW_VERSION

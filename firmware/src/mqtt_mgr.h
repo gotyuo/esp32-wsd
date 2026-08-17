@@ -13,6 +13,7 @@ public:
     bool connected() const;
     // 发布一条遥测数据
     bool publishTelemetry(const EnvData &d, int alarm_level);
+    bool publishVitals(const EnvData &d);
     // 应用服务器下发的配置 JSON（由接收回调调用）
     void applyConfigPayload(const String &json);
 

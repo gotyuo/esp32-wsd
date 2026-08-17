@@ -72,3 +72,87 @@ class PasswordChangeIn(BaseModel):
 
 class SoundPrefIn(BaseModel):
     sound_alarm: bool
+
+
+# ================================================================ ICU 重症监护
+class PatientCreate(BaseModel):
+    pid: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9_-]+$")
+    name: str = Field("", max_length=32)
+    gender: str = Field("", pattern=r"^(M|F|)$")
+    age: int = Field(0, ge=0, le=150)
+    bed_no: str = Field("", max_length=16)
+    admit_ts: str = Field("", max_length=32)
+    diagnosis: str = Field("", max_length=512)
+    doctor: str = Field("", max_length=64)
+    phone: str = Field("", max_length=20)
+
+
+class PatientUpdate(BaseModel):
+    name: str = Field("", max_length=32)
+    gender: str = Field("", pattern=r"^(M|F|)$")
+    age: int = Field(0, ge=0, le=150)
+    bed_no: str = Field("", max_length=16)
+    diagnosis: str = Field("", max_length=512)
+    doctor: str = Field("", max_length=64)
+    phone: str = Field("", max_length=20)
+
+
+class LinkDeviceIn(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=32)
+    role: str = Field("primary", pattern=r"^(primary|secondary)$")
+
+
+class VitalIn(BaseModel):
+    source: str = Field("esp32", pattern=r"^(esp32|his|ecg|ventilator|lab|manual)$")
+    source_device: str = Field("", max_length=32)
+    ts: str = Field("", max_length=32)
+    sp_o2: Optional[float] = None
+    pr_hr: Optional[float] = None
+    ecg_hr: Optional[float] = None
+    ecg_st: Optional[float] = None
+    rr_bpm: Optional[float] = None
+    etco2: Optional[float] = None
+    sbp: Optional[float] = None
+    dbp: Optional[float] = None
+    map_bp: Optional[float] = None
+    ibp: Optional[float] = None
+    temp_c: Optional[float] = None
+    glucose: Optional[float] = None
+    hum_pct: Optional[float] = None
+    pres_hpa: Optional[float] = None
+    k_mmol: Optional[float] = None
+    na_mmol: Optional[float] = None
+    cl_mmol: Optional[float] = None
+    ca_mmol: Optional[float] = None
+    glucose_lab: Optional[float] = None
+    lactate: Optional[float] = None
+    ph: Optional[float] = None
+    pco2: Optional[float] = None
+    po2: Optional[float] = None
+    hco3: Optional[float] = None
+    be: Optional[float] = None
+    extra: str = Field("", max_length=1024)
+
+
+class OrderIn(BaseModel):
+    source: str = Field("his", pattern=r"^(his|manual|lis)$")
+    order_no: str = Field("", max_length=32)
+    drug_name: str = Field("", max_length=128)
+    dosage: str = Field("", max_length=64)
+    route: str = Field("", pattern=r"^(iv|im|sc|oral|pump|po|ivg|ivgtt|)$")
+    start_ts: str = Field("", max_length=32)
+    end_ts: str = Field("", max_length=32)
+    rate_mlph: Optional[float] = None
+    operator: str = Field("", max_length=64)
+
+
+class LabResultIn(BaseModel):
+    source: str = Field("lis", pattern=r"^(lis|blood_gas|manual)$")
+    item_code: str = Field("", max_length=20)
+    item_name: str = Field("", max_length=64)
+    value: Optional[float] = None
+    unit: str = Field("", max_length=16)
+    ref_min: Optional[float] = None
+    ref_max: Optional[float] = None
+    result_ts: str = Field("", max_length=32)
+    critical: bool = False

@@ -117,3 +117,124 @@ CREATE TABLE IF NOT EXISTS ota_images (
     binary     BLOB NOT NULL                  -- 固件 bin
 );
 CREATE INDEX IF NOT EXISTS idx_ota_latest ON ota_images(is_latest);
+
+-- ============================================================
+-- ICU 重症监护数据模型（v2.1）
+-- 患者 / 患者-设备关联 / 多源生命体征 / 医嘱 / 检验
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS patients (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pid         TEXT NOT NULL UNIQUE,      -- 患者编号 (如 PACU-0001)
+    name        TEXT,                      -- 姓名
+    gender      TEXT,                      -- M/F
+    age         INTEGER,
+    bed_no      TEXT,                      -- 床号
+    admit_ts    TEXT NOT NULL,             -- 入院/入 ICU 时间
+    diagnosis   TEXT,                      -- 诊断
+    doctor      TEXT,                      -- 主管医生
+    phone       TEXT,                      -- 联系电话
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_patients_pid ON patients(pid);
+
+-- 患者-设备关联（多对多）
+CREATE TABLE IF NOT EXISTS patient_devices (
+    patient_id  INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    device_id   TEXT NOT NULL,
+    role        TEXT DEFAULT 'primary',    -- primary / secondary
+    linked_at   TEXT NOT NULL,
+    PRIMARY KEY (patient_id, device_id)
+);
+
+-- 生命体征原始数据（支持 ESP32 + 上游系统多源录入）
+-- source: esp32 / his / ecg / ventilator / lab / manual
+-- 参数字段用通用列 + value 覆盖，便于曲线图
+CREATE TABLE IF NOT EXISTS vitals (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id      INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    ts              TEXT NOT NULL,         -- ISO8601 UTC
+    source          TEXT NOT NULL DEFAULT 'esp32',
+    source_device   TEXT,                  -- 设备 id 或仪器编号
+    -- 通用指标
+    sp_o2           REAL,                  -- 血氧 %
+    pr_hr           REAL,                  -- 脉率 bpm
+    ecg_hr          REAL,                  -- 心电图心率 bpm
+    ecg_st          REAL,                  -- ST 段偏移 mV
+    rr_bpm          REAL,                  -- 呼吸频率 rpm
+    etco2           REAL,                  -- 呼气末 CO2 mmHg
+    sbp             REAL,                  -- 收缩压 mmHg
+    dbp             REAL,                  -- 舒张压 mmHg
+    map_bp          REAL,                  -- 平均动脉压 mmHg
+    ibp             REAL,                  -- 有创血压 mmHg
+    temp_c          REAL,                  -- 体温
+    glucose         REAL,                  -- 血糖 mmol/L
+    -- 环境指标 (ESP32)
+    hum_pct         REAL,
+    pres_hpa        REAL,
+    -- 检验
+    k_mmol          REAL,
+    na_mmol         REAL,
+    cl_mmol         REAL,
+    ca_mmol         REAL,
+    glucose_lab     REAL,                  -- 血气/检验血糖
+    lactate         REAL,                  -- 乳酸 mmol/L
+    ph              REAL,                  -- pH
+    pco2            REAL,
+    po2             REAL,
+    hco3            REAL,
+    be              REAL,
+    -- 报警标记
+    alarm_flag      INTEGER NOT NULL DEFAULT 0,  -- 1=预警 2=报警
+    alarm_reason    TEXT,
+    -- 扩展 JSON
+    extra           TEXT,
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vitals_patient_ts ON vitals(patient_id, ts);
+CREATE INDEX IF NOT EXISTS idx_vitals_patient_source ON vitals(patient_id, source);
+
+-- 医嘱 / 用药
+CREATE TABLE IF NOT EXISTS orders (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id  INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    source      TEXT DEFAULT 'his',         -- his / manual / lis
+    order_no    TEXT,                       -- 医嘱编号
+    drug_name   TEXT,                       -- 药品名
+    dosage      TEXT,                       -- 剂量
+    route       TEXT,                       -- 给药途径 (iv/im/sc/oral/pump)
+    start_ts    TEXT NOT NULL,
+    end_ts      TEXT,
+    rate_mlph   REAL,                       -- 泵速 mL/h
+    status      TEXT DEFAULT 'active',      -- active / stopped / completed
+    operator    TEXT,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_orders_patient_ts ON orders(patient_id, start_ts);
+
+-- LIS 检验结果
+CREATE TABLE IF NOT EXISTS lab_results (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id  INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    source      TEXT DEFAULT 'lis',         -- lis / blood_gas / manual
+    item_code   TEXT,
+    item_name   TEXT,
+    value       REAL,
+    unit        TEXT,
+    ref_min     REAL,
+    ref_max     REAL,
+    result_ts   TEXT NOT NULL,
+    critical    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lab_patient_ts ON lab_results(patient_id, result_ts);
+
+-- 备份日志
+CREATE TABLE IF NOT EXISTS backup_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    path        TEXT NOT NULL,
+    size_bytes  INTEGER NOT NULL,
+    sha256      TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
