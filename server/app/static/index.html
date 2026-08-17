@@ -151,6 +151,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <h1>ICU 监护数据管理 <span class="sub">重症环境监测系统</span></h1>
     <div class="viewtabs">
       <span class="vtab active" data-view="dashboard" onclick="switchView('dashboard')">📊 监护屏</span>
+      <span class="vtab" data-view="patients" onclick="switchView('patients')">🏥 患者管理</span>
       <span class="vtab" data-view="devices" onclick="switchView('devices')">🖥 设备管理</span>
       <span class="vtab" data-view="alarms" onclick="switchView('alarms')">🚨 报警</span>
     </div>
@@ -220,6 +221,20 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     </div>
   </div>
 
+  <!-- ============= 患者管理 ============= -->
+  <div id="view-patients" class="hidden">
+    <div class="section">
+      <h2>🏥 患者管理 / PATIENTS
+        <div class="actions" style="margin-top:0">
+          <button onclick="showPatientForm()">+ 新建患者</button>
+          <button class="secondary small" onclick="loadPatients()">刷新</button>
+          <button class="secondary small" onclick="triggerBackup()">💾 手动备份</button>
+        </div>
+      </h2>
+      <div id="pGrid" class="devgrid"><div class="empty">加载中…</div></div>
+    </div>
+  </div>
+
   <!-- ============= 设备管理 ============= -->
   <div id="view-devices" class="hidden">
     <div class="section">
@@ -261,8 +276,8 @@ function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"B
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","devices","alarms"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard")loadReal();if(v==="devices")loadDevices();if(v==="alarms")loadAlarms();}
+  ["dashboard","patients","devices","alarms"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard")loadReal();if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="alarms")loadAlarms();}
 
 // 顶栏时钟
 setInterval(function(){var d=new Date();$("timeNow").textContent=d.toISOString().replace("T"," ").slice(0,19)+" (UTC)";},1000);
@@ -270,7 +285,7 @@ setInterval(function(){var d=new Date();$("timeNow").textContent=d.toISOString()
 function showLogin(){TOKEN="";localStorage.removeItem("envmon_token");$("mainView").classList.add("hidden");$("loginView").classList.remove("hidden");$("lgUser").focus();}
 function doLogin(ev){ev.preventDefault();var u=$("lgUser").value.trim(),p=$("lgPass").value;
   fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})}).then(function(r){if(!r.ok){$("loginErr").textContent="用户名或密码错误";throw new Error("fail");}return r.json();}).then(function(d){TOKEN=d.token;localStorage.setItem("envmon_token",TOKEN);ME=d.user;$("loginErr").textContent="";enterApp();}).catch(function(){});}
-function enterApp(){$("loginView").classList.add("hidden");$("mainView").classList.remove("hidden");$("userName").textContent=(ME&&(ME.display_name||ME.username))||"-";$("mSound").textContent="🔔 报警声音："+(ME&&ME.sound_alarm?"开":"关");SOUND=!(ME&&ME.sound_alarm===0);loadAll();loadUsers();connectWS();}
+function enterApp(){$("loginView").classList.add("hidden");$("mainView").classList.remove("hidden");$("userName").textContent=(ME&&(ME.display_name||ME.username))||"-";$("mSound").textContent="🔔 报警声音："+(ME&&ME.sound_alarm?"开":"关");SOUND=!(ME&&ME.sound_alarm===0);loadAll();loadUsers();loadPatients();connectWS();}
 function doLogout(){api("/api/logout",{method:"POST"}).then(function(){showLogin();}).catch(function(){showLogin();});}
 function toggleMenu(ev){ev.stopPropagation();$("userMenu").classList.toggle("hidden");}
 document.addEventListener("click",function(){var m=$("userMenu");if(m&&!m.classList.contains("hidden"))m.classList.add("hidden");});
@@ -407,6 +422,174 @@ function connectWS(){try{ws=new WebSocket((location.protocol==="https:"?"wss://"
   };}
 
 if(TOKEN){api("/api/me").then(function(u){ME=u;SOUND=u.sound_alarm!==0;enterApp();}).catch(function(){showLogin();});}else{showLogin();}
+
+// ==================== 患者管理 ====================
+function loadPatients(){
+  api("/api/patients").then(function(d){
+    var ps=d.patients||[];
+    if(!ps.length){$("pGrid").innerHTML='<div class="empty">暂无患者，点击「+ 新建患者」创建</div>';return;}
+    $("pGrid").innerHTML=ps.map(function(p){
+      var alarmIcon = (p.online===0)?'🔴':'🟢';
+      return '<div class="devcard" onclick="showPatientDetail(\''+esc(p.pid)+'\')">'
+        +'<div class="k">'
+          +'<div class="name">'+alarmIcon+' '+esc(p.pid)+' <span class="small">'+esc(p.name||"")+'</span></div>'
+          +'<div class="grid">'
+            +'<span>床号 <b>'+esc(p.bed_no||"-")+'</b></span>'
+            +'<span>年龄 <b>'+p.age+'岁</b></span>'
+            +'<span>主管 <b>'+esc(p.doctor||"-")+'</b></span>'
+          +'</div>'
+          +'<div class="sub">诊断: '+esc(p.diagnosis||"-")+'</div>'
+          +'<div class="sub">入院: '+fmtTime(p.admit_ts)+' · 更新: '+fmtTime(p.updated_at)+'</div>'
+          +'<div class="tag">'+esc(p.gender||"")+' · '+esc(p.phone||"-")+'</div>'
+        +'</div>'
+        +'<div class="v">'+
+          '<button class="secondary small" onclick="event.stopPropagation();linkDev(\''+esc(p.pid)+'\')">🔗 关联设备</button>'
+          +'<button class="secondary small" onclick="event.stopPropagation();delPatient(\''+esc(p.pid)+'\')">删除</button>'
+        +'</div>';
+    }).join("");
+  }).catch(function(){$("pGrid").innerHTML='<div class="empty">加载失败</div>';});
+}
+
+function showPatientForm(pid){
+  var fetchP = pid?api("/api/patients/"+pid):Promise.resolve({});
+  fetchP.then(function(d){
+    var p=pid?d:({});
+    $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"
+      +(pid?"EDIT PATIENT":"NEW PATIENT")+"</h2>"
+      +"<div class='kv'>"
+        +(pid?"":"<label>患者编号</label><input id='pPid' value='"+esc(p.pid||"")+"' maxlength='20'>")+
+        "<label>姓名</label><input id='pName' value='"+esc(p.name||"")+"' maxlength='32'>"
+        +"<label>性别</label><select id='pGender'><option value=''>-</option><option value='M'"+(p.gender==="M"?" selected":"")+">男</option><option value='F'"+(p.gender==="F"?" selected":"")+">女</option></select>"
+        +"<label>年龄</label><input type='number' id='pAge' value='"+(p.age||"")+"' min='0' max='150'>"
+        +"<label>床号</label><input id='pBed' value='"+esc(p.bed_no||"")+"' maxlength='16'>"
+        +"<label>主管医生</label><input id='pDoc' value='"+esc(p.doctor||"")+"' maxlength='64'>"
+        +"<label>诊断</label><input id='pDiag' value='"+esc(p.diagnosis||"")+"' maxlength='512'>"
+        +"<label>联系电话</label><input id='pPhone' value='"+esc(p.phone||"")+"' maxlength='20'>"
+      +"</div>"
+      +"<div class='actions'><button onclick='savePatient(\""+(pid||"")+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+    $("modalBox").classList.remove("hidden");
+  }).catch(function(){});
+}
+
+function savePatient(pid){
+  var body={
+    name:$("pName").value.trim(),
+    gender:$("pGender").value,
+    age:parseInt($("pAge").value||"0",10),
+    bed_no:$("pBed").value.trim(),
+    diagnosis:$("pDiag").value.trim(),
+    doctor:$("pDoc").value.trim(),
+    phone:$("pPhone").value.trim(),
+  };
+  if(pid){
+    api("/api/patients/"+pid,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
+      toast("患者已更新");closeModal();loadPatients();});
+  }else{
+    body.pid=$("pPid").value.trim();
+    if(!body.pid){alert("患者编号必填");return;}
+    api("/api/patients",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
+      toast("患者已创建");closeModal();loadPatients();});
+  }
+}
+
+function delPatient(pid){
+  if(!confirm("确定删除患者 "+pid+"？（级联删除关联体征/医嘱/检验）"))return;
+  api("/api/patients/"+pid,{method:"DELETE"}).then(function(){toast("患者已删除");loadPatients();});
+}
+
+function linkDev(pid){
+  api("/api/devices").then(function(d){
+    var devs=d.devices||[];
+    if(!devs.length){toast("没有可用设备");return;}
+    var html="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>LINK DEVICE · "+esc(pid)+"</h2>"
+      +"<div class='kv'>";
+    devs.forEach(function(x){
+      html+="<label style='display:flex;align-items:center;gap:8px'><input type='radio' name='devLink' value='"+esc(x.id)+"'>"
+        +esc(x.name||x.id)+ (x.online? ' 🟢':' 🔴')
+        +(x.fw_version?' <span class="small">fw '+esc(x.fw_version)+'</span>':'')+
+        '</label>';
+    });
+    html+="</div><div class='actions'><button onclick='doLink(\""+pid+"\")'>关联</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+    $("modalInner").innerHTML=html;
+    $("modalBox").classList.remove("hidden");
+  });
+}
+function doLink(pid){
+  var r=document.querySelector('input[name="devLink"]:checked');
+  if(!r){alert("请选择设备");return;}
+  api("/api/patients/"+pid+"/link/"+encodeURIComponent(r.value),{method:"POST"}).then(function(){
+    toast("已关联 "+r.value);closeModal();loadPatients();});
+}
+
+function showPatientDetail(pid){
+  Promise.all([
+    api("/api/patients/"+pid),
+    api("/api/patients/"+pid+"/vitals?hours=6"),
+    api("/api/patients/"+pid+"/orders"),
+    api("/api/patients/"+pid+"/lab"),
+    api("/api/patients/"+pid+"/devices"),
+  ]).then(function(rs){
+    var p=rs[0], vit=rs[1].points||[], ord=rs[2].orders||[], lab=rs[3].results||[], devs=rs[4].devices||[];
+    var vitHtml=vit.slice(-20).map(function(v){
+      var cells=["ts"].concat(["sp_o2","pr_hr","ecg_hr","rr_bpm","sbp","dbp","temp_c","glucose"]).map(function(k){
+        return v[k]==null?"<td>-</td>":"<td>"+v[k].toFixed(1)+"</td>";
+      }).join("");
+      var alarmClass=v.alarm_flag>=2?" alarm-row":(v.alarm_flag===1?" warn-row":"");
+      return "<tr class='"+alarmClass+"'><td>"+fmtTime(v.ts)+"</td><td>"+esc(v.source)+"</td>"+cells+"</tr>";
+    }).join("");
+    var ordHtml=ord.slice(0,15).map(function(o){
+      return "<tr><td>"+fmtTime(o.start_ts)+"</td><td>"+esc(o.order_no||"-")+"</td>"
+        +"<td><b>"+esc(o.drug_name||"-")+"</b></td><td>"+esc(o.dosage||"-")+"</td>"
+        +"<td>"+esc(o.route||"-")+"</td><td>"+(o.rate_mlph!=null?o.rate_mlph.toFixed(1):"-")+"</td>"
+        +"<td>"+(o.status==="active"?"<span style='color:var(--green)'>运行中</span>":"<span style='color:var(--sub)'>已停</span>")+"</td>"
+        +"<td><button class='danger small' onclick='stopOrder(\""+pid+"\", "+o.id+")'>停</button></td></tr>";
+    }).join("");
+    var labHtml=lab.slice(0,15).map(function(l){
+      var crit = l.critical? '<span style="color:var(--red);font-weight:bold">CRIT</span>':'<span style="color:var(--sub)">-</span>';
+      return "<tr><td>"+fmtTime(l.result_ts)+"</td><td>"+esc(l.item_name||"-")+"</td>"
+        +"<td><b>"+(l.value!=null?l.value.toFixed(2):"-")+"</b><span class='small'> "+esc(l.unit||"")+"</span></td>"
+        +"<td>"+(l.ref_min!=null?"["+l.ref_min+"~"+l.ref_max+"]":"-")+"</td>"
+        +"<td>"+crit+"</td></tr>";
+    }).join("");
+    $("modalInner").innerHTML="<div style='max-height:70vh;overflow:auto'>"
+      +"<h2 style='font-size:14px;color:var(--sub);letter-spacing:1px'>PATIENT · "+esc(p.pid)+" <span class='small'>"+esc(p.name||"")+" "+esc(p.gender||"")+" "+p.age+"岁</span></h2>"
+      +"<div class='grid' style='margin:8px 0 14px'>"
+        +"<span>床号 <b>"+esc(p.bed_no||"-")+"</b></span>"
+        +"<span>主管 <b>"+esc(p.doctor||"-")+"</b></span>"
+        +"<span>诊断 <b>"+esc(p.diagnosis||"-")+"</b></span>"
+        +"<span>电话 <b>"+esc(p.phone||"-")+"</b></span>"
+        +"<span>入院 <b>"+fmtTime(p.admit_ts)+"</b></span>"
+      +"</div>"
+      +"<div class='row' style='gap:6px;margin-bottom:14px'>"
+        +"<button onclick='closeModal();showPatientForm(\""+pid+"\")'>编辑</button>"
+        +"<button class='secondary small' onclick='closeModal();linkDev(\""+pid+"\")'>关联设备</button>"
+        +"<button class='danger small' onclick='closeModal();delPatient(\""+pid+"\")'>删除</button>"
+      +"</div>"
+      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin-bottom:6px'>设备 ("+devs.length+")</h3>"
+      +"<div style='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px'>"
+        +devs.map(function(d){return "<span class='tag'>"+esc(d.device_name||d.device_id)+" "+(d.online?"🟢":"🔴")+(d.fw_version?" <span class='small'>"+esc(d.fw_version)+"</span>":"")+"</span>";}).join("")||"<span class='empty'>未关联</span>"
+      +"</div>"
+      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin-bottom:6px'>近 6 小时体征 ("+vit.length+" 条)</h3>"
+      +"<table style='font-size:11px'><thead><tr><th>时间</th><th>源</th><th>SpO2</th><th>PR</th><th>ECG</th><th>RR</th><th>SBP</th><th>DBP</th><th>℃</th><th>Glu</th></tr></thead><tbody>"+vitHtml+"</tbody></table>"
+      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin:14px 0 6px'>医嘱 / 用药 ("+ord.length+" 条)</h3>"
+      +"<table style='font-size:11px'><thead><tr><th>开始</th><th>编号</th><th>药品</th><th>剂量</th><th>途径</th><th>泵速mL/h</th><th>状态</th><th>操作</th></tr></thead><tbody>"+ordHtml+"</tbody></table>"
+      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin:14px 0 6px'>检验 / LIS ("+lab.length+" 条)</h3>"
+      +"<table style='font-size:11px'><thead><tr><th>时间</th><th>项目</th><th>结果</th><th>参考</th><th>危急值</th></tr></thead><tbody>"+labHtml+"</tbody></table>"
+    +"</div>";
+    $("modalBox").classList.remove("hidden");
+  }).catch(function(){});
+}
+
+function stopOrder(pid, oid){
+  api("/api/patients/"+pid+"/orders/"+oid+"/stop",{method:"POST"}).then(function(){
+    toast("医嘱已停");showPatientDetail(pid);});
+}
+
+function triggerBackup(){
+  api("/api/backup",{method:"POST"}).then(function(d){
+    toast("备份完成: "+d.path+" ("+Math.round(d.size/1024)+"KB)");
+  }).catch(function(e){toast("备份失败: "+e.message||e,"alarm");});
+}
 </script>
 </body>
 </html>
