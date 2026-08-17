@@ -51,6 +51,7 @@ private:
     uint32_t _lastTry = 0;
     uint32_t _retryDelay = 1000;
     bool     _staStarted = false;
+    uint32_t _staStartedAt = 0;
 
     ConfigSavedCb _onSaved;
     bool     _portalRunning = false;

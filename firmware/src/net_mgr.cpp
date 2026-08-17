@@ -80,6 +80,7 @@ void NetManager::startSTA() {
     _mode = MODE_STA;
     WiFi.begin(_cfg->wifi_ssid, _cfg->wifi_pass);
     _staStarted = true;
+    _staStartedAt = millis();
     _lastTry = millis();
     Serial.printf("[NET] Connecting to %s ...\n", _cfg->wifi_ssid);
 }
@@ -100,8 +101,17 @@ void NetManager::tryReconnect() {
 
 void NetManager::loop() {
     if (_mode == MODE_STA) {
-        if (_staStarted && !wifiConnected()) tryReconnect();
-        else if (wifiConnected()) _retryDelay = 1000;
+        if (_staStarted && !wifiConnected()) {
+            tryReconnect();
+            // 连接超时（>60s）回落到 AP 配网
+            if (!wifiConnected() && (millis() - _staStartedAt) > 60000) {
+                Serial.println("[NET] STA 连接超时，回落到 AP 配网模式");
+                WiFi.disconnect();
+                startAP();
+            }
+        } else if (wifiConnected()) {
+            _retryDelay = 1000;
+        }
     } else {
         dns.processNextRequest();
         web.handleClient();
@@ -150,13 +160,14 @@ void NetManager::handleRoot() {
 }
 
 void NetManager::handleScan() {
-    int n = WiFi.scanNetworks();
+    int n = WiFi.scanNetworks(false, false, false, 1500);  // 异步禁用，仅 2.4G，1.5s 超时
     String json = "[";
     for (int i = 0; i < n; ++i) {
         if (i) json += ",";
         json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + WiFi.RSSI(i) +
                 ",\"open\":" + (WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "true" : "false") + "}";
     }
+    WiFi.scanDelete();
     json += "]";
     web.send(200, "application/json", json);
 }
