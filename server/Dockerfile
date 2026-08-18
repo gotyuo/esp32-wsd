@@ -18,6 +18,6 @@ ENV DB_PATH=/data/envmon.db \
     SCHEMA_FILE=/app/schema.sql \
     PYTHONUNBUFFERED=1
 
-EXPOSE 8000
+EXPOSE 12090
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "12090"]

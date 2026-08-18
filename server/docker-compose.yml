@@ -27,7 +27,7 @@ services:
     container_name: envmon-backend
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-8627}:8000"
+      - "${WEB_PORT:-12090}:12090"
     environment:
       - DB_PATH=/data/envmon.db
       - SCHEMA_FILE=/app/schema.sql
