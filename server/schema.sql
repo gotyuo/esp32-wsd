@@ -230,6 +230,28 @@ CREATE TABLE IF NOT EXISTS lab_results (
 );
 CREATE INDEX IF NOT EXISTS idx_lab_patient_ts ON lab_results(patient_id, result_ts);
 
+-- ============================================================
+-- 出入量记录（Input / Output）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS io_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id  INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    ts          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    direction   TEXT NOT NULL CHECK(direction IN ('in','out')),
+    kind        TEXT NOT NULL,            -- fluid/urine/stool/drain/suction/emesis/other
+    sub_type    TEXT DEFAULT NULL,        -- 具体：生理盐水/白蛋白/血/尿/胃液/痰
+    amount_ml   REAL DEFAULT 0,           -- mL 体积
+    amount_g    REAL DEFAULT 0,           -- g 重量
+    route       TEXT DEFAULT NULL,        -- iv/oral/po/drain/np/rectum/urine
+    note        TEXT DEFAULT NULL,
+    source      TEXT NOT NULL DEFAULT 'manual',
+    operator    TEXT DEFAULT NULL,
+    unique_id   TEXT DEFAULT NULL,
+    created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_io_patient_ts ON io_log(patient_id, ts);
+
 -- 备份日志
 CREATE TABLE IF NOT EXISTS backup_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

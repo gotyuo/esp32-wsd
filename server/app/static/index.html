@@ -151,6 +151,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <h1>ICU 监护数据管理 <span class="sub">重症环境监测系统</span></h1>
     <div class="viewtabs">
       <span class="vtab active" data-view="dashboard" onclick="switchView('dashboard')">📊 监护屏</span>
+      <span class="vtab" data-view="monitor" onclick="switchView('monitor')">🖥 实时监护</span>
       <span class="vtab" data-view="patients" onclick="switchView('patients')">🏥 患者管理</span>
       <span class="vtab" data-view="devices" onclick="switchView('devices')">🖥 设备管理</span>
       <span class="vtab" data-view="alarms" onclick="switchView('alarms')">🚨 报警</span>
@@ -221,6 +222,95 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     </div>
   </div>
 
+<!-- ============= 实时监护 (Monitor 表面) ============= -->
+<div id="view-monitor" class="hidden">
+<style>
+/* ---- 实时监护面板 ---- */
+#view-monitor .m-header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 10px;background:linear-gradient(180deg,rgba(255,255,255,.03),transparent);border-radius:6px;margin-bottom:8px}
+#view-monitor .m-grid{display:grid;grid-template-columns:1.05fr 1fr 1fr;gap:8px;margin-bottom:8px}
+#view-monitor .m-card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;position:relative;overflow:hidden}
+#view-monitor .m-card.warn{border-color:#ffa300;box-shadow:inset 3px 0 0 #ffa300}
+#view-monitor .m-card.crit{border-color:#ff1744;box-shadow:inset 3px 0 0 #ff1744;animation:critPulse 1.2s infinite}
+@keyframes critPulse{0%,100%{background:var(--panel)}50%{background:rgba(255,23,68,.08)}}
+#view-monitor .m-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:11px;color:var(--sub);letter-spacing:1px}
+#view-monitor .m-val{font-size:28px;font-weight:700;font-family:Consolas,monospace;line-height:1.1;color:var(--ink)}
+#view-monitor .m-val .u{font-size:12px;color:var(--sub);margin-left:4px;font-weight:400}
+#view-monitor .m-trend{font-size:12px;margin-left:6px}
+#view-monitor .m-spark{height:32px;margin-top:4px;width:100%}
+#view-monitor .m-bottom{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+#view-monitor .m-panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+#view-monitor .m-panel h4{font-size:11px;color:var(--sub);letter-spacing:1px;margin:0 0 6px 0;display:flex;justify-content:space-between;align-items:center}
+#view-monitor table{width:100%;font-size:11px;border-collapse:collapse}
+#view-monitor table th,#view-monitor table td{padding:2px 4px;text-align:left;border-bottom:1px solid var(--line)}
+#view-monitor table th{color:var(--sub);font-weight:500;letter-spacing:.5px}
+#view-monitor .badge-ok{color:var(--green)}
+#view-monitor .badge-warn{color:#ffa300}
+#view-monitor .badge-crit{color:var(--red);font-weight:700}
+#view-monitor .a-summary{font-size:12px;line-height:1.6;color:var(--ink);white-space:pre-wrap;margin:6px 0}
+#view-monitor .a-actions{font-size:12px;line-height:1.6;background:rgba(255,171,0,.08);border-left:3px solid #ffa300;padding:6px 8px;margin-top:6px;border-radius:3px}
+#view-monitor .a-actions strong{color:#ffa300}
+#view-monitor .a-actions.crit{background:rgba(255,23,68,.08);border-left-color:var(--red)}
+#view-monitor .a-actions.crit strong{color:var(--red)}
+#view-monitor .a-disclaimer{font-size:10px;color:var(--sub);margin-top:6px;font-style:italic}
+#view-monitor .a-risk{font-size:22px;font-weight:700;padding:6px 10px;border-radius:4px;display:inline-block}
+#view-monitor .risk-low{color:var(--green)}
+#view-monitor .risk-moderate{color:#ffa300}
+#view-monitor .risk-high{color:#ff6d00}
+#view-monitor .risk-critical{color:var(--red);animation:critPulse 1s infinite}
+#view-monitor .system-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid var(--line);font-size:12px}
+#view-monitor .system-row:last-child{border-bottom:none}
+#view-monitor .io-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:4px 0}
+#view-monitor .io-bar .in{background:#4fc3f7}
+#view-monitor .io-bar .out{background:#ef5350}
+#view-monitor .io-row{display:flex;justify-content:space-between;font-size:11px;color:var(--sub);padding:1px 0}
+</style>
+<div class="m-header">
+  <select id="mPid" onchange="refreshMonitor()"></select>
+  <span class="badge" id="mBadge">-</span>
+  <span class="badge" id="mTime">--</span>
+  <div style="flex:1"></div>
+  <button class="secondary small" onclick="refreshMonitor()">刷新</button>
+  <button class="secondary small" onclick="showIoForm()">+ 出入量</button>
+  <button class="secondary small" id="mAssessBtn" onclick="assessPatient()">🤖 AI 评估</button>
+</div>
+<div class="m-grid" id="mVitals">
+  <div class="m-card" data-param="ecg_hr"><div class="m-head"><span>💓 HR / ECG</span><span class="t">bpm</span></div><div class="m-val"><span class="v">--</span><span class="u">bpm</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="sp_o2"><div class="m-head"><span>🩸 SpO2</span><span class="t">%</span></div><div class="m-val"><span class="v">--</span><span class="u">%</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="rr_bpm"><div class="m-head"><span>🫁 RR</span><span class="t">rpm</span></div><div class="m-val"><span class="v">--</span><span class="u">rpm</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="sbp"><div class="m-head"><span>🩺 NIBP</span><span class="t">mmHg</span></div><div class="m-val"><span class="v">--/--</span><span class="u">mmHg</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 TEMP</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 GLU</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+</div>
+<div class="m-bottom">
+  <div class="m-panel">
+    <h4>💊 运行中用药 <button class="secondary small" onclick="loadOrders()">刷新</button></h4>
+    <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
+  </div>
+  <div class="m-panel">
+    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span></h4>
+    <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
+    <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
+    <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
+  </div>
+  <div class="m-panel">
+    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs()">刷新</button></h4>
+    <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
+  </div>
+</div>
+<div class="m-panel" id="mAssessPanel" style="display:none">
+  <h4>🤖 AI 评估 <span id="mAssessTime" style="color:var(--sub);font-weight:400"></span></h4>
+  <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+    <div>
+      <span class="a-risk" id="mRisk">--</span>
+      <div style="font-size:11px;color:var(--sub);margin-top:2px">总体风险</div>
+    </div>
+    <div style="flex:1;min-width:200px" id="mSystems"></div>
+  </div>
+  <div class="a-summary" id="mSummary"></div>
+  <div class="a-actions" id="mActions"></div>
+  <div class="a-disclaimer">⚠️ <span id="mDisclaimer"></span></div>
+</div>
+</div>
   <!-- ============= 患者管理 ============= -->
   <div id="view-patients" class="hidden">
     <div class="section">
@@ -276,8 +366,8 @@ function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"B
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","patients","devices","alarms"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard")loadReal();if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="alarms")loadAlarms();}
+  ["dashboard","monitor","patients","devices","alarms"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard")loadReal();if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="alarms")loadAlarms();}
 
 // 顶栏时钟
 setInterval(function(){var d=new Date();$("timeNow").textContent=d.toISOString().replace("T"," ").slice(0,19)+" (UTC)";},1000);
@@ -589,6 +679,226 @@ function triggerBackup(){
   api("/api/backup",{method:"POST"}).then(function(d){
     toast("备份完成: "+d.path+" ("+Math.round(d.size/1024)+"KB)");
   }).catch(function(e){toast("备份失败: "+e.message||e,"alarm");});
+}
+
+// ==================== 实时监护 (Monitor) ====================
+var MONITOR_PID=null, MONITOR_VITALS={}, MONITOR_REFRESH_TIMER=null;
+function loadPatientsForMonitor(){
+  api("/api/patients").then(function(d){
+    var ps=d.patients||[];
+    $("mPid").innerHTML=ps.map(function(p){return "<option value='"+esc(p.pid)+"'>"+esc(p.pid)+" "+esc(p.name||"")+" "+esc(p.bed_no||"")+"</option>";}).join("");
+    if(ps.length && (!MONITOR_PID || !ps.some(function(p){return p.pid===MONITOR_PID;}))){MONITOR_PID=ps[0].pid;$("mPid").value=MONITOR_PID;}
+    else if(ps.length){$("mPid").value=MONITOR_PID;}
+    refreshMonitor();
+  }).catch(function(){});
+}
+
+function refreshMonitor(){
+  var pid=$("mPid")&&$("mPid").value;
+  if(!pid)return;
+  MONITOR_PID=pid;
+  $("mTime").textContent="患者 "+pid;
+  api("/api/patients/"+pid+"/vitals?hours=6").then(function(d){
+    MONITOR_VITALS=d.points||[];
+    var latest=MONITOR_VITALS.length?MONITOR_VITALS[MONITOR_VITALS.length-1]:null;
+    var cards=document.querySelectorAll("#mVitals .m-card");
+    var bands={ecg_hr:[60,100],sp_o2:[95,100],rr_bpm:[12,25],sbp:[100,140],temp_c:[36.0,37.5],glucose:[3.9,6.1]};
+    cards.forEach(function(c){
+      var param=c.dataset.param;
+      var v=latest?latest[param]:null;
+      var vals=(MONITOR_VITALS||[]).map(function(x){return x[param];}).filter(function(x){return x!=null;}).slice(-60);
+      var valEl=c.querySelector(".v");
+      var trendEl=c.querySelector(".trend");
+      c.classList.remove("warn","crit");
+      if(param==="sbp"){
+        valEl.textContent=(latest&&latest.sbp!=null&&latest.dbp!=null)?latest.sbp.toFixed(0)+"/"+latest.dbp.toFixed(0):"--";
+        if(latest&&latest.sbp!=null){
+          var sv=latest.sbp;
+          if(sv<90||sv>180)c.classList.add("crit");
+          else if(sv<100||sv>140)c.classList.add("warn");
+        }
+      }else{
+        valEl.textContent=v==null||isNaN(v)?"--":v.toFixed(1);
+        if(v!=null&&bands[param]){
+          var b=bands[param];
+          if(v<b[0]-1.5*(b[1]-b[0])||v>b[1]+1.5*(b[1]-b[0]))c.classList.add("crit");
+          else if(v<b[0]||v>b[1])c.classList.add("warn");
+        }
+      }
+      var ar=trendArrow(vals);
+      trendEl.textContent=ar;
+      trendEl.style.color=(ar==="↗"?"#ffa300":(ar==="↘"?"#4fc3f7":"var(--sub)"));
+      paintSpark(c.querySelector(".m-spark"),vals);
+    });
+    loadOrders();loadIo();loadLabs();
+  }).catch(function(){});
+  // 评估自动刷新
+  assessPatient();
+}
+
+function trendArrow(vals){
+  if(!vals||vals.length<3)return "➡";
+  var w=vals[vals.length-1]*0.5+vals[vals.length-2]*0.3+vals[vals.length-3]*0.2;
+  var p=(vals.length>=6)?(vals[vals.length-4]*0.5+vals[vals.length-5]*0.3+vals[vals.length-6]*0.2):vals[0];
+  var d=(w-p)/Math.max(Math.abs(p),1);
+  if(d>0.05)return "↗";if(d<-0.05)return "↘";return "➡";
+}
+
+function paintSpark(c,vals){
+  if(!c)return;
+  var ctx=c.getContext("2d");
+  var w=c.width=c.clientWidth*2,h=c.height=c.clientHeight*2;
+  ctx.scale(2,2);
+  ctx.clearRect(0,0,w/2,h/2);
+  if(!vals||vals.length<2)return;
+  var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);
+  var range=mx-mn||1;
+  ctx.beginPath();
+  vals.forEach(function(v,i){
+    var x=(i/(vals.length-1))*w/2;
+    var y=h/2-((v-mn)/range)*(h/2-6)-3;
+    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle="#8ab4f8";ctx.lineWidth=1.5;ctx.stroke();
+}
+
+function loadOrders(){
+  var pid=MONITOR_PID;if(!pid)return;
+  api("/api/patients/"+pid+"/orders").then(function(d){
+    var ord=(d.orders||[]).filter(function(o){return o.status==="active";}).slice(0,10);
+    if(!ord.length){$("mOrders").innerHTML='<div class="empty" style="font-size:12px">无运行中医嘱</div>';return;}
+    $("mOrders").innerHTML=ord.map(function(o){
+      var pump=o.rate_mlph!=null?" <span class='badge' style='font-size:10px'>泵速 "+o.rate_mlph.toFixed(1)+" mL/h</span>":"";
+      return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line)'>"
+        +"<b>"+esc(o.drug_name||"-")+"</b> "+esc(o.dosage||"")+esc(o.route||"")+pump
+        +"<div class='small'>开 "+fmtTime(o.start_ts)+pump?"":""+"</div></div>";
+    }).join("");
+  }).catch(function(){});
+}
+
+function loadIo(){
+  var pid=MONITOR_PID;if(!pid)return;
+  Promise.all([
+    api("/api/patients/"+pid+"/io/balance?hours=24"),
+    api("/api/patients/"+pid+"/io?hours=72"),
+  ]).then(function(rs){
+    var b=rs[0],entries=rs[1].entries||[];
+    $("mIoIn").textContent=b.in_ml.toFixed(0)+" mL";
+    $("mIoOut").textContent=b.out_ml.toFixed(0)+" mL";
+    var net=b.net_ml;
+    $("mIoNet").textContent="净 "+net.toFixed(0)+" mL";
+    $("mIoNet2").textContent=(net>=0?"+":"")+net.toFixed(0)+" mL";
+    $("mIoNet").style.color=net>500?"var(--red)":(net<-300?"#ffa300":"var(--green)");
+    var total=Math.max(Math.abs(b.in_ml)+Math.abs(b.out_ml),1);
+    var inw=(b.in_ml/total)*100,outw=(Math.abs(b.out_ml)/total)*100;
+    $("mIoBar").innerHTML="<div class='in' style='width:"+inw+"%'></div><div class='out' style='width:"+outw+"%'></div>";
+    var recent=entries.slice(-8);
+    $("mIoList").innerHTML=recent.map(function(e){
+      var amt=(e.amount_ml||0).toFixed(0)+" mL"+(e.amount_g?" ("+e.amount_g.toFixed(0)+"g)":"");
+      var dir=e.direction==="in"?"<span style='color:#4fc3f7'>IN</span>":"<span style='color:#ef5350'>OUT</span>";
+      return "<div style='display:flex;justify-content:space-between;padding:1px 0'>"
+        +"<span>"+fmtTime(e.ts)+" "+dir+" "+esc(e.kind)+" "+esc(e.sub_type||"")+"</span>"
+        +"<span>"+amt+"</span></div>";
+    }).join("")||"<div class='empty' style='font-size:11px'>暂无记录</div>";
+  }).catch(function(){});
+}
+
+function loadLabs(){
+  var pid=MONITOR_PID;if(!pid)return;
+  api("/api/patients/"+pid+"/lab").then(function(d){
+    var labs=(d.results||[]).slice(0,10);
+    if(!labs.length){$("mLabs").innerHTML='<div class="empty" style="font-size:12px">暂无</div>';return;}
+    $("mLabs").innerHTML=labs.map(function(l){
+      var v=l.value!=null?l.value.toFixed(2)+" "+esc(l.unit||""):"--";
+      var cls="";if(l.critical)cls=" class='badge-crit'";
+      return "<div style='font-size:11px;padding:1px 0;border-bottom:1px solid var(--line)'>"
+        +"<span class='small'>"+fmtTime(l.result_ts)+"</span> "
+        +"<b>"+esc(l.item_name||l.item_code||"-")+"</b> "
+        +"<span"+cls+">"+v+"</span>"
+        +"<span class='small'> ["+l.ref_min+"~"+l.ref_max+"]</span>"
+        +(l.critical?"<span class='badge-crit' style='margin-left:4px'>CRIT</span>":"")
+      +"</div>";
+    }).join("");
+  }).catch(function(){});
+}
+
+function showIoForm(){
+  var pid=MONITOR_PID;if(!pid){toast("请先选择患者");return;}
+  $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>IO · "+esc(pid)+"</h2>"
+    +"<div class='kv'>"
+      +"<label>方向</label><select id='ioDir'><option value='in'>入</option><option value='out'>出</option></select>"
+      +"<label>类别</label><select id='ioKind'>"
+        +"<option value='fluid'>液体</option><option value='urine'>尿</option><option value='drain'>引流</option>"
+        +"<option value='stool'>大便</option><option value='emesis'>呕吐物</option><option value='suction'>吸痰</option>"
+        +"<option value='other'>其他</option>"
+      +"</select>"
+      +"<label>子类</label><input id='ioSub' placeholder='生理盐水/血/白蛋白/胃液/...' maxlength='32'>"
+      +"<label>量 (mL)</label><input type='number' id='ioMl' value='0' min='0'>"
+      +"<label>量 (g)</label><input type='number' id='ioG' value='0' min='0'>"
+      +"<label>途径</label><input id='ioRoute' placeholder='iv/po/drain/np/urine/rectum' maxlength='16'>"
+      +"<label>备注</label><input id='ioNote' maxlength='128'>"
+      +"<label>操作者</label><input id='ioOper' maxlength='64'>"
+    +"</div>"
+    +"<div class='actions'><button onclick='submitIo(\""+pid+"\")'>录入</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+  $("modalBox").classList.remove("hidden");
+}
+function submitIo(pid){
+  var body={
+    direction:$("ioDir").value,kind:$("ioKind").value,sub_type:$("ioSub").value.trim(),
+    amount_ml:parseFloat($("ioMl").value||"0"),amount_g:parseFloat($("ioG").value||"0"),
+    route:$("ioRoute").value.trim(),note:$("ioNote").value.trim(),operator:$("ioOper").value.trim(),
+    source:"manual"
+  };
+  if(body.amount_ml<=0 && body.amount_g<=0){alert("量必须 >0");return;}
+  api("/api/patients/"+pid+"/io",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
+    toast("出入量已录入");closeModal();loadIo();assessPatient();
+  }).catch(function(){});
+}
+
+function assessPatient(){
+  var pid=MONITOR_PID;if(!pid)return;
+  $("mAssessBtn").textContent="⏳ AI 评估中…";
+  api("/api/patients/"+pid+"/assessment?hours=24").then(function(d){
+    $("mAssessPanel").style.display="block";
+    $("mAssessTime").textContent="更新于 "+fmtTime(d.assessed_at)+" · "+d.vitals_count+"条体征 · "+d.orders_active+"运行医嘱 · "+d.labs_recent+"检验";
+    var riskMap={low:"🟢 低风险",moderate:"🟡 中风险",high:"🟠 高风险",critical:"🔴 危急"};
+    $("mRisk").textContent=riskMap[d.overall_risk]||d.overall_risk;
+    $("mRisk").className="a-risk risk-"+d.overall_risk;
+    var sysRows=Object.values(d.systems).map(function(s){
+      var riskCls=s.risk>=2?"badge-crit":(s.risk===1?"badge-warn":"badge-ok");
+      var arrow=s.trend||"➡";
+      var icon=s.label==="循环系统"?"💓":s.label==="呼吸系统"?"🫁":s.label==="神经系统"?"🧠":s.label==="内分泌"?"💉":s.label==="肾功能"?"🫘":s.label==="血液/凝血"?"🩸":s.label==="酸碱/代谢"?"⚗️":"💧";
+      var note=s.note?"<div class='small'>"+esc(s.note)+"</div>":"";
+      return "<div class='system-row'><span>"+icon+" <b>"+esc(s.label)+"</b> "+arrow+"</span>"
+        +"<span class='"+riskCls+"'>LV"+s.risk+"</span></div>"+note;
+    }).join("");
+    $("mSystems").innerHTML=sysRows;
+    $("mSummary").textContent=d.summary||"";
+    $("mActions").innerHTML="<strong>⚡ 建议：</strong>"+(d.actions||[]).map(function(a){return "• "+a;}).join("<br>");
+    $("mActions").className="a-actions"+(d.overall_risk==="critical"||d.overall_risk==="high"?" crit":"");
+    $("mDisclaimer").textContent=d.disclaimer||"AI 评估仅供参考，不构成诊疗建议。";
+    $("mAssessBtn").textContent="🤖 AI 评估";
+  }).catch(function(){
+    $("mAssessBtn").textContent="🤖 AI 评估";
+  });
+}
+
+// WS 消息：新体征到达时刷新 monitor（如果当前在 monitor view）
+var _orig_onmessage=null;
+function _monitorHook(){
+  if(ws && !ws._monitorHooked){
+    var orig=ws.onmessage;
+    ws._monitorHooked=true;
+    ws.onmessage=function(ev){
+      if(orig)orig.call(ws,ev);
+      try{
+        var m=JSON.parse(ev.data);
+        if(CURRENT_VIEW==="monitor" && (m.type==="vitals"||m.type==="telemetry")){
+          refreshMonitor();
+        }
+      }catch(e){}
+    };
+  }
 }
 </script>
 </body>

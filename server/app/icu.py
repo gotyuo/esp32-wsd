@@ -253,6 +253,320 @@ def lab_results_for_patient(patient_id: int, result_ts_start: str = None,
     )
 
 
+# ---------- 出入量 ----------
+def add_io_log(patient_id: int, direction: str, kind: str, amount_ml: float,
+               amount_g: Optional[float], sub_type: Optional[str], route: Optional[str],
+               note: Optional[str], source: str, operator: Optional[str],
+               ts: Optional[str], unique_id: Optional[str]) -> int:
+    row = fetchone("SELECT id FROM patients WHERE id=?", (patient_id,))
+    if not row:
+        raise ValueError("patient not found")
+    now = _now()
+    q = ("INSERT INTO io_log (patient_id,direction,kind,sub_type,amount_ml,amount_g,route,"
+         "note,source,operator,ts,unique_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    return run(q, (patient_id, direction, kind, sub_type, amount_ml or 0, amount_g or 0,
+                    route, note, source, operator, ts or now, unique_id, now))
+
+
+def list_io_log(patient_id: int, hours: int = 72) -> List[Dict]:
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(hours, 1))).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return fetchall(
+        "SELECT * FROM io_log WHERE patient_id=? AND ts>? ORDER BY ts ASC",
+        (patient_id, cutoff),
+    )
+
+
+def io_balance(patient_id: int, hours: int = 24) -> Dict:
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(hours, 1))).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = fetchall(
+        "SELECT direction, COALESCE(SUM(amount_ml),0) AS ml, COALESCE(SUM(amount_g),0) AS g "
+        "FROM io_log WHERE patient_id=? AND ts>? GROUP BY direction",
+        (patient_id, cutoff),
+    )
+    inc = sum(r["ml"] for r in rows if r["direction"] == "in") + sum(r["g"] for r in rows if r["direction"] == "in")
+    out = sum(r["ml"] for r in rows if r["direction"] == "out") + sum(r["g"] for r in rows if r["direction"] == "out")
+    # 估算体重 (默认 70kg) 用于每小时尿量下限
+    return {"in_ml": round(inc, 1), "out_ml": round(out, 1),
+            "net_ml": round(inc - out, 1), "hours": hours}
+
+
+# ---------- AI 评估 ----------
+def _trend_arrow(vals: List[float]) -> str:
+    """根据序列斜率返回 ↗ / ➡ / ↘ —— 用最近 3 点 vs 更早 3 点加权比较"""
+    if len(vals) < 3:
+        return "➡"
+    # 用最近 3 点均值 vs 前 3 点均值（如果够长），或末点 vs 首点
+    recent = vals[-1] * 0.5 + vals[-2] * 0.3 + vals[-3] * 0.2
+    if len(vals) >= 6:
+        earlier = vals[-4] * 0.5 + vals[-5] * 0.3 + vals[-6] * 0.2
+    else:
+        earlier = vals[0]
+    # 用首末点的总差作为参考
+    total_delta = (recent - vals[0]) / max(abs(vals[0]), 1.0)
+    window_delta = (recent - earlier) / max(abs(earlier), 1.0)
+    # 只要整体有 ≥5% 变化就判趋势，不只看 window
+    if total_delta > 0.05 or window_delta > 0.05:
+        return "↗"
+    if total_delta < -0.05 or window_delta < -0.05:
+        return "↘"
+    return "➡"
+
+
+def _in_band(v, lo, hi) -> int:
+    """0 ok, 1 warn, 2 crit. NaN returns 0."""
+    if v is None or v != v: return 0  # NaN check
+    r = (hi - lo) / 2
+    if lo <= v <= hi: return 0
+    if lo - r <= v <= hi + r: return 1
+    return 2
+
+
+def assess_patient(patient_id: int, hours: int = 24) -> Dict:
+    from .icu import _get_conn
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    patient = conn.execute("SELECT * FROM patients WHERE id=?", (patient_id,)).fetchone()
+    if not patient:
+        raise ValueError("patient not found")
+    pid = patient["pid"]
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(hours, 1))).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # 最近 24h vitals
+    vitals = conn.execute(
+        "SELECT * FROM vitals WHERE patient_id=? AND ts>? ORDER BY ts ASC",
+        (patient_id, cutoff)
+    ).fetchall()
+    # 当前运行中的医嘱
+    orders = conn.execute(
+        "SELECT * FROM orders WHERE patient_id=? AND status='active' AND start_ts>? ORDER BY start_ts DESC",
+        (patient_id, cutoff)
+    ).fetchall()
+    # 最近检验
+    labs = conn.execute(
+        "SELECT * FROM lab_results WHERE patient_id=? AND result_ts>? ORDER BY result_ts DESC",
+        (patient_id, cutoff)
+    ).fetchall()
+    # IO 平衡
+    io_bal = io_balance(patient_id, hours)
+
+    # ---- 构建各系统状态 ----
+    def _get(param: str) -> List[float]:
+        return [v[param] for v in vitals if v[param] not in (None,)]
+
+    systems = {}
+    # 循环
+    ecg_hr = _get("ecg_hr")
+    ecg_val = ecg_hr[-1] if ecg_hr else None
+    ecg_b = _in_band(ecg_val, 60, 100)
+    systems["cardiac"] = {
+        "label": "循环系统",
+        "hr": ecg_val,
+        "pr_hr": (_get("pr_hr")[-1] if _get("pr_hr") else None),
+        "sbp": (_get("sbp")[-1] if _get("sbp") else None),
+        "dbp": (_get("dbp")[-1] if _get("dbp") else None),
+        "trend": _trend_arrow(ecg_hr),
+        "risk": ecg_b,
+        "note": None,
+    }
+    if ecg_val is not None and (ecg_val > 130 or ecg_val < 50):
+        systems["cardiac"]["note"] = "心率异常，建议心电图复查并评估心律失常"
+    elif ecg_val is not None and ecg_val > 100:
+        systems["cardiac"]["note"] = "心动过速，关注心衰/容量/疼痛"
+
+    # 呼吸
+    rr = _get("rr_bpm")
+    rr_val = rr[-1] if rr else None
+    systems["respiratory"] = {
+        "label": "呼吸系统",
+        "rr": rr_val,
+        "sp_o2": (_get("sp_o2")[-1] if _get("sp_o2") else None),
+        "trend": _trend_arrow(rr),
+        "risk": _in_band(rr_val, 12, 25),
+        "note": None,
+    }
+    sp = systems["respiratory"]["sp_o2"]
+    if sp is not None and sp < 90:
+        systems["respiratory"]["risk"] = max(systems["respiratory"]["risk"], 2)
+        systems["respiratory"]["note"] = "血氧 <90%，高流量吸氧，必要时无创/有创通气"
+    elif sp is not None and sp < 94:
+        systems["respiratory"]["note"] = "血氧偏低，调整吸氧流量"
+
+    # 神经
+    systems["neuro"] = {
+        "label": "神经系统",
+        "gcs": None, "trend": "➡", "risk": 0,
+        "note": "GCS 未接入，请人工评估",
+    }
+
+    # 内分泌 / 血糖
+    glu = _get("glucose")
+    glu_val = glu[-1] if glu else None
+    systems["endo"] = {
+        "label": "内分泌",
+        "glucose": glu_val,
+        "trend": _trend_arrow(glu),
+        "risk": _in_band(glu_val, 3.9, 6.1) if glu_val is not None else 0,
+        "note": None,
+    }
+    if glu_val is not None:
+        if glu_val < 3.0 or glu_val > 16.0:
+            systems["endo"]["note"] = "血糖危急，胰岛素/葡萄糖处理"
+        elif glu_val < 3.9 or glu_val > 10.0:
+            systems["endo"]["note"] = "血糖偏离，关注感染/应激"
+
+    # 肾功能
+    kreatinine_rows = [l for l in labs if l["item_code"] in ("Cr","KREA","CREATININE")]
+    systems["renal"] = {
+        "label": "肾功能",
+        "creatinine": kreatinine_rows[0]["value"] if kreatinine_rows else None,
+        "urine_hr_ml": (io_bal["out_ml"] / hours) if hours > 0 else 0,
+        "trend": "➡", "risk": 0, "note": None,
+    }
+    uhr = systems["renal"]["urine_hr_ml"]
+    # 只有有出入量记录时尿量预警才有意义
+    if hours >= 1 and io_bal["in_ml"] > 0 and uhr < 0.5 * 70:
+        systems["renal"]["risk"] = 1
+        systems["renal"]["note"] = "尿量偏少，关注容量/肾功能"
+    if kreatinine_rows:
+        v = kreatinine_rows[0]["value"]
+        if v > 133:
+            systems["renal"]["risk"] = 2
+            systems["renal"]["note"] = "肌酐显著升高，评估 AKI"
+        elif v > 88:
+            systems["renal"]["risk"] = 1
+            systems["renal"]["note"] = "肌酐偏高"
+
+    # 凝血 / 血常规
+    hgb_rows = [l for l in labs if l["item_code"] in ("HGB","Hb")]
+    plt_rows = [l for l in labs if l["item_code"] in ("PLT")]
+    systems["heme"] = {
+        "label": "血液/凝血",
+        "hgb": hgb_rows[0]["value"] if hgb_rows else None,
+        "plt": plt_rows[0]["value"] if plt_rows else None,
+        "trend": "➡", "risk": 0, "note": None,
+    }
+    if hgb_rows and hgb_rows[0]["value"] < 60:
+        systems["heme"]["risk"] = 2
+        systems["heme"]["note"] = "血红蛋白 <60g/L，评估输血"
+    if plt_rows and plt_rows[0]["value"] < 50:
+        systems["heme"]["risk"] = 2
+        systems["heme"]["note"] = "血小板 <50×10⁹/L，出血风险"
+
+    # 酸碱 / 血气
+    ph_rows = [l for l in labs if l["item_code"] in ("pH",)]
+    lact_rows = [l for l in labs if l["item_code"] in ("Lac","LACT")]
+    systems["acid_base"] = {
+        "label": "酸碱/代谢",
+        "ph": ph_rows[0]["value"] if ph_rows else None,
+        "lactate": lact_rows[0]["value"] if lact_rows else None,
+        "trend": "➡", "risk": 0, "note": None,
+    }
+    if ph_rows:
+        pv = ph_rows[0]["value"]
+        if pv < 7.2 or pv > 7.55:
+            systems["acid_base"]["risk"] = 2
+            systems["acid_base"]["note"] = "pH 危急，酸碱失衡"
+        elif pv < 7.35 or pv > 7.45:
+            systems["acid_base"]["risk"] = 1
+            systems["acid_base"]["note"] = "pH 偏离正常"
+    if lact_rows and lact_rows[0]["value"] > 4.0:
+        systems["acid_base"]["risk"] = 2
+        systems["acid_base"]["note"] = "乳酸 >4，组织灌注不足，启动 sepsis 处理"
+
+    # 出入量
+    systems["fluid"] = {
+        "label": "液体平衡",
+        "in_ml": io_bal["in_ml"],
+        "out_ml": io_bal["out_ml"],
+        "net_ml": io_bal["net_ml"],
+        "hours": hours,
+        "trend": "↗" if io_bal["net_ml"] > 200 else ("↘" if io_bal["net_ml"] < -200 else "➡"),
+        "risk": 0, "note": None,
+    }
+    if io_bal["net_ml"] > 300:
+        systems["fluid"]["risk"] = 1
+        systems["fluid"]["note"] = "正平衡显著，关注容量负荷/心衰/肺水肿"
+    elif io_bal["net_ml"] < -300:
+        systems["fluid"]["risk"] = 1
+        systems["fluid"]["note"] = "负平衡，关注容量不足/休克"
+
+    # ---- 总体风险等级 ----
+    risk_map = {"low": 0, "moderate": 1, "high": 2, "critical": 3}
+    max_risk = max(s["risk"] for s in systems.values())
+    crit_count = sum(1 for s in systems.values() if s["risk"] >= 2)
+    warn_count = sum(1 for s in systems.values() if s["risk"] >= 1)
+    if max_risk >= 2 and crit_count >= 2:
+        overall = "critical"
+    elif max_risk >= 2:
+        overall = "high"
+    elif warn_count >= 3:
+        overall = "moderate"
+    elif warn_count >= 1:
+        overall = "moderate"
+    else:
+        overall = "low"
+
+    # ---- 临床摘要（基于规则的自动生成） ----
+    lines = []
+    lines.append(f"{pid}（{patient['name']}，{patient['gender']}，{patient['age']}岁，床号 {patient['bed_no']}），"
+                 f"诊断「{patient['diagnosis']}」，入院 {patient['admit_ts']}。")
+    if systems["cardiac"]["hr"] is not None:
+        bp_txt = ""
+        if systems["cardiac"]["sbp"] is not None and systems["cardiac"]["dbp"] is not None:
+            bp_txt = f"，血压 {systems['cardiac']['sbp']:.0f}/{systems['cardiac']['dbp']:.0f} mmHg"
+        lines.append(f"循环：HR {systems['cardiac']['hr']:.0f} bpm{systems['cardiac']['trend']}{bp_txt}。")
+    if systems["respiratory"]["rr"] is not None:
+        spo_txt = ""
+        if systems["respiratory"]["sp_o2"] is not None:
+            spo_txt = f"，SpO2 {systems['respiratory']['sp_o2']:.0f}%"
+        lines.append(f"呼吸：RR {systems['respiratory']['rr']:.0f} rpm{systems['respiratory']['trend']}{spo_txt}。")
+    if systems["endo"]["glucose"] is not None:
+        lines.append(f"血糖 {systems['endo']['glucose']:.1f} mmol/L{systems['endo']['trend']}。")
+    if systems["renal"]["creatinine"] is not None:
+        lines.append(f"肌酐 {systems['renal']['creatinine']:.1f} μmol/L，尿量 {systems['renal']['urine_hr_ml']:.1f} ml/h。")
+    if systems["acid_base"]["ph"] is not None:
+        lines.append(f"血气 pH {systems['acid_base']['ph']:.2f}"
+                     + (f"，乳酸 {systems['acid_base']['lactate']:.1f}" if systems['acid_base']['lactate'] else ""))
+    lines.append(f"出入量（{hours}h）：入 {io_bal['in_ml']:.0f}ml，出 {io_bal['out_ml']:.0f}ml，净 {io_bal['net_ml']:+.0f}ml。")
+    active_drugs = [o["drug_name"] for o in orders if o["drug_name"]]
+    if active_drugs:
+        lines.append("运行中用药：" + "、".join(active_drugs) + "。")
+
+    concerns = []
+    actions = []
+    for name, s in systems.items():
+        if s["risk"] >= 1 and s["note"]:
+            concerns.append(f"{s['label']}：{s['note']}")
+    if concerns:
+        actions.append("关注：" + "；".join(concerns) + "。")
+    if overall in ("high","critical"):
+        actions.append("建议立即查房评估，必要时多学科会诊。")
+    if io_bal["net_ml"] > 500:
+        actions.append("考虑调整补液策略，复查心脏超声/BNP。")
+    if not actions:
+        actions.append("暂无紧急处理建议，持续监护。")
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {
+        "pid": pid,
+        "patient_name": patient["name"],
+        "assessed_at": now,
+        "hours": hours,
+        "overall_risk": overall,
+        "risk_score": risk_map[overall],
+        "crit_count": crit_count,
+        "warn_count": warn_count,
+        "systems": systems,
+        "vitals_count": len(vitals),
+        "orders_active": len(orders),
+        "labs_recent": len(labs),
+        "io_balance": io_bal,
+        "summary": " ".join(lines),
+        "actions": actions,
+        "disclaimer": "AI 评估基于规则引擎，仅供参考，不构成诊疗建议。临床决策须由主治医师负责。",
+    }
+
+
 # ---------- 备份 ----------
 BACKUP_DIR = os.environ.get("BACKUP_DIR", "data/backups")
 

@@ -21,7 +21,7 @@ import os
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Request
 from fastapi.responses import FileResponse
@@ -821,6 +821,52 @@ def get_lab(pid: str, start: Optional[str] = None, end: Optional[str] = None):
     if not p:
         raise HTTPException(404, "患者不存在")
     return {"results": icu.lab_results_for_patient(p["id"], start, end)}
+
+
+# ---------- 出入量 ----------
+@app.post("/api/patients/{pid}/io", dependencies=[Depends(require_admin)])
+def add_io(pid: str, body: Dict[str, Any]):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    if body.get("direction") not in ("in", "out"):
+        raise HTTPException(422, "direction 必须为 in 或 out")
+    if not body.get("kind"):
+        raise HTTPException(422, "kind 必填")
+    try:
+        rid = icu.add_io_log(p["id"], body["direction"], body["kind"],
+                              body.get("amount_ml"), body.get("amount_g"),
+                              body.get("sub_type"), body.get("route"),
+                              body.get("note"), body.get("source", "manual"),
+                              body.get("operator"), body.get("ts"), body.get("unique_id"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "io_id": rid}
+
+
+@app.get("/api/patients/{pid}/io")
+def list_io(pid: str, hours: int = 72):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return {"entries": icu.list_io_log(p["id"], hours)}
+
+
+@app.get("/api/patients/{pid}/io/balance")
+def io_balance(pid: str, hours: int = 24):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return icu.io_balance(p["id"], hours)
+
+
+# ---------- AI 评估 ----------
+@app.get("/api/patients/{pid}/assessment")
+def assess(pid: str, hours: int = 24):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return icu.assess_patient(p["id"], hours)
 
 
 # ---------- 备份 ----------
