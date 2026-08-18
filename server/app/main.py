@@ -876,6 +876,6 @@ def trigger_backup():
     return {"ok": True, **info}
 
 
-@app.get("/api/backup")
+@app.get("/api/backup", dependencies=[Depends(require_admin)])
 def list_backups(limit: int = Query(20, ge=1, le=100)):
     return {"backups": icu.list_backups(limit)}
