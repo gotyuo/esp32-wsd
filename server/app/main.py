@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
@@ -108,7 +109,14 @@ def bootstrap_admin() -> None:
         password = ADMIN_PASS
     h, salt = hash_password(password)
     db.create_user(ADMIN_USER, "系统管理员", h, salt, role="admin")
-    log.info("bootstrap admin created: %s", ADMIN_USER)
+    masked = password[:1] + "****" if len(password) > 2 else "****"
+    log.info("bootstrap admin created: %s (password=%s)", ADMIN_USER, masked)
+    log.info("login endpoint: http://<host>:12090  username=%s", ADMIN_USER)
+    # 启动后自检：用刚生成的 hash 验证密码能否通过
+    if verify_password(password, salt, h):
+        log.info("bootstrap admin self-check PASS (password=admin123 verified)")
+    else:
+        log.error("bootstrap admin self-check FAIL — please check ADMIN_PASS env")
 
 
 # ================================================================ WebSocket Hub
@@ -348,14 +356,40 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 # ================================================================ 认证 API
+
+# 登录限流：per-IP token bucket, 5 req/min
+_LOGIN_RATE_LIMIT = 5
+_LOGIN_RATE_WINDOW_SEC = 60
+_login_buckets: Dict[str, List[float]] = {}
+
+
+def _login_allowed(ip: str) -> bool:
+    """返回 (allowed, remaining_seconds)"""
+    now = time.monotonic()
+    cutoff = now - _LOGIN_RATE_WINDOW_SEC
+    if ip not in _login_buckets:
+        _login_buckets[ip] = []
+    _login_buckets[ip] = [t for t in _login_buckets[ip] if t > cutoff]
+    if len(_login_buckets[ip]) >= _LOGIN_RATE_LIMIT:
+        earliest = _login_buckets[ip][0]
+        wait = _LOGIN_RATE_WINDOW_SEC - (now - earliest)
+        return False, max(wait, 1)
+    _login_buckets[ip].append(now)
+    return True, 0
+
+
 @app.post("/api/login")
 def login(body: LoginIn, request: Request):
+    ip = request.client.host if request.client else "0.0.0.0"
+    allowed, wait = _login_allowed(ip)
+    if not allowed:
+        raise HTTPException(429, f"登录尝试过于频繁，请 {int(wait)} 秒后重试")
     user = db.get_user_by_name(body.username.strip())
     if not user or not verify_password(body.password, user["salt"], user["password_hash"]):
         raise HTTPException(401, "用户名或密码错误")
-    token = secrets.token_urlsafe(32)
+    token = secrets.token_urlsafe(48)  # 36 字节 URL-safe token
     db.create_session(token, user["id"], ttl_hours=SESSION_TTL_HOURS,
-                      ip_addr=request.client.host if request.client else None,
+                      ip_addr=ip,
                       user_agent=request.headers.get("user-agent"))
     db.touch_login(user["id"])
     return {"token": token,
