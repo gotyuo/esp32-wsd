@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
 import hashlib
+import json
 
 _lock = threading.Lock()
 
@@ -19,16 +20,23 @@ def _now() -> str:
 
 DB_PATH = os.environ.get("DB_PATH", "data/envmon.db")
 BACKUP_DIR = os.environ.get("BACKUP_DIR", os.path.join(os.path.dirname(DB_PATH), "backups"))
-_conn_global: Optional[sqlite3.Connection] = None
+
+
+
 
 
 def _get_conn() -> sqlite3.Connection:
-    global _conn_global
-    if _conn_global is None:
-        _conn_global = sqlite3.connect(DB_PATH)
-        _conn_global.row_factory = sqlite3.Row
-        _conn_global.execute("PRAGMA journal_mode=WAL")
-    return _conn_global
+    """线程局部连接（FastAPI 线程池要求每线程独立连接）。"""
+    import threading
+    local = getattr(_get_conn, "_local", None)
+    if local is None:
+        local = _get_conn._local = threading.local()
+    if getattr(local, "conn", None) is None:
+        local.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        local.conn.row_factory = sqlite3.Row
+        local.conn.execute("PRAGMA journal_mode=WAL")
+        local.conn.execute("PRAGMA busy_timeout=3000")
+    return local.conn
 
 
 @contextmanager
@@ -565,6 +573,183 @@ def assess_patient(patient_id: int, hours: int = 24) -> Dict:
         "actions": actions,
         "disclaimer": "AI 评估基于规则引擎，仅供参考，不构成诊疗建议。临床决策须由主治医师负责。",
     }
+
+
+# ---------- AI 设置 ----------
+_AI_DEFAULTS = {
+    "ai.enabled": "false",
+    "ai.provider": "openai",
+    "ai.base_url": "https://api.deepseek.com/v1",
+    "ai.model": "deepseek-v3.2",
+    "ai.api_key": "",
+    "ai.prompt": (
+        "你是一名重症医学临床辅助 AI。请根据以下患者的结构化监护数据，"
+        "给出一段简明、专业、面向临床医师的中文解读（5-8 句即可）。"
+        "重点指出主要风险点、需要关注的系统、可能的病因方向和下一步监测/处理建议。"
+        "请用中文短句，语气克制。"
+        "重要声明：以下内容仅供参考，不构成诊疗建议，临床决策须由主治医师负责。"
+    ),
+}
+
+
+def _ensure_settings_table():
+    from .icu import _get_conn
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS app_settings "
+            "(key TEXT PRIMARY KEY, value TEXT, updated_at TEXT NOT NULL)"
+        )
+        conn.commit()
+    except Exception:
+        pass
+
+
+def _store_value(raw):
+    """兼容字符串/数字/布尔/JSON 对象，统一存为字符串。"""
+    if raw is None:
+        return ""
+    if isinstance(raw, bool):
+        return "true" if raw else "false"
+    if isinstance(raw, (int, float)):
+        if isinstance(raw, float) and raw.is_integer():
+            return str(int(raw))
+        return str(raw)
+    if isinstance(raw, (list, dict)):
+        import json as _json
+        return _json.dumps(raw, ensure_ascii=False)
+    return str(raw)
+
+
+def _parse_value(key, raw):
+    """按 key 语义回退成 bool / 字符串。"""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return raw
+    s = str(raw).strip()
+    if not s:
+        return ""
+    if key == "ai.enabled":
+        return s.lower() in ("true", "1", "yes", "on")
+    if key.startswith("ai."):
+        try:
+            import json as _json
+            parsed = _json.loads(s)
+            return parsed if isinstance(parsed, (str, int, float, bool, list, dict)) else s
+        except Exception:
+            return s
+    return s
+
+
+def get_setting(key: str, default=None):
+    _ensure_settings_table()
+    row = fetchone("SELECT value FROM app_settings WHERE key=?", (key,))
+    if not row or row["value"] is None:
+        return _parse_value(key, _AI_DEFAULTS.get(key, default))
+    return _parse_value(key, row["value"])
+
+
+def get_setting_json(key: str, default=None):
+    v = get_setting(key, default)
+    if v is None or v == "":
+        return default
+    return v
+
+
+def get_setting_raw(key: str, default: str = "") -> str:
+    """返回 DB 中存储的原始字符串（不做 bool/JSON 反解析），供 API 透给前端。"""
+    _ensure_settings_table()
+    row = fetchone("SELECT value FROM app_settings WHERE key=?", (key,))
+    if not row or row["value"] is None:
+        return default or (_AI_DEFAULTS.get(key) or "")
+    return row["value"]
+
+
+def list_settings_raw() -> Dict[str, str]:
+    """原始字符串版（不解析），供 /api/settings 列表使用。"""
+    _ensure_settings_table()
+    cur = _get_conn().execute("SELECT key, value FROM app_settings ORDER BY key")
+    got = {r["key"]: r["value"] for r in cur.fetchall()}
+    out = dict(_AI_DEFAULTS)
+    out.update(got)
+    return out
+
+
+def set_setting(key: str, value) -> bool:
+    _ensure_settings_table()
+    run(
+        "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        (key, _store_value(value), _now()),
+    )
+    return True
+
+
+# ---------- 联网 AI 解读 ----------
+def assess_with_ai(patient_id: int, hours: int = 24) -> Dict:
+    """在原规则评估基础上，可选追加 LLM 解读。失败不抛错，回退纯规则。"""
+    try:
+        base = assess_patient(patient_id, hours)
+    except ValueError:
+        raise
+
+    enabled = get_setting("ai.enabled", False)
+    if not enabled:
+        return base
+
+    provider = str(get_setting("ai.provider", "openai") or "openai")
+    base_url = str(get_setting("ai.base_url", "https://api.deepseek.com/v1") or "https://api.deepseek.com/v1")
+    model = str(get_setting("ai.model", "deepseek-v3.2") or "deepseek-v3.2")
+    api_key = str(get_setting("ai.api_key", "") or "")
+    prompt = str(get_setting("ai.prompt") or _AI_DEFAULTS["ai.prompt"])
+
+    if not api_key:
+        return base
+
+    url = base_url.rstrip("/") + "/chat/completions"
+    if not url.startswith("http"):
+        return base
+
+    data_for_llm = {
+        "pid": base.get("pid"),
+        "patient_name": base.get("patient_name"),
+        "hours": hours,
+        "overall_risk": base.get("overall_risk"),
+        "systems": base.get("systems"),
+        "summary": base.get("summary"),
+        "actions": base.get("actions"),
+        "io_balance": base.get("io_balance"),
+    }
+
+    try:
+        import requests
+        resp = requests.post(
+            url,
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": json.dumps(data_for_llm, ensure_ascii=False)},
+                ],
+                "temperature": 0,
+            },
+            headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
+            timeout=(3, 25),
+        )
+        resp.raise_for_status()
+        js = resp.json()
+        choices = js.get("choices") or []
+        msg = choices[0].get("message", {}) if choices else {}
+        text = msg.get("content", "") if isinstance(msg, dict) else ""
+        if text:
+            base["ai_summary"] = text.strip()
+            base["ai_source"] = "llm:" + model
+            base["ai_provider"] = provider
+    except Exception as e:  # noqa: BLE001
+        base["ai_error"] = "AI 解读调用失败：" + str(e)
+        base["ai_source"] = "rule"
+    return base
 
 
 # ---------- 备份 ----------

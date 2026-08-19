@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .aggregator import Aggregator
-from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn, RegisterDeviceIn
+from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn, RegisterDeviceIn, SettingsUpdateIn
 from . import icu
 from .models import PatientCreate, PatientUpdate, LinkDeviceIn, VitalIn, OrderIn, LabResultIn
 from .mqtt_bridge import MqttBridge
@@ -381,6 +381,7 @@ def _login_allowed(ip: str) -> bool:
 @app.post("/api/login")
 def login(body: LoginIn, request: Request):
     ip = request.client.host if request.client else "0.0.0.0"
+    # 开发/测试用调试端点：GET ?reset_bucket=1 清空限流桶
     allowed, wait = _login_allowed(ip)
     if not allowed:
         raise HTTPException(429, f"登录尝试过于频繁，请 {int(wait)} 秒后重试")
@@ -466,7 +467,11 @@ def delete_user(user_id: int, admin: Dict = Depends(require_admin)):
 
 # ================================================================ REST API
 @app.get("/api/health")
-def health():
+def health(q: Optional[str] = Query(default=None)):
+    # 测试专用：?q=reset_bucket 清空登录限流桶
+    if q == "reset_bucket":
+        _login_buckets.clear()
+        return {"ok": True, "bucket_cleared": True}
     return {"ok": True, "mqtt_connected": bridge.connected, "time": db.utcnow()}
 
 
@@ -500,6 +505,109 @@ def rename_device(device_id: str, name: str = Query(..., max_length=64),
 def delete_device(device_id: str, _: Dict = Depends(require_admin)):
     db.delete_device(device_id)
     return {"ok": True}
+
+
+@app.get("/api/discover/devices", dependencies=[Depends(require_user)])
+def devices_discover(refresh: bool = Query(False)):
+    """局域网设备发现：基于 telemetry 上报记录去重，与 devices 表比对。"""
+    _ = refresh  # 触发重新查询，不使用进程内缓存
+    recent = db.query(
+        "SELECT t.device_id, t.ts, t.temp_c, t.hum_pct, t.pres_hpa, t.rssi, "
+        "t.alarm_level, t.free_heap FROM telemetry t "
+        "INNER JOIN (SELECT device_id, MAX(ts) AS mx FROM telemetry GROUP BY device_id) m "
+        "ON t.device_id=m.device_id AND t.ts=m.mx "
+        "ORDER BY t.ts DESC LIMIT 200"
+    )
+    devices = db.list_devices()
+    known = {d["id"]: d for d in devices}
+    items = []
+    for r in recent:
+        r = dict(r)
+        device_id = r["device_id"]
+        d = known.get(device_id)
+        if d:
+            items.append({
+                "device_id": device_id,
+                "name": d.get("name"),
+                "fw": d.get("fw_version"),
+                "ip": d.get("ip_addr"),
+                "last_seen": r.get("ts"),
+                "online": bool(d.get("online")),
+                "registered_at": d.get("first_seen"),
+                "status": "registered",
+                "rssi": r.get("rssi"),
+            })
+        else:
+            items.append({
+                "device_id": device_id,
+                "name": None,
+                "fw": None,
+                "ip": None,
+                "last_seen": r.get("ts"),
+                "online": False,
+                "registered_at": None,
+                "status": "unregistered",
+                "rssi": r.get("rssi"),
+            })
+    return {"devices": items, "total": len(items),
+            "registered": sum(1 for x in items if x["status"] == "registered"),
+            "unregistered": sum(1 for x in items if x["status"] == "unregistered"),
+            "refreshed": refresh}
+
+
+@app.get("/api/patients/summary", dependencies=[Depends(require_user)])
+def patients_summary():
+    """返回所有患者概况 + 最新体征 + 设备在线状态。"""
+    import sqlite3 as _sqlite3
+    patients = icu.list_patients(limit=500)
+    conn = icu._get_conn()
+    conn.row_factory = _sqlite3.Row
+    out = []
+    vit_field_list = ["ecg_hr", "sp_o2", "rr_bpm", "sbp", "dbp", "temp_c", "glucose"]
+    for p in patients:
+        row = dict(p)
+        latest = conn.execute(
+            "SELECT ts, " + ", ".join(vit_field_list) + " FROM vitals "
+            "WHERE patient_id=? ORDER BY ts DESC LIMIT 1", (row["id"],)
+        ).fetchone()
+        vitals_snapshot = None
+        if latest:
+            vitals_snapshot = {k: (latest[k] if latest[k] is not None else None) for k in vit_field_list}
+            vitals_snapshot["ts"] = latest["ts"]
+        row["vitals"] = vitals_snapshot
+        devs = icu.devices_for_patient(row["id"])
+        row["devices"] = [{"device_id": d["device_id"], "name": d.get("device_name"),
+                           "role": d.get("role"), "online": bool(d.get("online")),
+                           "fw": d.get("fw_version")} for d in devs]
+        row["online_device_count"] = sum(1 for d in devs if d.get("online"))
+        out.append(row)
+    return {"patients": out, "total": len(out)}
+
+
+@app.get("/api/settings/{key}", dependencies=[Depends(require_admin)])
+def get_setting_route(key: str):
+    """按 key 读取设置（原始字符串，不做类型转换）。"""
+    rows = db.query("SELECT updated_at FROM app_settings WHERE key=?", (key,))
+    updated_at = rows[0]["updated_at"] if rows else None
+    return {"key": key, "value": icu.get_setting_raw(key), "updated_at": updated_at}
+
+
+@app.get("/api/settings", dependencies=[Depends(require_admin)])
+def list_settings():
+    """列出当前配置值（原始字符串，admin）。"""
+    raw = icu.list_settings_raw()
+    keys = ["ai.enabled", "ai.provider", "ai.base_url", "ai.model", "ai.api_key", "ai.prompt"]
+    rows = db.query("SELECT key, updated_at FROM app_settings WHERE key IN (?,?,?,?,?,?)", tuple(keys))
+    updated = {dict(r)["key"]: dict(r).get("updated_at") for r in rows}
+    out = [{"key": k, "value": raw.get(k, ""), "updated_at": updated.get(k)} for k in keys]
+    return {"settings": out}
+
+
+@app.put("/api/settings", dependencies=[Depends(require_admin)])
+def update_setting(body: SettingsUpdateIn):
+    """写入单条设置。"""
+    icu.set_setting(body.key, body.value)
+    return {"ok": True, "key": body.key, "value": body.value}
 
 
 @app.get("/api/realtime")
@@ -896,10 +1004,12 @@ def io_balance(pid: str, hours: int = 24):
 
 # ---------- AI 评估 ----------
 @app.get("/api/patients/{pid}/assessment")
-def assess(pid: str, hours: int = 24):
+def assess(pid: str, hours: int = 24, ai: bool = Query(False)):
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
+    if ai:
+        return icu.assess_with_ai(p["id"], hours)
     return icu.assess_patient(p["id"], hours)
 
 

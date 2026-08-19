@@ -6,3 +6,4 @@ uvicorn[standard]==0.29.0
 paho-mqtt==1.6.1
 pydantic==2.7.4
 python-multipart>=0.0.6
+requests>=2.31.0

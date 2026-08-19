@@ -165,6 +165,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <button class="secondary menuBtn" onclick="toggleMenu(event)">👤 <span id="userName">-</span> ▾</button>
       <div class="menuDrop hidden" id="userMenu">
         <div onclick="showUsers()" id="mUsers">👥 用户管理</div>
+        <div onclick="showSettings()" id="mSettings" class="hidden">⚙ 系统设置</div>
         <div onclick="showPwd()">🔑 修改密码</div>
         <div onclick="toggleSound()" id="mSound">🔔 报警声音：开</div>
         <div onclick="doLogout()">🚪 退出登录</div>
@@ -180,7 +181,11 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <select id="devSel" onchange="switchDevice()"></select>
       <span class="badge"><span class="dot" id="devDot"></span>&nbsp;<span id="devLabel">-</span></span>
       <span class="badge" id="lastSeen">最后上报 -</span>
+      <button class="secondary small" onclick="dashboardSetMode('single')">单床位</button>
+      <button class="secondary small active" id="dbGridBtn" onclick="dashboardSetMode('grid')">多人网格</button>
+      <button class="secondary small" onclick="loadDashboardGrid()">刷新网格</button>
     </div>
+    <div id="view-dashboard-single">
     <div class="vitals">
       <div class="vitalcard t" id="vitT"><div class="label">🌡 温度 / SP.T</div><div class="value" id="vTemp">--</div><span class="unit">℃</span><div class="sub" id="sTemp">正常区间 --</div></div>
       <div class="vitalcard h" id="vitH"><div class="label">💧 环境湿度</div><div class="value" id="vHum">--</div><span class="unit">%RH</span><div class="sub" id="sHum">正常区间 --</div></div>
@@ -201,12 +206,16 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
         <div class="canvas-row"><span class="axis-label">HUM %</span><canvas id="chartH"></canvas></div>
         <div class="canvas-row"><span class="axis-label">PRESS hPa</span><canvas id="chartP"></canvas></div>
       </div>
-      <div class="legend">
-        <span><span class="sw" style="background:var(--orange)"></span>SP.T 温度</span>
-        <span><span class="sw" style="background:var(--cyan)"></span>湿度</span>
-        <span><span class="sw" style="background:var(--blue)"></span>气压</span>
-        <span><span class="sw" style="background:var(--red)"></span>报警区间</span>
-      </div>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--orange)"></span>SP.T 温度</span>
+          <span><span class="sw" style="background:var(--cyan)"></span>湿度</span>
+          <span><span class="sw" style="background:var(--blue)"></span>气压</span>
+          <span><span class="sw" style="background:var(--red)"></span>报警区间</span>
+        </div>
+    </div>
+    </div>
+    <div id="view-dashboard-grid" class="hidden">
+      <div id="patientGrid"><div class="empty">加载中…</div></div>
     </div>
     <div class="section">
       <h2>⚙ 监护参数配置 <span class="badge" id="cfgDev">-</span></h2>
@@ -263,6 +272,41 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 #view-monitor .io-bar .in{background:#4fc3f7}
 #view-monitor .io-bar .out{background:#ef5350}
 #view-monitor .io-row{display:flex;justify-content:space-between;font-size:11px;color:var(--sub);padding:1px 0}
+#view-monitor .ai-block{margin-top:8px;background:rgba(124,77,255,.08);border:1px solid rgba(124,77,255,.35);border-radius:5px;overflow:hidden}
+#view-monitor .ai-block.details{border-left:3px solid var(--purple)}
+#view-monitor .ai-block.error{background:rgba(255,171,0,.08);border-color:rgba(255,171,0,.4)}
+#view-monitor .ai-block summary,#view-monitor .ai-block .ai-head{padding:6px 10px;font-size:12px;font-weight:600;color:var(--purple);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:var(--font)}
+#view-monitor .ai-block.error .ai-head{color:var(--orange)}
+#view-monitor .ai-body{padding:6px 10px 8px 10px;font-size:12px;line-height:1.6;white-space:pre-wrap;color:var(--ink);border-top:1px dashed var(--line)}
+#view-monitor .ai-body.error{color:var(--orange);white-space:normal}
+#view-monitor .ai-src{font-size:10px;color:var(--sub);font-family:Consolas,monospace;font-weight:400}
+
+/* 患者多人网格 */
+#patientGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.patient-card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;transition:transform .12s,border-color .2s}
+.patient-card:hover{border-color:var(--blue);transform:translateY(-2px)}
+.patient-card.has-device{border-left:3px solid var(--green)}
+.patient-card .pc-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line);gap:8px;flex-wrap:wrap}
+.patient-card .pc-id{font-size:13px;font-weight:700;color:var(--blue);font-family:Consolas,monospace}
+.patient-card .pc-name{font-size:12px;color:var(--txt);font-weight:600;margin-left:6px}
+.patient-card .pc-bed{font-size:11px;color:var(--sub);font-family:Consolas,monospace}
+.patient-card .pc-tag{font-size:10px;color:var(--sub);text-align:right;max-width:140px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.patient-card .pc-row{display:flex;justify-content:space-between;font-size:12px;padding:1px 0}
+.patient-card .pc-row .k{color:var(--sub);font-size:11px}
+.patient-card .pc-row .v{color:var(--txt);font-family:Consolas,monospace;font-weight:600}
+.patient-card .pc-row .v.warn{color:var(--orange)}
+.patient-card .pc-row .v.crit{color:var(--red);font-weight:700}
+.patient-card .pc-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:11px}
+.patient-card .pc-devs{color:var(--sub)}
+.patient-card .pc-devs .ok{color:var(--green);font-weight:600}
+
+/* 设置/发现面板 */
+.setform label{font-size:11px;color:var(--sub);display:block;margin:10px 0 4px}
+.setform input[type=text],.setform input[type=password],.setform select,.setform textarea{width:100%;padding:7px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;font-family:var(--font)}
+.setform .row{display:flex;gap:8px;align-items:center}
+.setform .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.setform .row3{display:grid;grid-template-columns:1.6fr 1fr;gap:10px}
+.setform .row4{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 </style>
 <div class="m-header">
   <select id="mPid" onchange="refreshMonitor()"></select>
@@ -331,6 +375,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <h2>🖥 设备管理 / DEVICE MANAGEMENT
         <div class="actions" style="margin-top:0">
           <button onclick="showAddDevice()">+ 注册设备</button>
+          <button class="secondary small" onclick="showDeviceDiscover()">📡 局域网发现</button>
           <button class="secondary small" onclick="loadDevices(true)">刷新</button>
           <span class="hint" id="devCount">0 台</span>
         </div>
@@ -358,6 +403,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 "use strict";
 var TOKEN=localStorage.getItem("envmon_token")||"";
 var ME=null, DEV=null, CURRENT_VIEW="dashboard", RANGE=24, HIST=[], ws=null, SOUND=true, DEVICES=[];
+var DASHBOARD_MODE="grid", AI_ASSESS=false, AI_SETTINGS={};
 function $(id){return document.getElementById(id)}
 function fmt(v,d){return (v==null||isNaN(v))?"--":Number(v).toFixed(d==null?1:d)}
 function fmtTime(s){if(!s)return"--";return s.replace("T"," ").replace("Z","").slice(0,19)}
@@ -367,15 +413,54 @@ function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"B
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
   ["dashboard","monitor","patients","devices","alarms"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard")loadReal();if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="alarms")loadAlarms();}
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="alarms")loadAlarms();}
+
+function dashboardSetMode(mode){
+  DASHBOARD_MODE=mode;
+  if($("dbGridBtn")){$("dbGridBtn").classList.toggle("active",mode==="grid");}
+  $("view-dashboard-single").classList.toggle("hidden",mode!=="single");
+  $("view-dashboard-grid").classList.toggle("hidden",mode!=="grid");
+  if(mode==="grid")loadDashboardGrid();
+}
+
+function loadDashboardGrid(){
+  var el=$("patientGrid")||$("dashGrid")||document.createElement("div");
+  api("/api/patients/summary").then(function(d){
+    var ps=d.patients||[];
+    if(!ps.length){el.innerHTML='<div class="empty">暂无患者数据，可在患者管理创建患者并录入体征</div>';return;}
+    el.innerHTML=ps.map(function(p){
+      var v=p.vitals||{};
+      function val(k){return v[k]==null?"--":Number(v[k]).toFixed(1);}
+      var onlineDev=(p.online_device_count||0)>0;
+      var devTags=(p.devices||[]).map(function(d){return '<span class="small">'+esc(d.device_name||d.device_id)+(d.online?' 🟢':' 🔴')+'</span>';}).join('')||'<span class="small">未关联</span>';
+      var cardCls='patient-card'+(onlineDev?' has-device':'');
+      var tagHtml='';
+      if(p.diagnosis||p.doctor){tagHtml='<span class="pc-tag">'+esc(p.diagnosis||'')+(p.diagnosis&&p.doctor?' · ':'')+(p.doctor?'主管 '+esc(p.doctor):'')+'</span>';}
+      var card='<div class="'+cardCls+'">'
+      card+='<div class="pc-head"><span class="pc-id">'+esc(p.pid)+' <span class="pc-name">'+esc(p.name||'')+'</span> <span class="pc-bed">'+(p.bed_no?'床 '+esc(p.bed_no):'--')+'</span></span>'+tagHtml+'</div>';
+      card+='<div class="pc-row"><span class="k">HR / ECG</span><span class="v">'+val("ecg_hr")+'</span></div>';
+      card+='<div class="pc-row"><span class="k">SpO2</span><span class="v">'+val("sp_o2")+'%</span></div>';
+      card+='<div class="pc-row"><span class="k">RR</span><span class="v">'+val("rr_bpm")+' rpm</span></div>';
+      card+='<div class="pc-row"><span class="k">SBP / DBP</span><span class="v">'+val("sbp")+'/'+val("dbp")+' mmHg</span></div>';
+      card+='<div class="pc-row"><span class="k">TEMP</span><span class="v">'+val("temp_c")+' ℃</span></div>';
+      card+='<div class="pc-row"><span class="k">Glu</span><span class="v">'+val("glucose")+' mmol/L</span></div>';
+      card+='<div class="pc-foot"><span class="pc-devs">设备 <span class="ok">'+(p.online_device_count||0)+'</span>/'+((p.devices||[]).length)+'</span><button class="secondary small" onclick="event.stopPropagation();jumpToMonitor(\''+esc(p.pid)+'\')">进入监护</button></div></div>';
+      return card;
+    }).join("");
+  }).catch(function(){el.innerHTML='<div class="empty">加载失败</div>';});
+}
+
+function jumpToMonitor(pid){MONITOR_PID=pid;switchView("monitor");setTimeout(function(){if($("mPid")){$("mPid").value=pid;refreshMonitor();}},50);}
 
 // 顶栏时钟
 setInterval(function(){var d=new Date();$("timeNow").textContent=d.toISOString().replace("T"," ").slice(0,19)+" (UTC)";},1000);
 
 function showLogin(){TOKEN="";localStorage.removeItem("envmon_token");$("mainView").classList.add("hidden");$("loginView").classList.remove("hidden");$("lgUser").focus();}
 function doLogin(ev){ev.preventDefault();var u=$("lgUser").value.trim(),p=$("lgPass").value;
-  fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})}).then(function(r){if(!r.ok){$("loginErr").textContent="用户名或密码错误";throw new Error("fail");}return r.json();}).then(function(d){TOKEN=d.token;localStorage.setItem("envmon_token",TOKEN);ME=d.user;$("loginErr").textContent="";enterApp();}).catch(function(){});}
-function enterApp(){$("loginView").classList.add("hidden");$("mainView").classList.remove("hidden");$("userName").textContent=(ME&&(ME.display_name||ME.username))||"-";$("mSound").textContent="🔔 报警声音："+(ME&&ME.sound_alarm?"开":"关");SOUND=!(ME&&ME.sound_alarm===0);loadAll();loadUsers();loadPatients();connectWS();}
+  var btn=ev.submitter||ev.target.querySelector("button[type=submit]");
+  var btnText=btn?btn.textContent:"";btn&& (btn.disabled=true);$("loginErr").textContent="";
+  fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})}).then(function(r){if(!r.ok){if(r.status===429){return r.text().then(function(t){throw new Error(t||"登录尝试过于频繁，请稍后重试");});}if(r.status===401||r.status===403){throw new Error("用户名或密码错误");}return r.text().then(function(t){throw new Error("登录失败("+r.status+")"+(t?": "+t:""));});}return r.json();}).then(function(d){TOKEN=d.token;localStorage.setItem("envmon_token",TOKEN);ME=d.user;$("loginErr").textContent="";if(btn){btn.disabled=false;btn.textContent=btnText;}enterApp();}).catch(function(e){if(btn){btn.disabled=false;btn.textContent=btnText;}$("loginErr").textContent=String(e&&e.message?e.message:"网络错误：后端未响应，请确认服务已启动后再试");}).finally(function(){});}
+function enterApp(){$("loginView").classList.add("hidden");$("mainView").classList.remove("hidden");$("userName").textContent=(ME&&(ME.display_name||ME.username))||"-";$("mSound").textContent="🔔 报警声音："+(ME&&ME.sound_alarm?"开":"关");SOUND=!(ME&&ME.sound_alarm===0);loadSettings();loadSettingsForMenu();loadAll();loadUsers();loadPatients();connectWS();}
 function doLogout(){api("/api/logout",{method:"POST"}).then(function(){showLogin();}).catch(function(){showLogin();});}
 function toggleMenu(ev){ev.stopPropagation();$("userMenu").classList.toggle("hidden");}
 document.addEventListener("click",function(){var m=$("userMenu");if(m&&!m.classList.contains("hidden"))m.classList.add("hidden");});
@@ -436,7 +521,7 @@ function renderDeviceGrid(devs){var g=$("devGrid");if(!devs.length){g.innerHTML=
   var alarmState=(latest&&latest.alarm_level>=2?"alarm":latest&&latest.alarm_level==1?"warn":"");
   return "<div class='devcard "+alarmState+"'><div class='head'><span class='id'>"+esc(x.id)+nameRow+"</span>"+statusIcon+"</div>"+
     "<div class='meta'><div class='k'>固件</div><div class='v'>"+esc(x.fw_version||"-")+"</div>"+
-    "<div class='k'>IP</div><div class='v">'+esc(x.ip_addr||"-")+"</div>"+
+    "<div class='k'>IP</div><div class='v'>"+esc(x.ip_addr||"-")+"</div>"+
     "<div class='k'>首次上线</div><div class='v'>"+fmtTime(x.first_seen)+"</div>"+
     "<div class='k'>最后上报</div><div class='v'>"+fmtTime(x.last_seen)+"</div></div>"+
     "<div class='latest'>"+vals+"</div>"+
@@ -573,18 +658,18 @@ function savePatient(pid){
   };
   if(pid){
     api("/api/patients/"+pid,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
-      toast("患者已更新");closeModal();loadPatients();});
+      toast("患者已更新");closeModal();loadPatients();loadDashboardGrid();});
   }else{
     body.pid=$("pPid").value.trim();
     if(!body.pid){alert("患者编号必填");return;}
     api("/api/patients",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
-      toast("患者已创建");closeModal();loadPatients();});
+      toast("患者已创建");closeModal();loadPatients();loadDashboardGrid();});
   }
 }
 
 function delPatient(pid){
   if(!confirm("确定删除患者 "+pid+"？（级联删除关联体征/医嘱/检验）"))return;
-  api("/api/patients/"+pid,{method:"DELETE"}).then(function(){toast("患者已删除");loadPatients();});
+  api("/api/patients/"+pid,{method:"DELETE"}).then(function(){toast("患者已删除");loadPatients();loadDashboardGrid();});
 }
 
 function linkDev(pid){
@@ -855,34 +940,6 @@ function submitIo(pid){
   }).catch(function(){});
 }
 
-function assessPatient(){
-  var pid=MONITOR_PID;if(!pid)return;
-  $("mAssessBtn").textContent="⏳ AI 评估中…";
-  api("/api/patients/"+pid+"/assessment?hours=24").then(function(d){
-    $("mAssessPanel").style.display="block";
-    $("mAssessTime").textContent="更新于 "+fmtTime(d.assessed_at)+" · "+d.vitals_count+"条体征 · "+d.orders_active+"运行医嘱 · "+d.labs_recent+"检验";
-    var riskMap={low:"🟢 低风险",moderate:"🟡 中风险",high:"🟠 高风险",critical:"🔴 危急"};
-    $("mRisk").textContent=riskMap[d.overall_risk]||d.overall_risk;
-    $("mRisk").className="a-risk risk-"+d.overall_risk;
-    var sysRows=Object.values(d.systems).map(function(s){
-      var riskCls=s.risk>=2?"badge-crit":(s.risk===1?"badge-warn":"badge-ok");
-      var arrow=s.trend||"➡";
-      var icon=s.label==="循环系统"?"💓":s.label==="呼吸系统"?"🫁":s.label==="神经系统"?"🧠":s.label==="内分泌"?"💉":s.label==="肾功能"?"🫘":s.label==="血液/凝血"?"🩸":s.label==="酸碱/代谢"?"⚗️":"💧";
-      var note=s.note?"<div class='small'>"+esc(s.note)+"</div>":"";
-      return "<div class='system-row'><span>"+icon+" <b>"+esc(s.label)+"</b> "+arrow+"</span>"
-        +"<span class='"+riskCls+"'>LV"+s.risk+"</span></div>"+note;
-    }).join("");
-    $("mSystems").innerHTML=sysRows;
-    $("mSummary").textContent=d.summary||"";
-    $("mActions").innerHTML="<strong>⚡ 建议：</strong>"+(d.actions||[]).map(function(a){return "• "+a;}).join("<br>");
-    $("mActions").className="a-actions"+(d.overall_risk==="critical"||d.overall_risk==="high"?" crit":"");
-    $("mDisclaimer").textContent=d.disclaimer||"AI 评估仅供参考，不构成诊疗建议。";
-    $("mAssessBtn").textContent="🤖 AI 评估";
-  }).catch(function(){
-    $("mAssessBtn").textContent="🤖 AI 评估";
-  });
-}
-
 // WS 消息：新体征到达时刷新 monitor（如果当前在 monitor view）
 var _orig_onmessage=null;
 function _monitorHook(){
@@ -899,6 +956,132 @@ function _monitorHook(){
       }catch(e){}
     };
   }
+}
+
+// ==================== 系统设置（AI） ====================
+function loadSettings(){
+  api("/api/settings").then(function(d){
+    var ss=d.settings||[];AI_SETTINGS={};
+    ss.forEach(function(x){AI_SETTINGS[x.key]=x.value;});
+    AI_ASSESS=(AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]===true);
+  }).catch(function(){});
+}
+function loadSettingsForMenu(){
+  if(!ME) return;
+  if(ME.role==="admin") $("mSettings").classList.remove("hidden");
+  else $("mSettings").classList.add("hidden");
+}
+function showSettings(){
+  api("/api/settings").then(function(d){
+    var ss=d.settings||[];
+    AI_SETTINGS={};
+    ss.forEach(function(x){AI_SETTINGS[x.key]=x.value;});
+    $("modalInner").innerHTML=
+      "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>SYSTEM SETTINGS · AI</h2>"+
+      "<div class='kv'>"+
+        "<label>AI 开关</label><div class='switchrow'><input type='checkbox' id='sAIEn' "+(AI_SETTINGS["ai.enabled"]==="true"?"checked":"")+" onchange='toggleAiKey()'><span>启用联网 AI 解读（需要 API Key）</span></div>"+
+        "<label>Provider</label><select id='sAIProv'><option value='openai' "+(AI_SETTINGS["ai.provider"]==="openai"?"selected":"")+">openai / 兼容</option><option value='deepseek' "+(AI_SETTINGS["ai.provider"]==="deepseek"?"selected":"")+">deepseek</option><option value='other' "+(AI_SETTINGS["ai.provider"]==="other"?"selected":"")+">other</option></select>"+
+        "<label>Base URL</label><input id='sAIBase' value='"+esc(AI_SETTINGS["ai.base_url"]||"")+"' placeholder='https://api.deepseek.com/v1' maxlength='4096'>"+
+        "<label>Model</label><input id='sAIMdl' value='"+esc(AI_SETTINGS["ai.model"]||"")+"' placeholder='deepseek-v3.2' maxlength='200'>"+
+        "<label>API Key</label><input id='sAIKey' type='password' value='"+esc(AI_SETTINGS["ai.api_key"]||"")+"' placeholder='Bearer token' maxlength='4096'>"+
+        "<label>System Prompt</label><textarea id='sAIPrompt' style='width:100%;height:110px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px' maxlength='4096'>"+esc(AI_SETTINGS["ai.prompt"]||"")+"</textarea>"+
+      "</div>"+
+      "<div style='font-size:11px;color:var(--dim);margin:8px 0 12px'>AI 解读仅用于临床辅助，仅供参考，不构成诊疗建议。失败时自动回退纯规则评估。</div>"+
+      "<div class='actions'><button onclick='saveSettings()'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+    toggleAiKey();
+    $("modalBox").classList.remove("hidden");
+  }).catch(function(){});
+}
+function toggleAiKey(){
+  var en=$("sAIEn")&&$("sAIEn").checked;
+  $("sAIBase").disabled=!en;$("sAIMdl").disabled=!en;$("sAIKey").disabled=!en;$("sAIPrompt").disabled=!en;
+}
+function saveSettings(){
+  var keys=[
+    ["ai.enabled",$("sAIEn").checked?"true":"false"],
+    ["ai.provider",$("sAIProv").value],
+    ["ai.base_url",$("sAIBase").value.trim()],
+    ["ai.model",$("sAIMdl").value.trim()],
+    ["ai.api_key",$("sAIKey").value],
+    ["ai.prompt",$("sAIPrompt").value],
+  ];
+  var promises=keys.map(function(kv){return api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({key:kv[0],value:kv[1]})});});
+  Promise.all(promises).then(function(){toast("AI 设置已保存");closeModal();loadSettingsForMenu();}).catch(function(){});
+}
+
+// ==================== 设备发现 ====================
+function showDeviceDiscover(){
+  api("/api/discover/devices?refresh=1").then(function(d){
+    var devs=d.devices||[];
+    var html="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>LAN DISCOVERY · 局域网发现</h2>";
+    html+="<div style='font-size:11px;color:var(--dim);margin-bottom:10px'>已注册 "+d.registered+" 台，未注册 "+d.unregistered+" 台。基于最近 telemetry 上报记录，去重列表。</div>";
+    if(!devs.length){html+="<div class='empty'>暂无发现设备</div>";}
+    else{
+      html+="<table><thead><tr><th>设备 ID</th><th>名称</th><th>固件/IP</th><th>最后上报</th><th>状态</th><th>操作</th></tr></thead><tbody>";
+      devs.forEach(function(x){
+        var st=x.status==="registered"?'<span class="ok">已注册</span>':'<span class="bad">未注册</span>';
+        var online = x.online?' <span class="ok">在线</span>':' <span class="bad">离线</span>';
+        var actionBtn;
+        if(x.status==="unregistered"){
+          actionBtn="<button class='success small' onclick='registerDiscovered(\""+esc(x.device_id)+"\")'>注册</button>";
+        }else{
+          actionBtn="<span class='small'>"+st+online+"</span>";
+        }
+        html+="<tr><td>"+esc(x.device_id)+"</td><td>"+esc(x.name||"-")+"</td><td>"+esc(x.fw||"-")+" / "+esc(x.ip||"-")+"</td><td>"+fmtTime(x.last_seen)+"</td><td>"+st+"</td><td>"+actionBtn+"</td></tr>";
+      });
+      html+="</tbody></table>";
+    }
+    html+="<div class='actions'><button onclick='showDeviceDiscover()'>📡 重新扫描</button><button class='secondary' onclick='closeModal()'>关闭</button></div>";
+    $("modalInner").innerHTML=html;
+    $("modalBox").classList.remove("hidden");
+  }).catch(function(){});
+}
+function registerDiscovered(id){
+  api("/api/devices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device_id:id,name:""})}).then(function(){
+    toast("已注册设备 "+id);loadDevices();showDeviceDiscover();}).catch(function(){});
+}
+
+// ==================== AI 评估 ====================
+function assessPatient(){
+  var pid=MONITOR_PID;if(!pid)return;
+  // 从设置同步 AI 开关（默认关），按钮切换与设置页一致
+  if(AI_SETTINGS["ai.enabled"]==="true"||AI_ASSESS){AI_ASSESS=true;}
+  $("mAssessBtn").textContent="⏳ AI 评估中…";
+  var url="/api/patients/"+pid+"/assessment?hours=24";
+  if(AI_ASSESS)url=url+"&ai=true";
+  api(url).then(function(d){
+    $("mAssessPanel").style.display="block";
+    $("mAssessTime").textContent="更新于 "+fmtTime(d.assessed_at)+" · "+(d.vitals_count||0)+"条体征 · "+(d.orders_active||0)+"运行医嘱 · "+(d.labs_recent||0)+"检验";
+    var riskMap={low:"🟢 低风险",moderate:"🟡 中风险",high:"🟠 高风险",critical:"🔴 危急"};
+    $("mRisk").textContent=riskMap[d.overall_risk]||d.overall_risk;
+    $("mRisk").className="a-risk risk-"+d.overall_risk;
+    var sysRows=Object.values(d.systems).map(function(s){
+      var riskCls=s.risk>=2?"badge-crit":(s.risk===1?"badge-warn":"badge-ok");
+      var arrow=s.trend||"➡";
+      var icon=s.label==="循环系统"?"💓":s.label==="呼吸系统"?"🫁":s.label==="神经系统"?"🧠":s.label==="内分泌"?"💉":s.label==="肾功能"?"🫘":s.label==="血液/凝血"?"🩸":s.label==="酸碱/代谢"?"⚗️":"💧";
+      var note=s.note?"<div class='small'>"+esc(s.note)+"</div>":"";
+      return "<div class='system-row'><span>"+icon+" <b>"+esc(s.label)+"</b> "+arrow+"</span>"
+        +"<span class='"+riskCls+"'>LV"+s.risk+"</span></div>"+note;
+    }).join("");
+    $("mSystems").innerHTML=sysRows;
+    var aiHtml="";
+    if(d.ai_summary){
+      var source=d.ai_source||("llm:"+AI_SETTINGS["ai.model"]);
+      aiHtml="<div class='a-actions' style='background:rgba(124,77,255,.08);border-left-color:var(--purple);margin-top:8px'>";
+      aiHtml+="<details open><summary style='cursor:pointer;font-weight:700;color:#b388ff'>🤖 AI 解读 · "+esc(source)+"</summary>";
+      aiHtml+="<div class='a-summary' style='margin-top:6px'>"+esc(d.ai_summary)+"</div></details></div>";
+    }
+    if(d.ai_error){
+      aiHtml+="<div class='a-actions' style='margin-top:6px'><strong>⚠ AI 解读暂不可用：</strong>"+esc(d.ai_error)+"（已自动回退纯规则评估）</div>";
+    }
+    $("mSummary").textContent=d.summary||"";
+    $("mActions").innerHTML="<strong>⚡ 建议：</strong>"+(d.actions||[]).map(function(a){return "• "+a;}).join("<br>")+(aiHtml?"<div style='margin-top:6px'>"+aiHtml+"</div>":"");
+    $("mActions").className="a-actions"+(d.overall_risk==="critical"||d.overall_risk==="high"?" crit":"");
+    $("mDisclaimer").textContent=d.disclaimer||"AI 评估仅供参考，不构成诊疗建议。";
+    $("mAssessBtn").textContent="🤖 AI 评估";
+  }).catch(function(){
+    $("mAssessBtn").textContent="🤖 AI 评估";
+  });
 }
 </script>
 </body>

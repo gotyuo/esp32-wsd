@@ -156,3 +156,9 @@ class LabResultIn(BaseModel):
     ref_max: Optional[float] = None
     result_ts: str = Field("", max_length=32)
     critical: bool = False
+
+
+# ================================================================ 系统设置
+class SettingsUpdateIn(BaseModel):
+    key: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    value: str = Field("", max_length=4096)
