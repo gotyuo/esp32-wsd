@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>EnvMon 监护大屏</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:-apple-system,"Helvetica Neue","Microsoft YaHei",sans-serif;background:#070b16;color:#e8eefc;overflow:hidden}
+#app{height:100vmin;width:100vmin;display:flex;flex-direction:column;padding:1.4vmin}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2vmin;flex-shrink:0}
+h1{font-size:clamp(20px,2.4vmin,38px);font-weight:600;letter-spacing:1px}
+.meta{font-size:clamp(11px,1.1vmin,16px);color:#8a99c4}
+.meta .live{color:#21d07a}
+.meta .live b{display:inline-block;width:.6vmin;height:.6vmin;border-radius:50%;background:#21d07a;margin-right:6px;vertical-align:middle;animation:bl 1.4s infinite}
+@keyframes bl{50%{opacity:.3}}
+#grid{flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(max(240px,22vmin),1fr));grid-auto-rows:1fr;gap:1.1vmin;min-height:0}
+.card{background:linear-gradient(155deg,#101832,#0c1224);border:1px solid #1c2748;border-radius:1.1vmin;padding:1.1vmin;display:flex;flex-direction:column;gap:.55vmin;box-shadow:0 6px 22px rgba(0,0,0,.4);position:relative;overflow:hidden}
+.card.alarm{border-color:#ff5470;box-shadow:0 0 0 1px #ff5470,0 6px 24px rgba(255,50,70,.28)}
+.card.alarm::before{content:"ALARM";position:absolute;top:0;right:0;background:#ff5470;color:#fff;font-size:clamp(9px,.9vmin,12px);font-weight:700;padding:2px .7em;letter-spacing:1px}
+.pt-head{display:flex;align-items:baseline;gap:.6vmin;border-bottom:1px solid #1c2748;padding-bottom:.45vmin}
+.pt-name{font-size:clamp(15px,1.8vmin,28px);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pt-bed{font-size:clamp(10px,1vmin,14px);color:#8a99c4;margin-left:auto;flex-shrink:0}
+.kv{display:grid;grid-template-columns:repeat(2,1fr);gap:.4vmin .8vmin}
+.kv .item{background:#0a1122;border-radius:.6vmin;padding:.5vmin .6vmin;display:flex;flex-direction:column;justify-content:center}
+.kv .lbl{font-size:clamp(9px,.85vmin,11px);color:#7b87ad;letter-spacing:.5px}
+.kv .val{font-size:clamp(18px,2.2vmin,32px);font-weight:600;font-variant-numeric:tabular-nums}
+.c-hr{color:#21d07a}.c-spo2{color:#3fb6ff}.c-rr{color:#ffd24a}.c-bp{color:#ff9d6b}.c-t{color:#ff6b9d}.c-glu{color:#b48cff}.c-hum{color:#5ce0c6}.c-p{color:#c8c6ff}
+.warn{color:#ff5470 !important}
+.foot{display:flex;justify-content:space-between;align-items:center;font-size:clamp(9px,.9vmin,12px);color:#6f7ba0;margin-top:.2vmin}
+.dot{display:inline-block;width:.6vmin;height:.6vmin;border-radius:50%;margin-right:5px;vertical-align:middle}
+.on{background:#21d07a}.off{background:#666}
+.empty{display:flex;align-items:center;justify-content:center;height:40vmin;color:#6f7ba0;font-size:clamp(14px,1.6vmin,22px)}
+.load{display:flex;align-items:center;justify-content:center;height:40vmin;color:#8a99c4;font-size:clamp(14px,1.6vmin,22px)}
+#bar{flex-shrink:0;margin-top:1vmin;background:#0c1224;border:1px solid #1c2748;border-radius:.9vmin;padding:.85vmin 1vmin;display:flex;gap:2vmin;align-items:center;overflow-x:auto;font-size:clamp(11px,1.1vmin,15px)}
+#bar .seg{white-space:nowrap;display:flex;align-items:center;gap:.4em}
+#bar .seg .v{color:#21d07a;font-weight:600;font-variant-numeric:tabular-nums}
+@media(max-width:500px){#app{padding:.6vmin}#bar{gap:1vmin}}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+ <h1>🏥 EnvMon 重症监护大屏</h1>
+ <div class="meta"><span class="live"><b></b>实时</span> · <span id="clock">--</span> · 患者 <b id="ptn">0</b></div>
+</header>
+<div id="grid"><div class="load">加载中…</div></div>
+<div id="bar"><span>环境监测：加载中…</span></div>
+</div>
+<script>
+const GRID=document.getElementById('grid'),BAR=document.getElementById('bar'),CLK=document.getElementById('clock'),PTN=document.getElementById('ptn');
+const UNIT={ecg_hr:'bpm',pr_hr:'bpm',sp_o2:'%',rr_bpm:'次/分',sbp:'mmHg',dbp:'mmHg',temp_c:'°C',glucose:'mmol/L',hum_pct:'%',pres_hpa:'hPa'};
+const LBL={ecg_hr:'心率',pr_hr:'脉率',sp_o2:'血氧',rr_bpm:'呼吸',sbp:'高压',dbp:'低压',temp_c:'体温',glucose:'血糖',hum_pct:'湿度',pres_hpa:'气压'};
+const CLR={ecg_hr:'hr',pr_hr:'hr',sp_o2:'spo2',rr_bpm:'rr',sbp:'bp',dbp:'bp',temp_c:'t',glucose:'glu',hum_pct:'hum',pres_hpa:'p'};
+const VITALS=['ecg_hr','sp_o2','rr_bpm','sbp','dbp','temp_c','glucose'];
+const THRESH={ecg_hr:[50,120],sp_o2:[94,100],rr_bpm:[12,28],sbp:[90,160],dbp:[50,100],temp_c:[36.0,38.5]};
+function fmt(v,u){if(v==null||isNaN(v))return{t:'--',w:false};const s=Number.isInteger(v)?String(v):v.toFixed(v<10?1:0);const w=THRESH[u]&&v!=null&&(v<THRESH[u][0]||v>THRESH[u][1]);return{t:s+' '+u,w}}
+function card(p){
+ const v=p.vitals;let warn=false;const cells=VITALS.concat(['hum_pct','pres_hpa']).map(u=>{
+   const fv=fmt(v&&v[u],UNIT[u]);if(fv.w)warn=true;
+   return '<div class="item"><span class="lbl">'+LBL[u]+'</span><span class="val c-'+CLR[u]+(fv.w?' warn':'')+'">'+fv.t+'</span></div>';
+ }).join('');
+ const devTxt=p.total_devices?('<span class="dot '+(p.online_devices?'on':'off')+'"></span>'+p.online_devices+'/'+p.total_devices+' 设备'):'';
+ const ts=v?' · '+new Date(v.ts).toLocaleTimeString():' · 暂无数据';
+ const cls=warn?'card alarm':'card';
+ return '<div class="'+cls+'"><div class="pt-head"><span class="pt-name">'+(p.name||'床位'+p.bed_no||'患者'+p.pid||'#'+p.id)+'</span><span class="pt-bed">'+(p.bed_no||'P'+p.id)+'</span></div><div class="kv">'+cells+'</div><div class="foot"><span>'+devTxt+'</span><span>'+ts+(p.active_alarms?' 🔴'+p.active_alarms:'')+'</span></div></div>';
+}
+function envBar(env){
+ if(!env.length){BAR.innerHTML='<span>环境监测：无数据</span>';return}
+ let html='<b style="color:#8a99c4">环境：</b>';
+ env.forEach(d=>{
+   const on=d.online;const t=d.temp_c,h=d.hum_pct,p=d.pres_hpa;
+   html+='<span class="seg"><span class="dot '+(on?'on':'off')+'"></span>'+((d.name||d.device_id))+' <span class="v">'+(t==null?'-':t.toFixed(1))+'°C</span> '+(h==null?'-':h.toFixed(0))+'% P'+(p==null?'-':p.toFixed(0))+'hPa</span>';
+ });
+ BAR.innerHTML=html;
+}
+function ageLabel(a){if(a==null)return'';return a<60?a+'s前':(a/60|0)+'m前'}
+async function tick(){
+ try{
+  const r=await fetch('/api/dashboard?'+Date.now());const d=await r.json();
+  GRID.innerHTML=(d.patients&&d.patients.length)?d.patients.map(card).join(''):'<div class="empty">暂无患者数据（请先在管理端添加患者并关联设备）</div>';
+  PTN.textContent=d.total||0;CLK.textContent=new Date(d.now).toLocaleString('zh-CN',{hour12:false})+' UTC';
+  envBar(d.environment||[]);
+ }catch(e){GRID.innerHTML='<div class="empty">刷新失败，请检查服务器</div>';console.warn(e)}
+}
+(function clk(){CLK.textContent=new Date().toLocaleString('zh-CN',{hour12:false});setTimeout(clk,1000)})();
+tick();setInterval(tick,5000);
+</script>
+</body>
+</html>

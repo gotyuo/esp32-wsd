@@ -1,4 +1,5 @@
 #include "config_store.h"
+#include <cstring>
 
 ConfigStore  g_cfgStore;
 DeviceConfig g_cfg;
@@ -27,6 +28,11 @@ bool ConfigStore::load(DeviceConfig &cfg) {
              mac[3], mac[4], mac[5]);
     snprintf(cfg.ap_ssid, sizeof(cfg.ap_ssid), "ENVMON-%02X%02X", mac[4], mac[5]);
 
+    // 默认 MQTT 凭据（与服务器 broker 一一致：user=envmon / pass=envmon）。
+    // 首次烧录未配置时即可直连，无需手工配网。
+    // 端口用 18830（本系统非常规对外端口，容器映射 18830 -> broker:1883）。
+    strcpy(cfg.mqtt_user, "envmon");
+    strcpy(cfg.mqtt_pass, "envmon");
     if (!_prefs.isKey("saved")) {
         return false;  // 从未配置过
     }
@@ -74,6 +80,17 @@ bool ConfigStore::save(const DeviceConfig &cfg) {
     _prefs.putBool("sound", cfg.alarm_sound);
     _prefs.putBool("saved", true);
     return true;
+}
+
+// 加载后兜底：保证 MQTT 凭据缺失时补默认值（与 broker 一致），
+// 避免"只配了 WiFi 没配账号"导致 MQTT 连不上、热点回落后又无法重新配网。
+void ConfigStore::applyDefaults(DeviceConfig &cfg) {
+    if (cfg.mqtt_host[0] != '\0' && cfg.mqtt_user[0] == '\0') {
+        strcpy(cfg.mqtt_user, "envmon");
+    }
+    if (cfg.mqtt_pass[0] == '\0') {
+        strcpy(cfg.mqtt_pass, "envmon");
+    }
 }
 
 bool ConfigStore::clear() {

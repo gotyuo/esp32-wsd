@@ -115,13 +115,85 @@ def patient_delete(patient_id: int):
 
 # ---------- 患者-设备关联 ----------
 def link_device(patient_id: int, device_id: str, role: str = "primary"):
+    # 记录历史：如果该设备已分配给别的患者，先归档旧分配，避免覆盖丢失。
+    _archive_history(device_id, patient_id)
     run("INSERT OR REPLACE INTO patient_devices (patient_id,device_id,role,linked_at) "
         "VALUES (?,?,?,?)", (patient_id, device_id, role, _now()))
 
 
 def unlink_device(patient_id: int, device_id: str) -> bool:
+    _archive_history(device_id, patient_id)
     cur = run("DELETE FROM patient_devices WHERE patient_id=? AND device_id=?", (patient_id, device_id))
     return cur > 0
+
+
+def _archive_history(device_id: str, patient_id: int) -> None:
+    """设备分配变更时，把当前 patient_devices 记录归档到 device_patient_history。"""
+    try:
+        old = _get_conn().execute(
+            "SELECT patient_id FROM patient_devices WHERE device_id=? AND patient_id=?",
+            (device_id, patient_id)).fetchone()
+    except Exception:
+        return
+    if old:
+        run("INSERT INTO device_patient_history (device_id, patient_id, linked_at) "
+            "VALUES (?,?,?)", (device_id, patient_id, _now()))
+
+
+def device_patient_history(device_id: str) -> List[Dict]:
+    """某设备的历次患者分配时间线。优先取 vitals(source_device) 的真实历史（确定），
+    再补 device_patient_history 归档表（同设备换患者时的显式记录）。"""
+    import datetime as _dt  # noqa: F401
+    # 来源 1：vitals 表按 source_device 反查该设备实际服务过的患者及最早时间
+    rows = fetchall(
+        "SELECT patient_id, MIN(ts) AS linked_at "
+        "FROM vitals WHERE source_device=? AND patient_id IS NOT NULL "
+        "GROUP BY patient_id ORDER BY linked_at ASC",
+        (device_id,),
+    )
+    seen = set()
+    out = []
+    for r in rows:
+        seen.add(r["patient_id"])
+        out.append(_enrich_patient(r["patient_id"], r["linked_at"]))
+    # 来源 2：归档表里的显式分配（可能该患者仅被关联、暂无 vitals）
+    try:
+        extra = fetchall(
+            "SELECT ph.patient_id, ph.linked_at FROM device_patient_history ph "
+            "WHERE ph.device_id=? ORDER BY ph.linked_at ASC",
+            (device_id,),
+        )
+    except Exception:
+        extra = []
+    for r in extra:
+        if r["patient_id"] in seen:
+            continue
+        seen.add(r["patient_id"])
+        out.append(_enrich_patient(r["patient_id"], r["linked_at"]))
+    # 追加当前仍在 patient_devices 的分配
+    cur = None
+    try:
+        cur = _get_conn().execute(
+            "SELECT patient_id FROM patient_devices WHERE device_id=?", (device_id,)
+        ).fetchone()
+    except Exception:
+        cur = None
+    if cur and cur["patient_id"] not in seen:
+        out.append(_enrich_patient(cur["patient_id"], _now()))
+    return out
+
+
+def _enrich_patient(patient_id: int, linked_at: str) -> Dict:
+    p = None
+    try:
+        p = _get_conn().execute(
+            "SELECT pid,name,bed_no FROM patients WHERE id=?", (patient_id,)
+        ).fetchone()
+    except Exception:
+        p = None
+    return {"patient_id": patient_id, "pid": p["pid"] if p else None,
+            "name": p["name"] if p else None, "bed_no": p["bed_no"] if p else None,
+            "linked_at": linked_at}
 
 
 def devices_for_patient(patient_id: int) -> List[Dict]:

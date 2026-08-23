@@ -15,19 +15,23 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 
 -- 原始遥测数据（设备按 report_interval 上报）
+-- seq: 设备端单调递增序列号(从 uptime/1000 派生)，作为稳定去重键。
+--      ESP 无法可靠同步时钟，ts 仅作显示用；去重以 (device_id, seq) 为准。
 CREATE TABLE IF NOT EXISTS telemetry (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id   TEXT NOT NULL,
     ts          TEXT NOT NULL,               -- UTC ISO8601, 如 2026-08-11T03:20:01Z
+    seq         INTEGER,                     -- 设备端单调序列号(去重键)
     temp_c      REAL,                        -- 温度 ℃
     hum_pct     REAL,                        -- 湿度 %RH
     pres_hpa    REAL,                        -- 气压 hPa
     rssi        INTEGER,                     -- WiFi 信号 dBm
     alarm_level INTEGER NOT NULL DEFAULT 0,  -- 0正常 1预警 2报警
     free_heap   INTEGER,                     -- 设备剩余堆栈(诊断用)
-    UNIQUE(device_id, ts)
+    UNIQUE(device_id, seq)
 );
 CREATE INDEX IF NOT EXISTS idx_telemetry_device_ts ON telemetry(device_id, ts);
+CREATE INDEX IF NOT EXISTS idx_telemetry_device_seq ON telemetry(device_id, seq);
 
 -- 每分钟聚合记录（长期保存，历史曲线数据源）
 CREATE TABLE IF NOT EXISTS telemetry_1m (
@@ -251,6 +255,17 @@ CREATE TABLE IF NOT EXISTS io_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_io_patient_ts ON io_log(patient_id, ts);
+
+-- ============================================================
+-- 应用持久化设置（key/value，用于 AI 等全局配置）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS app_settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT,
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_settings_key ON app_settings(key);
 
 -- 备份日志
 CREATE TABLE IF NOT EXISTS backup_log (

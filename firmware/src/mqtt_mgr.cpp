@@ -119,13 +119,19 @@ void MqttMgr::loop() {
 bool MqttMgr::publishTelemetry(const EnvData &d, int alarm_level) {
     if (!_client.connected()) return false;
 
+    // 单调序列号（去重键）：ESP 无法同步时钟，用 uptime 秒作为稳定递增键，
+    // 配合服务器端 UNIQUE(device_id, seq) 保证同一周期不重复入库。
+    uint32_t seq = (uint32_t)(millis() / 1000);
+
     char buf[256];
     int n = snprintf(buf, sizeof(buf),
         "{\"device_id\":\"%s\""
+        ",\"seq\":%lu"
         ",\"t\":%s,\"h\":%s,\"p\":%s"
         ",\"rssi\":%d,\"uptime\":%lu,\"alarm\":%d"
         ",\"fw\":\"%s\",\"heap\":%u}",
         g_cfg.device_id,
+        (unsigned long)seq,
         isnan(d.temp_c)   ? "null" : String(d.temp_c, 2).c_str(),
         isnan(d.hum_pct)  ? "null" : String(d.hum_pct, 2).c_str(),
         isnan(d.pres_hpa) ? "null" : String(d.pres_hpa, 2).c_str(),
@@ -141,15 +147,19 @@ bool MqttMgr::publishTelemetry(const EnvData &d, int alarm_level) {
 bool MqttMgr::publishVitals(const EnvData &d) {
     if (!_client.connected()) return false;
 
+    uint32_t seq = (uint32_t)(millis() / 1000);
+
     char buf[512];
     int n = snprintf(buf, sizeof(buf),
         "{\"device_id\":\"%s\""
+        ",\"seq\":%lu"
         ",\"source\":\"esp32\""
         ",\"sp_o2\":%s,\"pr_hr\":%s,\"ecg_hr\":%s"
         ",\"rr_bpm\":%s,\"glucose\":%s"
         ",\"temp_c\":%s,\"hum_pct\":%s,\"pres_hpa\":%s"
         ",\"fw\":\"%s\"}",
         g_cfg.device_id,
+        (unsigned long)seq,
         isnan(d.sp_o2)   ? "null" : String(d.sp_o2, 1).c_str(),
         isnan(d.pr_hr)   ? "null" : String(d.pr_hr, 1).c_str(),
         isnan(d.ecg_hr)  ? "null" : String(d.ecg_hr, 1).c_str(),

@@ -40,15 +40,16 @@
 #define PIN_BUZZER 18
 
 // ---------- 体征传感器 ADC（心电/脉搏/呼吸） ----------
-// 三个 ADC1 通道，需外接放大/滤波电路才能拿到有用信号
-//   心电 (ECG)  : GPIO25 (ADC1_CH11)  -- 需 ECG 前置放大 + 带通滤波器
-//   脉搏 (PPG)  : GPIO27 (ADC1_CH12)  -- 需光电反射 PPG 传感器
-//   呼吸 (BR)   : GPIO14 (ADC1_CH10)  -- 需胸带/阻抗呼吸传感器
+// ESP32-S3 的 ADC 只在 GPIO1~10 (ADC1)。其中 4=麦克风、8/9=I2C、10=TFT CS 已被占用,
+// 故体征用 GPIO1/2/3。需外接放大/滤波电路才能拿到有用信号。
+//   心电 (ECG)   : GPIO1  (ADC1_CH1)
+//   脉搏 (PPG)   : GPIO2  (ADC1_CH2)
+//   呼吸 (BR)    : GPIO3  (ADC1_CH3)
 //
-// ※ 直接接 3.3V 电压信号无效，务必经过信号调理
-#define PIN_VITAL_ECG   25
-#define PIN_VITAL_PULSE 27
-#define PIN_VITAL_BREATH 14
+// ※ 直接接 3.3V 电压信号无效,务必经过信号调理
+#define PIN_VITAL_ECG   1
+#define PIN_VITAL_PULSE 2
+#define PIN_VITAL_BREATH 3
 
 // ---------- 其他 ----------
 #define FW_VER FW_VERSION

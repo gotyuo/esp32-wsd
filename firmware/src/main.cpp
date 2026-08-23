@@ -11,6 +11,7 @@
 //    status   打印当前状态
 // ============================================================
 #include <Arduino.h>
+#include <WiFi.h>
 #include "pins.h"
 #include "config_store.h"
 #include "sensors.h"
@@ -93,6 +94,22 @@ static void handleSerialCmd() {
             Serial.printf("  GPIO%d=%d\n", pins[pi], analogRead(pins[pi]));
         }
         Serial.println("[ADC] scan done");
+    } else if (cmd == "scan") {
+        // 串口诊断：直接跑一次扫描并打印结果，验证 AP 模式下扫描是否可用
+        WiFi.disconnect(false);
+        delay(100);
+        int n = WiFi.scanNetworks(false, false, false, 300);
+        Serial.printf("[CMD] scan found %d networks (mode=%d)\n", n, (int)WiFi.getMode());
+        if (n < 0) {
+            delay(500);
+            n = WiFi.scanNetworks(false, false, false, 300);
+            Serial.printf("[CMD] scan retry: %d\n", n);
+        }
+        for (int i = 0; i < n && i < 20; i++) {
+            Serial.printf("  #%d %-32s %d dBm %s\n", i, WiFi.SSID(i).c_str(),
+                          WiFi.RSSI(i), (WiFi.encryptionType(i)==WIFI_AUTH_OPEN)?"open":"wpa");
+        }
+        WiFi.scanDelete();
     } else if (cmd == "otacheck") {
         Serial.println("[CMD] OTA 手动检查...");
         ota_check(true);
@@ -116,6 +133,7 @@ void setup() {
 
     g_cfgStore.begin();
     bool saved = g_cfgStore.load(g_cfg);
+    g_cfgStore.applyDefaults(g_cfg);  // 凭据兜底：只配 WiFi 未配 MQTT 账号也能连
     Serial.printf("[BOOT] config %s, device_id=%s\n",
                   saved ? "loaded" : "NOT found (first boot)", g_cfg.device_id);
 

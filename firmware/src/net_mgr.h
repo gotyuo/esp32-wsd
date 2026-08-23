@@ -55,6 +55,13 @@ private:
 
     ConfigSavedCb _onSaved;
     bool     _portalRunning = false;
+
+    // 异步 WiFi 扫描缓存（避免 handleScan 阻塞导致手机断线）
+    String  _scanCache;
+    uint32_t _scanStartedAt = 0;
+    bool    _scanBusy = false;
+    void buildScanCache(int n);
+    void requestScan();   // 手动触发一次后台异步扫描
 };
 
 extern NetManager g_net;

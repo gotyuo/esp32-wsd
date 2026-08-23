@@ -327,7 +327,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 </div>
 <div class="m-bottom">
   <div class="m-panel">
-    <h4>💊 运行中用药 <button class="secondary small" onclick="loadOrders()">刷新</button></h4>
+    <h4>💊 运行中用药 <button class="secondary small" onclick="loadOrders()">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button></h4>
     <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
   </div>
   <div class="m-panel">
@@ -445,6 +445,12 @@ function loadDashboardGrid(){
       card+='<div class="pc-row"><span class="k">TEMP</span><span class="v">'+val("temp_c")+' ℃</span></div>';
       card+='<div class="pc-row"><span class="k">Glu</span><span class="v">'+val("glucose")+' mmol/L</span></div>';
       card+='<div class="pc-foot"><span class="pc-devs">设备 <span class="ok">'+(p.online_device_count||0)+'</span>/'+((p.devices||[]).length)+'</span><button class="secondary small" onclick="event.stopPropagation();jumpToMonitor(\''+esc(p.pid)+'\')">进入监护</button></div></div>';
+      var _orders = p.orders || [];
+      var _ordStr = _orders.length ? _orders.slice(0,3).map(function(o){
+        return (o.drug_name || "-") + (o.rate_mlph != null ? "@" + o.rate_mlph.toFixed(1) + "mL/h" : "");
+      }).join(" · ") : "";
+      var _ordDiv = _ordStr ? '<div style="font-size:10px;color:#b388ff;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">💊 ' + _ordStr + '</div>' : '';
+      card += _ordDiv;
       return card;
     }).join("");
   }).catch(function(){el.innerHTML='<div class="empty">加载失败</div>';});
@@ -546,9 +552,30 @@ function viewDevice(id){api("/api/devices/"+encodeURIComponent(id)).then(functio
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>DEVICE DETAIL · "+esc(dev.id)+(dev.name?" <span style='font-weight:400'>("+esc(dev.name)+")</span>":"")+"</h2>"+
     "<div class='kv'><label>ID</label><div style='color:var(--blue);font-weight:600;font-family:Consolas,monospace'>"+esc(dev.id)+"</div><label>状态</label><div><span class='"+(dev.online?"ok":"bad")+"'>"+(dev.online?"● 在线":"○ 离线")+"</span></div><label>固件</label><div>"+esc(dev.fw_version||"-")+"</div><label>IP</label><div>"+esc(dev.ip_addr||"-")+"</div><label>首次上线</label><div>"+fmtTime(dev.first_seen)+"</div><label>最后上报</label><div>"+fmtTime(dev.last_seen)+"</div></div>"+
     (lt?"<div style='margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)'><div style='font-size:11px;color:var(--sub);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px'>LATEST VITALS</div><div class='kv'><label>🌡 SP.T</label><div>"+fmt(lt.temp_c)+" ℃</div><label>💧 HUM</label><div>"+fmt(lt.hum_pct)+" %RH</div><label>🧭 PRESS</label><div>"+fmt(lt.pres_hpa,1)+" hPa</div><label>📶 SIG</label><div>"+(lt.rssi==null?"--":lt.rssi+" dBm")+"</div><label>ALARM</label><div>"+alarmTxt+"</div></div></div>":"")+"</div>"+
-    "<div class='actions'><button class='success' onclick='showDeviceConfig(\""+esc(id)+"\")'>配置阈值</button><button class='secondary' onclick='showDeviceAlarm(\""+esc(id)+"\")'>本设备报警</button><button class='secondary' onclick='closeModal()'>关闭</button></div>";
+    "<div class='actions'><button class='success' onclick='showDeviceConfig(\""+esc(id)+"\")'>配置阈值</button><button class='secondary' onclick='showDeviceAlarm(\""+esc(id)+"\")'>本设备报警</button><button class='secondary' onclick='showDeviceHistory(\""+esc(id)+"\")'>历次患者</button><button class='secondary' onclick='closeModal()'>关闭</button></div>";
   $("modalBox").classList.remove("hidden");
 }).catch(function(){toast("设备不存在","alarm");closeModal();});}
+function showDeviceHistory(id){
+  api("/api/devices/"+encodeURIComponent(id)+"/history").then(function(d){
+    var h=d.history||[];
+    var html="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>PATIENT HISTORY · "+esc(id)+"</h2>";
+    html+="<div style='font-size:11px;color:var(--dim);margin-bottom:10px'>该设备历次服务过的患者（按时间）。切换患者时自动留痕，可追溯。</div>";
+    if(!h.length){html+="<div class='empty' style='font-size:12px'>暂无历次患者记录</div>";}
+    else{
+      var rows=h.map(function(x,i){
+        var who=(x.name?esc(x.name):""+(x.pid?" pid "+esc(x.pid):""));
+        var bed=x.bed_no?" 床 "+esc(x.bed_no):"";
+        var cls=(i===h.length-1)?"active":"";
+        return "<tr class='"+cls+"'><td>"+(i+1)+"</td><td>"+who+bed+"</td><td>"+fmtTime(x.linked_at)+"</td></tr>";
+      }).join("");
+      html+="<table><thead><tr><th>#</th><th>患者</th><th>关联时间</th></tr></thead><tbody>"+rows+"</tbody></table>";
+    }
+    html+="<div class='actions'><button class='secondary' onclick='closeModal()'>关闭</button></div>";
+    document.getElementById("modalInner").innerHTML=html;
+    document.getElementById("modalBox").classList.remove("hidden");
+  }).catch(function(){toast("加载历史失败","alarm");closeModal();});
+}
+
 function showDeviceConfig(id){api("/api/thresholds?device="+encodeURIComponent(id)).then(function(t){
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>THRESHOLD CONFIG · "+esc(id)+"</h2>"+
     "<div class='kv'><label>温度 ℃</label><div style='display:flex;gap:6px'><input type='number' step='0.1' id='mTmin' value='"+t.temp_min+"'><input type='number' step='0.1' id='mTmax' value='"+t.temp_max+"'></div><label>湿度 %RH</label><div style='display:flex;gap:6px'><input type='number' step='0.1' id='mHmin' value='"+t.hum_min+"'><input type='number' step='0.1' id='mHmax' value='"+t.hum_max+"'></div><label>气压 hPa</label><div style='display:flex;gap:6px'><input type='number' step='0.1' id='mPmin' value='"+t.pres_min+"'><input type='number' step='0.1' id='mPmax' value='"+t.pres_max+"'></div><label>上报间隔</label><input type='number' min='3' max='3600' id='mIv' value='"+t.report_interval+"' style='width:100%;padding:7px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:13px'><label>报警</label><div class='switchrow'><input type='checkbox' id='mEn' "+(t.alarm_enabled?"checked":"")+"><span>启用报警</span><input type='checkbox' id='mSnd' "+(t.alarm_sound?"checked":"")+" style='margin-left:14px'><span>终端蜂鸣</span></div></div>"+
@@ -845,6 +872,37 @@ function paintSpark(c,vals){
     if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
   });
   ctx.strokeStyle="#8ab4f8";ctx.lineWidth=1.5;ctx.stroke();
+}
+
+function showAddOrder(){
+  var pid=MONITOR_PID;if(!pid){alert("请先选择患者");return;}
+  $( "modalInner" ).innerHTML =
+    "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>ADD ORDER · 添加医嘱</h2>" +
+    "<div class='kv'>" +
+      "<label>药品名 *</label><input id='oDrug' maxlength='128' required>" +
+      "<label>剂量</label><input id='oDos' maxlength='64' placeholder='如 100mg'>" +
+      "<label>给药途径</label>" +
+      "<select id='oRoute'><option value=''>--</option><option value='iv'>静脉 iv</option><option value='ivgtt'>静脉滴注 ivgtt</option>" +
+      "<option value='pump'>输液泵 pump</option><option value='im'>肌注 im</option><option value='sc'>皮下 sc</option>" +
+      "<option value='oral'>口服 oral</option><option value='po'>口服 po</option></select>" +
+      "<label>泵速 mL/h</label><input id='oRate' type='number' step='0.1' min='0'>" +
+      "<label>编号</label><input id='oNo' maxlength='32' placeholder='选填'>" +
+      "<label>操作者</label><input id='oOper' maxlength='64'>" +
+    "</div>" +
+    "<div style='font-size:11px;color:var(--dim);margin-top:8px'>患者 " + esc(pid) + " · 保存后即时生效到运行中医嘱。</div>" +
+    "<div class='actions'><button onclick='doAddOrder()'>保存医嘱</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+  $( "modalBox" ).classList.remove("hidden");
+}
+function doAddOrder(){
+  var pid=MONITOR_PID;
+  var body={source:"manual",order_no:$( "oNo" ).value.trim(),drug_name:$( "oDrug" ).value.trim(),
+    dosage:$( "oDos" ).value.trim(),route:$( "oRoute" ).value,rate_mlph:parseFloat($( "oRate" ).value)||null,
+    start_ts:"",end_ts:"",operator:$( "oOper" ).value.trim()};
+  if(!body.drug_name){alert("请输入药品名");return;}
+  if($( "oRate" ).value && body.rate_mlph==null){alert("泵速格式错误");return;}
+  api("/api/patients/"+pid+"/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
+    toast("医嘱已录入");closeModal();loadOrders();
+  }).catch(function(e){toast("保存失败: "+(e.message||""),"alarm");});
 }
 
 function loadOrders(){

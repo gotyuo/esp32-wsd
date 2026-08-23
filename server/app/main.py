@@ -214,19 +214,77 @@ def handle_telemetry(device_id: str, payload: dict):
     rssi = payload.get("rssi")
     free_heap = payload.get("heap")
     fw = payload.get("fw")
+    ts_in = payload.get("ts")          # ISO8601，若设备有 RTC
+    seq = payload.get("seq")           # 单调序列号，用作去重键
 
     level, reason = check_alarm(device_id, temp, hum, pres)
 
+    # 自动登记设备（含固件版本 + 最近上报时间），无需手工注册
     db.upsert_device(device_id, fw_version=fw)
-    db.insert_telemetry(device_id, temp, hum, pres, rssi, level, free_heap)
+    if ts_in:
+        db.set_device_seen(device_id, ts_in)
+    else:
+        db.set_device_seen(device_id, None)
+
+    db.insert_telemetry(device_id, temp, hum, pres, rssi, level, free_heap,
+                        ts=ts_in, seq=seq)
     record_alarm_transition(device_id, level, reason, temp, hum, pres)
 
     hub.broadcast_threadsafe({
         "type": "telemetry", "device_id": device_id,
         "data": {"t": temp, "h": hum, "p": pres, "rssi": rssi,
                  "alarm": level, "fw": fw},
-        "ts": db.utcnow(),
+        "ts": ts_in or db.utcnow(),
     })
+
+    # 同一载荷可能同时携带 ICU 生命体征(sp_o2/pr_hr/ecg_hr...)，
+    # 一并走 ICU 入库流程（设备已关联患者时生效）。
+    if _looks_like_vitals(payload):
+        try:
+            handle_vitals(device_id, payload)
+        except Exception as e:  # noqa: BLE001
+            log.exception("handle_vitals from telemetry of %s failed: %s", device_id, e)
+
+
+def _looks_like_vitals(payload: dict) -> bool:
+    return any(k in payload for k in VITAL_KEYS)
+
+
+VITAL_KEYS = ("sp_o2", "pr_hr", "ecg_hr", "ecg_st", "rr_bpm", "etco2",
+              "sbp", "dbp", "map_bp", "ibp", "temp_c", "glucose")
+
+
+def _vital_values(payload: dict) -> dict:
+    """把载荷中的数值型体征字段转为 float 后挑出，供 insert_vital 使用。"""
+    out = {}
+    for k in VITAL_KEYS:
+        v = payload.get(k)
+        if v is None:
+            continue
+        try:
+            out[k] = float(v)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def _insert_vital_from_payload(patient_id: int, device_id: str, payload: dict) -> str:
+    """从载荷写一条 vitals：设备+seq 去重 + 写入数值 + 可选报警（原子）。"""
+    ts = payload.get("ts") or icu._now()
+    source = payload.get("source", "esp32")
+    seq = payload.get("seq")
+    if seq is not None:
+        try:
+            seq = int(seq)
+        except (TypeError, ValueError):
+            seq = None
+    extra = json.dumps({"seq": seq}, ensure_ascii=False, separators=(",", ":")) if seq is not None else None
+    vals = _vital_values(payload)
+    alarm_flag = int(float(payload.get("alarm") or 0))
+    # 用 db 共享连接 + 全局锁做"去重查询 + 插入"原子操作，杜绝并发重传各入一行。
+    db.vital_insert_v2(patient_id, ts, source, device_id,
+                       extra, vals, alarm_flag)
+    return ts
 
 
 def handle_status(device_id: str, online: bool):
@@ -236,7 +294,7 @@ def handle_status(device_id: str, online: bool):
 
 
 def handle_vitals(device_id: str, payload: dict):
-    """MQTT 接收来自 ESP32/仪器的多参数生命体征。"""
+    """MQTT 接收来自 ESP32/仪器的多参数生命体征（需设备已关联患者）。"""
     from .icu import _get_conn
     conn = _get_conn()
     rows = conn.execute(
@@ -247,19 +305,14 @@ def handle_vitals(device_id: str, payload: dict):
     if not rows:
         return
     target = next((r for r in rows if r["role"] == "primary"), rows[0])
-    patient_id = target["patient_id"]
-    pid = target["pid"]
-    source = payload.get("source", "esp32")
-    ts = payload.get("ts", icu._now())
-    icu.insert_vital(patient_id, ts, source, source_device=device_id)
-    hub.broadcast_threadsafe({"type": "vital", "patient_id": patient_id, "pid": pid, "ts": ts, "source": source})
+    ts = _insert_vital_from_payload(target["patient_id"], device_id, payload)
+    if ts:
+        hub.broadcast_threadsafe({"type": "vital", "patient_id": target["patient_id"],
+                                  "pid": target["pid"], "ts": ts,
+                                  "source": payload.get("source", "esp32")})
 
 
 def handle_order(device_id: str, payload: dict):
-    rows = icu.query_rows(
-        "SELECT p.id AS patient_id, p.pid AS pid FROM patient_devices pd "
-        "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=?", (device_id,)
-    )
     from .icu import _get_conn
     conn = _get_conn()
     r = conn.execute(
@@ -352,7 +405,14 @@ def index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# 禁缓存：本地 ICU 内网改前端不用清浏览器缓存；静态文件直接从磁盘读，无需 rebuild。
+class _Static(StaticFiles):
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        return resp
+app.mount("/static", _Static(directory=STATIC_DIR), name="static")
 
 
 # ================================================================ 认证 API
@@ -494,6 +554,12 @@ def get_device_detail(device_id: str):
     return d
 
 
+@app.get("/api/devices/{device_id}/history")
+def device_patient_timeline(device_id: str):
+    """某设备的历次患者分配时间线（同设备换患者时可追溯）。"""
+    return {"device_id": device_id, "history": icu.device_patient_history(device_id)}
+
+
 @app.put("/api/devices/{device_id}", dependencies=[Depends(require_admin)])
 def rename_device(device_id: str, name: str = Query(..., max_length=64),
                   _: Dict = Depends(require_admin)):
@@ -620,6 +686,69 @@ def realtime(device: Optional[str] = None):
         last = db.latest_telemetry(d["id"])
         out.append({"device": d, "latest": last})
     return {"devices": out}
+
+
+# ================================================================ 大屏（公开，无需登录，适合投屏）
+@app.get("/dashboard", include_in_schema=False)
+def dashboard_page():
+    return FileResponse(os.path.join(STATIC_DIR, "dashboard.html"))
+
+
+@app.get("/api/dashboard")
+def dashboard_data():
+    """大屏数据：每个患者最新体征 + 环境 + 报警。公开端点，供投屏刷新。"""
+    import sqlite3 as _sqlite3
+    conn = icu._get_conn()
+    conn.row_factory = _sqlite3.Row
+    patients = icu.list_patients(limit=200)
+    vit_fields = ["ecg_hr", "sp_o2", "rr_bpm", "sbp", "dbp", "temp_c", "glucose"]
+    env_fields = ["hum_pct", "pres_hpa"]
+    out = []
+    for p in patients:
+        row = dict(p)
+        # 最新体征
+        latest = conn.execute(
+            "SELECT ts, " + ", ".join(vit_fields + env_fields)
+            + " FROM vitals WHERE patient_id=? ORDER BY ts DESC LIMIT 1", (row["id"],)
+        ).fetchone()
+        vit = None
+        ts_age = None
+        if latest:
+            vit = {k: (latest[k] if latest[k] is not None else None) for k in vit_fields + env_fields}
+            vit["ts"] = latest["ts"]
+            # 计算数据新鲜度（秒）
+            try:
+                ts_age = (datetime.fromisoformat(latest["ts"].replace("Z", "+00:00"))
+                          - datetime.now(timezone.utc)).total_seconds()
+                ts_age = abs(int(ts_age))
+            except Exception:
+                ts_age = None
+        # 最新未读报警（近 1h）
+        alarms = icu.recent_alarms(row["id"], minutes=60) if hasattr(icu, "recent_alarms") else []
+        row["vitals"] = vit
+        row["age_sec"] = ts_age
+        row["active_alarms"] = len(alarms)
+        devs = icu.devices_for_patient(row["id"])
+        row["online_devices"] = sum(1 for d in devs if d.get("online"))
+        row["total_devices"] = len(devs)
+        # 运行中医嘱摘要（供大屏/监护显示）
+        active_orders = icu.orders_for_patient(row["id"])
+        active_orders = [dict(o) for o in active_orders if o.get("status") == "active"][:5]
+        row["orders"] = active_orders
+        out.append(row)
+    # 全局环境概览（所有设备最新 telemetry）
+    env = []
+    devs = db.list_devices()
+    for d in devs:
+        t = db.latest_telemetry(d["id"])
+        if t:
+            env.append({"device_id": d["id"], "name": d.get("name"),
+                        "online": bool(d.get("online")),
+                        "temp_c": t.get("temp_c"), "hum_pct": t.get("hum_pct"),
+                        "pres_hpa": t.get("pres_hpa"), "ts": t.get("ts"),
+                        "alarm_level": t.get("alarm_level")})
+    return {"patients": out, "total": len(out), "environment": env,
+            "now": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
 @app.get("/api/history")

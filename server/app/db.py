@@ -5,21 +5,44 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 DB_PATH = os.environ.get("DB_PATH", "data/envmon.db")
 SCHEMA_FILE = os.environ.get("SCHEMA_FILE", "schema.sql")
 
+_log = logging.getLogger("envmon.db")
+
 _lock = threading.Lock()
+
+
+@contextmanager
+def _locked_scope() -> Generator[sqlite3.Connection, None, None]:
+    """临界区上下文：acquire _lock 并给出 db 的共享连接。
+    调用方在此区间内完成"检查 + 写入"，保证原子可见，杜绝并发去重漏判。"""
+    _lock.acquire()
+    try:
+        yield get_conn()
+    finally:
+        get_conn().commit()
+        _lock.release()
 _conn: Optional[sqlite3.Connection] = None
 
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def utcnow_ms() -> str:
+    """带毫秒的 UTC 时间戳。ESP 无法同步时钟，服务器用它补 ts 时能天然去重
+    （旧 telemetry 表带 UNIQUE(device_id,ts) 约束，同秒多行会被丢弃；
+    带毫秒后每行唯一，避免 INSERT OR IGNORE 静默丢行）。"""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def minute_str(dt: datetime) -> str:
@@ -41,9 +64,13 @@ def init_db() -> None:
     """执行 schema.sql 并补齐全局默认阈值。"""
     with _lock:
         conn = get_conn()
+        # ① 预迁移：在 schema.sql 之前调整旧表结构，让后续 CREATE TABLE 走新版定义。
+        _pre_migrate(conn)
         if os.path.exists(SCHEMA_FILE):
             with open(SCHEMA_FILE, "r", encoding="utf-8") as f:
                 conn.executescript(f.read())
+        # ② 后迁移：创建表后的列/索引修补。
+        _post_migrate(conn)
         # 全局默认阈值
         conn.execute(
             """
@@ -57,10 +84,112 @@ def init_db() -> None:
         conn.commit()
 
 
+# ================================================================ 模式迁移
+# schema.sql 使用 CREATE TABLE IF NOT EXISTS，旧表不会自动获得新增列。
+# 每个 migration 用"列是否存在"做幂等判断，可重复执行。
+def _has_col(conn, table: str, col: str) -> bool:
+    return any(r[1] == col for r in conn.execute(f"PRAGMA table_info({table})").fetchall())
+
+
+def _pre_migrate(conn: sqlite3.Connection) -> None:
+    # 在 schema.sql 之前执行：若旧 telemetry 表缺 seq 列（且带旧 UNIQUE(device_id,ts) 约束），
+    # 删除旧表，让 schema.sql 的 CREATE TABLE IF NOT EXISTS 按新版定义重建。
+    # schema.sql 是幂等的（IF NOT EXISTS），所以首次运行会创建新表，迁移后再运行直接跳过。
+    # 旧数据 telemetry 本就只有秒级时间戳、无法可靠重建 seq，丢弃是安全的（线上历史可弃）。
+    if not _has_col(conn, "telemetry", "seq"):
+        conn.execute("DROP TABLE IF EXISTS telemetry_old")
+        try:
+            conn.execute("DROP TABLE IF EXISTS telemetry")
+            _log.info("migration v2.2: old telemetry dropped (will rebuild with seq)")
+        except Exception as e:  # noqa: BLE001
+            _log.warning("migration v2.2: could not drop telemetry: %s", e)
+
+
+def _post_migrate(conn: sqlite3.Connection) -> None:
+    # 设备-患者历史表：记录同设备历次分配给不同患者的时间线。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS device_patient_history ("
+        "device_id TEXT NOT NULL, patient_id INTEGER NOT NULL, linked_at TEXT NOT NULL, "
+        "PRIMARY KEY(device_id, patient_id, linked_at))"
+    )
+    # 首次建表时，把现有 patient_devices 与 vitals 历史回填进去。
+    try:
+        has_data = conn.execute(
+            "SELECT COUNT(*) FROM device_patient_history"
+        ).fetchone()[0]
+    except Exception:
+        has_data = 0
+    if has_data == 0:
+        try:
+            for row in conn.execute(
+                "SELECT pd.device_id, pd.patient_id, MIN(v.ts) AS ts "
+                "FROM patient_devices pd LEFT JOIN vitals v ON v.patient_id=pd.patient_id "
+                "GROUP BY pd.device_id, pd.patient_id"
+            ).fetchall():
+                tdev = conn.execute(
+                    "SELECT last_seen FROM devices WHERE id=?", (row["device_id"],)
+                ).fetchone()
+                ts = row["ts"] or (tdev["last_seen"] if tdev else None)
+                if ts is None:
+                    continue
+                conn.execute(
+                    "INSERT INTO device_patient_history (device_id, patient_id, linked_at) VALUES (?,?,?)",
+                    (row["device_id"], row["patient_id"], ts),
+                )
+        except Exception as e:
+            _log.warning("device_patient_history backfill skipped: %s", e)
+
+
 def query(sql: str, params: tuple = ()) -> List[sqlite3.Row]:
     with _lock:
         cur = get_conn().execute(sql, params)
         return cur.fetchall()
+
+
+def query_locked(sql: str, params: tuple = ()) -> List[sqlite3.Row]:
+    """在已持有 _lock 的上下文中调用，直接执行（不重复加锁）。"""
+    return get_conn().execute(sql, params).fetchall()
+
+
+def query_one_locked(sql: str, params: tuple = ()) -> Optional[sqlite3.Row]:
+    return get_conn().execute(sql, params).fetchone()
+
+
+def query_locked_bool(sql: str, params: tuple = ()) -> bool:
+    return bool(get_conn().execute(sql, params).fetchone())
+
+
+# ================================================================ ICU vitals 原子写入
+# MQTT 消息快速连续到达时，跨线程必须"查询去重 + 插入"在同一临界区内完成，
+# 否则两个线程会同时看到"无记录"而各插入一行。本函数在 _lock 下用 db 共享连接执行，
+# 保证先入者提交后后入者才能读到，从而实现严格去重。
+def vital_insert_v2(patient_id: int, ts: str, source: str, device_id: str,
+                    extra: Optional[str], values: Dict[str, float], alarm_flag: int) -> None:
+    # 用占位符动态拼接，避免重复列
+    fields = ["patient_id", "ts", "source", "source_device", "extra", "created_at"]
+    ph = ["?", "?", "?", "?", "?", "?"]
+    bind = [patient_id, ts, source, device_id, extra, utcnow()]
+    for k in ("sp_o2", "pr_hr", "ecg_hr", "ecg_st", "rr_bpm", "etco2",
+              "sbp", "dbp", "map_bp", "ibp", "temp_c", "glucose"):
+        if k in values:
+            fields.append(k)
+            ph.append("?")
+            bind.append(float(values[k]))
+    if alarm_flag:
+        fields.append("alarm_flag")
+        ph.append("?")
+        bind.append(alarm_flag)
+    with _locked_scope() as conn:
+        if conn.execute(
+            "SELECT 1 FROM vitals WHERE source_device=? AND extra=?",
+            (device_id, extra),
+        ).fetchone():
+            return
+        conn.execute(
+            "INSERT INTO vitals (%s) VALUES (%s)" % (", ".join(fields), ", ".join(ph)),
+            bind,
+        )
+        conn.commit()
 
 
 def execute(sql: str, params: tuple = ()) -> int:
@@ -89,6 +218,12 @@ def upsert_device(device_id: str, fw_version: str = None, ip_addr: str = None) -
             (device_id, fw_version, ip_addr, now, now),
         )
         conn.commit()
+
+
+def set_device_seen(device_id: str, ts: str) -> None:
+    """仅更新 last_seen 时间戳，不改变 online 状态。
+    ts=None 时以当前时间。用于已登录线设备的周期性"最近上报"刷新。"""
+    execute("UPDATE devices SET last_seen=? WHERE id=?", (ts or utcnow(), device_id))
 
 
 def set_device_online(device_id: str, online: bool) -> None:
@@ -136,15 +271,30 @@ def delete_device(device_id: str) -> None:
 # ---------------------------------------------------------------- telemetry
 def insert_telemetry(device_id: str, temp: float, hum: float, pres: float,
                      rssi: int, alarm_level: int, free_heap: int,
-                     ts: str = None) -> None:
-    execute(
-        """
-        INSERT OR IGNORE INTO telemetry
-            (device_id, ts, temp_c, hum_pct, pres_hpa, rssi, alarm_level, free_heap)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (device_id, ts or utcnow(), temp, hum, pres, rssi, alarm_level, free_heap),
-    )
+                     ts: str = None, seq: int = None) -> None:
+    # ts 由服务器补时带毫秒，保证与 UNIQUE(device_id,ts) 兼容、不丢行。
+    effective_ts = ts or utcnow_ms()
+    with _lock:
+        conn = get_conn()
+        if seq is not None:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO telemetry
+                    (device_id, ts, seq, temp_c, hum_pct, pres_hpa, rssi, alarm_level, free_heap)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (device_id, effective_ts, seq, temp, hum, pres, rssi, alarm_level, free_heap),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO telemetry
+                    (device_id, ts, temp_c, hum_pct, pres_hpa, rssi, alarm_level, free_heap)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (device_id, effective_ts, temp, hum, pres, rssi, alarm_level, free_heap),
+            )
+        conn.commit()
 
 
 def latest_telemetry(device_id: str) -> Optional[Dict[str, Any]]:
