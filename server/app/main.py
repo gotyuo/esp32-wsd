@@ -220,7 +220,9 @@ def handle_telemetry(device_id: str, payload: dict):
     level, reason = check_alarm(device_id, temp, hum, pres)
 
     # 自动登记设备（含固件版本 + 最近上报时间），无需手工注册
-    db.upsert_device(device_id, fw_version=fw)
+    # Issue 1: 提取设备 IP 地址 — 优先从 payload.ip 取，其次从 payload.ip_addr
+    ip_addr = payload.get("ip") or payload.get("ip_addr")
+    db.upsert_device(device_id, fw_version=fw, ip_addr=ip_addr)
     if ts_in:
         db.set_device_seen(device_id, ts_in)
     else:
@@ -296,6 +298,10 @@ def handle_status(device_id: str, online: bool):
 def handle_vitals(device_id: str, payload: dict):
     """MQTT 接收来自 ESP32/仪器的多参数生命体征（需设备已关联患者）。"""
     from .icu import _get_conn
+    # Issue 1: 同时更新设备 IP（vitals 载荷也可能带 ip）
+    ip_addr = payload.get("ip") or payload.get("ip_addr")
+    fw = payload.get("fw")
+    db.upsert_device(device_id, fw_version=fw, ip_addr=ip_addr)
     conn = _get_conn()
     rows = conn.execute(
         "SELECT p.id AS patient_id, p.pid AS pid, pd.role FROM patient_devices pd "
@@ -1129,6 +1135,121 @@ def io_balance(pid: str, hours: int = 24):
     if not p:
         raise HTTPException(404, "患者不存在")
     return icu.io_balance(p["id"], hours)
+
+
+@app.get("/api/monitor/sessions", dependencies=[Depends(require_user)])
+def list_monitor_sessions(patient_id: Optional[int] = Query(None),
+                          device_id: Optional[str] = Query(None),
+                          start: Optional[str] = Query(None),
+                          end: Optional[str] = Query(None),
+                          limit: int = Query(200, ge=1, le=1000)):
+    """查询监护记录列表（支持按患者/设备/日期范围过滤）。"""
+    sessions = icu.list_monitor_sessions(
+        patient_id=patient_id, device_id=device_id,
+        start=start, end=end, limit=limit,
+    )
+    # 计算每条会话持续时间
+    for s in sessions:
+        s["duration_str"] = _duration_str(s.get("start_ts"), s.get("end_ts"))
+    return {"sessions": sessions, "total": len(sessions)}
+
+
+@app.get("/api/monitor/sessions/{session_id}", dependencies=[Depends(require_user)])
+def get_monitor_session_detail(session_id: int):
+    """获取单条监护记录详情 + 该时段内的体征/医嘱/检验/出入量。"""
+    sess = icu.get_monitor_session(session_id)
+    if not sess:
+        raise HTTPException(404, "监护记录不存在")
+    start_ts = sess["start_ts"]
+    end_ts = sess["end_ts"] or db.utcnow()
+    # 该时段内的数据
+    vitals = icu.patient_vitals(sess["patient_id"], start_ts, end_ts)
+    orders = icu.orders_for_patient(sess["patient_id"], start_ts, end_ts)
+    labs = icu.lab_results_for_patient(sess["patient_id"], start_ts, end_ts)
+    io_logs = icu.list_io_log(sess["patient_id"], hours=9999)  # 全量
+    io_logs = [io for io in io_logs if io.get("ts", "") >= start_ts and io.get("ts", "") <= end_ts]
+    sess["duration_str"] = _duration_str(start_ts, sess.get("end_ts"))
+    return {
+        "session": sess,
+        "vitals": vitals,
+        "orders": orders,
+        "labs": labs,
+        "io_logs": io_logs,
+    }
+
+
+@app.get("/api/devices/{device_id}/active-patient", dependencies=[Depends(require_user)])
+def get_active_patient_for_device(device_id: str):
+    """查询某设备当前活跃的监护记录对应的患者（用于切换设备时同步监护页患者）。"""
+    sess = icu.active_session_for_device(device_id)
+    if not sess:
+        return {"device_id": device_id, "patient_pid": None}
+    return {"device_id": device_id, "patient_pid": sess.get("pid"),
+            "patient_id": sess.get("patient_id"),
+            "patient_name": sess.get("name"), "bed_no": sess.get("bed_no"),
+            "session_id": sess.get("id")}
+
+
+def _duration_str(start_ts: str, end_ts: str = None) -> str:
+    """计算持续时间的可读字符串。"""
+    if not start_ts:
+        return "-"
+    try:
+        start_dt = datetime.fromisoformat(start_ts.replace("Z", "+00:00"))
+        if end_ts:
+            end_dt = datetime.fromisoformat(end_ts.replace("Z", "+00:00"))
+        else:
+            end_dt = datetime.now(timezone.utc)
+        delta = end_dt - start_dt
+        total_sec = int(delta.total_seconds())
+        if total_sec < 0:
+            return "-"
+        days = total_sec // 86400
+        hours = (total_sec % 86400) // 3600
+        mins = (total_sec % 3600) // 60
+        if days > 0:
+            return f"{days}d {hours}h {mins}m"
+        if hours > 0:
+            return f"{hours}h {mins}m"
+        return f"{mins}m"
+    except Exception:
+        return "-"
+
+
+@app.post("/api/patients/{pid}/monitor/start", dependencies=[Depends(require_admin)])
+def start_monitor_session(pid: str, body: Dict[str, Any] = None):
+    """开始监护记录：关联患者与设备，记录 start_ts。"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    body = body or {}
+    device_id = body.get("device_id")
+    result = icu.start_monitor_session(p["id"], device_id)
+    return {"ok": True, **result}
+
+
+@app.post("/api/patients/{pid}/monitor/{sid}/end", dependencies=[Depends(require_admin)])
+def end_monitor_session_route(pid: str, sid: int, body: Dict[str, Any] = None):
+    """结束监护记录：设置 end_ts 和可选 summary。"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    body = body or {}
+    summary = body.get("summary", "")
+    result = icu.end_monitor_session(sid, summary)
+    return {"ok": True, **result}
+
+
+@app.get("/api/patients/{pid}/monitor/sessions", dependencies=[Depends(require_user)])
+def list_patient_monitor_sessions(pid: str):
+    """列出某患者的所有监护记录。"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    sessions = icu.list_monitor_sessions(patient_id=p["id"])
+    for s in sessions:
+        s["duration_str"] = _duration_str(s.get("start_ts"), s.get("end_ts"))
+    return {"sessions": sessions, "total": len(sessions)}
 
 
 # ---------- AI 评估 ----------

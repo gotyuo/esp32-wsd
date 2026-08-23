@@ -123,13 +123,18 @@ bool MqttMgr::publishTelemetry(const EnvData &d, int alarm_level) {
     // 配合服务器端 UNIQUE(device_id, seq) 保证同一周期不重复入库。
     uint32_t seq = (uint32_t)(millis() / 1000);
 
-    char buf[256];
+    char ip_str[16] = "";
+    IPAddress localIP = WiFi.localIP();
+    snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d",
+             localIP[0], localIP[1], localIP[2], localIP[3]);
+
+    char buf[320];
     int n = snprintf(buf, sizeof(buf),
         "{\"device_id\":\"%s\""
         ",\"seq\":%lu"
         ",\"t\":%s,\"h\":%s,\"p\":%s"
         ",\"rssi\":%d,\"uptime\":%lu,\"alarm\":%d"
-        ",\"fw\":\"%s\",\"heap\":%u}",
+        ",\"fw\":\"%s\",\"heap\":%u,\"ip\":\"%s\"}",
         g_cfg.device_id,
         (unsigned long)seq,
         isnan(d.temp_c)   ? "null" : String(d.temp_c, 2).c_str(),
@@ -139,7 +144,8 @@ bool MqttMgr::publishTelemetry(const EnvData &d, int alarm_level) {
         (unsigned long)(millis() / 1000),
         alarm_level,
         FW_VERSION,
-        (unsigned)ESP.getFreeHeap());
+        (unsigned)ESP.getFreeHeap(),
+        ip_str);
 
     return _client.publish(_topicTele, buf, (size_t)n, false, 0);
 }
@@ -149,6 +155,11 @@ bool MqttMgr::publishVitals(const EnvData &d) {
 
     uint32_t seq = (uint32_t)(millis() / 1000);
 
+    char ip_str[16] = "";
+    IPAddress localIP = WiFi.localIP();
+    snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d",
+             localIP[0], localIP[1], localIP[2], localIP[3]);
+
     char buf[512];
     int n = snprintf(buf, sizeof(buf),
         "{\"device_id\":\"%s\""
@@ -157,7 +168,7 @@ bool MqttMgr::publishVitals(const EnvData &d) {
         ",\"sp_o2\":%s,\"pr_hr\":%s,\"ecg_hr\":%s"
         ",\"rr_bpm\":%s,\"glucose\":%s"
         ",\"temp_c\":%s,\"hum_pct\":%s,\"pres_hpa\":%s"
-        ",\"fw\":\"%s\"}",
+        ",\"fw\":\"%s\",\"ip\":\"%s\"}",
         g_cfg.device_id,
         (unsigned long)seq,
         isnan(d.sp_o2)   ? "null" : String(d.sp_o2, 1).c_str(),
@@ -168,7 +179,8 @@ bool MqttMgr::publishVitals(const EnvData &d) {
         isnan(d.temp_c)  ? "null" : String(d.temp_c, 2).c_str(),
         isnan(d.hum_pct) ? "null" : String(d.hum_pct, 2).c_str(),
         isnan(d.pres_hpa)? "null" : String(d.pres_hpa, 2).c_str(),
-        FW_VERSION);
+        FW_VERSION,
+        ip_str);
 
     return _client.publish(_topicTele, buf, (size_t)n, false, 0);
 }

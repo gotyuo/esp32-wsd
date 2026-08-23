@@ -154,6 +154,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab" data-view="monitor" onclick="switchView('monitor')">🖥 实时监护</span>
       <span class="vtab" data-view="patients" onclick="switchView('patients')">🏥 患者管理</span>
       <span class="vtab" data-view="devices" onclick="switchView('devices')">🖥 设备管理</span>
+      <span class="vtab" data-view="sessions" onclick="switchView('sessions')">📋 监护记录</span>
       <span class="vtab" data-view="alarms" onclick="switchView('alarms')">🚨 报警</span>
     </div>
   </div>
@@ -331,13 +332,13 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
   </div>
   <div class="m-panel">
-    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span></h4>
+    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo()">刷新</button><button class="secondary small" onclick="showAddIo()">+ 添加出入量</button></h4>
     <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
     <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
     <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
   </div>
   <div class="m-panel">
-    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs()">刷新</button></h4>
+    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs()">刷新</button><button class="secondary small" onclick="showAddLab()">+ 添加检验</button></h4>
     <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
   </div>
 </div>
@@ -384,6 +385,18 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     </div>
   </div>
 
+  <!-- ============= 监护记录 ============= -->
+  <div id="view-sessions" class="hidden">
+    <div class="section">
+      <h2>📋 监护记录 / MONITOR SESSIONS
+        <div class="actions" style="margin-top:0">
+          <button class="secondary small" onclick="loadMonitorSessionsView()">刷新</button>
+        </div>
+      </h2>
+      <div id="sessionsList"><div class="empty">加载中…</div></div>
+    </div>
+  </div>
+
   <!-- ============= 报警 ============= -->
   <div id="view-alarms" class="hidden">
     <div class="section">
@@ -412,8 +425,8 @@ function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"B
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","monitor","patients","devices","alarms"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="alarms")loadAlarms();}
+  ["dashboard","monitor","patients","devices","sessions","alarms"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -490,7 +503,18 @@ function loadDevices(pick){return api("/api/devices").then(function(d){var devs=
   var sel=$("devSel");sel.innerHTML=devs.map(function(x){return "<option value=\""+esc(x.id)+"\">"+esc(x.name||x.id)+"</option>";}).join("");
   if(!devs.length){sel.innerHTML="<option value=''>无设备</option>";DEV=null;}else if(!DEV||!devs.some(function(x){return x.id===DEV;})){DEV=devs[0].id;}sel.value=DEV||"";
   renderDeviceGrid(devs);$("devCount").textContent=devs.length+" 台";loadReal();loadHistory();loadTh();loadAlarms();return devs;}).catch(function(){return[];});}
-function switchDevice(){DEV=$("devSel").value;loadReal();loadHistory();loadTh();}
+function switchDevice(){DEV=$("devSel").value;loadReal();loadHistory();loadTh();
+  // Issue 2: 切换设备时同步监护页患者（通过设备当前活跃监护记录查找患者）
+  if(DEV){
+    api("/api/devices/"+encodeURIComponent(DEV)+"/active-patient").then(function(d){
+      if(d && d.patient_pid){
+        MONITOR_PID=d.patient_pid;
+        var mPidSel=$("mPid");
+        if(mPidSel){mPidSel.value=MONITOR_PID;}
+      }
+    }).catch(function(){});
+  }
+}
 function loadReal(){api("/api/realtime"+(DEV?"?device="+encodeURIComponent(DEV):"")).then(function(d){var list=d.devices||[];list.forEach(function(x){var L=x.latest;if(!L)return;
     $("vTemp").textContent=fmt(L.temp_c);$("vHum").textContent=fmt(L.hum_pct);$("vPres").textContent=fmt(L.pres_hpa,1);
     $("vRssi").textContent=(L.rssi==null?"--":L.rssi);
@@ -504,7 +528,13 @@ function loadReal(){api("/api/realtime"+(DEV?"?device="+encodeURIComponent(DEV):
     if(L.alarm_level>=2){["vitT","vitH","vitP"].forEach(function(id){$(""+id+"").classList.add("alarm");});}
     else if(L.alarm_level===1){["vitT","vitH","vitP"].forEach(function(id){$(""+id+"").classList.add("warn");});}
     else{$("vAlarm").textContent="状态正常";$("vAlarm").className="sub";["vitT","vitH","vitP"].forEach(function(id){$(""+id+"").classList.remove("alarm","warn");});}
-  });}).catch(function(){});}
+  });}).catch(function(e){
+    // Issue 2: 不再静默吞错，显示错误信息
+    var dd=$("devDot"),dl=$("devLabel");
+    if(dd)dd.className="dot off";
+    if(dl)dl.textContent="加载失败";
+    if($("lastSeen"))$("lastSeen").textContent="实时数据加载失败"+(e&&e.message?": "+e.message:"");
+  });}
 function paintAlarm(l){var el=$("vAlarm");if(l==2){el.textContent="🚨 ALARM LV2";el.className="sub bad";}else if(l==1){el.textContent="⚠ ALARM LV1";el.className="sub warn";}else{el.textContent="状态正常";el.className="sub ok";}}
 function loadHistory(){if(!DEV)return;api("/api/history?device="+encodeURIComponent(DEV)+"&hours="+RANGE).then(function(d){HIST=d.points||[];drawAll();}).catch(function(){});}
 function loadTh(){api("/api/thresholds?device="+(DEV?encodeURIComponent(DEV):"*")).then(function(t){
@@ -566,13 +596,15 @@ function showDeviceHistory(id){
         var who=(x.name?esc(x.name):""+(x.pid?" pid "+esc(x.pid):""));
         var bed=x.bed_no?" 床 "+esc(x.bed_no):"";
         var cls=(i===h.length-1)?"active":"";
-        return "<tr class='"+cls+"'><td>"+(i+1)+"</td><td>"+who+bed+"</td><td>"+fmtTime(x.linked_at)+"</td></tr>";
+        // Issue 3: 添加"查看监护记录"链接，跳转到该患者详情
+        var link = x.pid ? "<button class='secondary small' onclick='closeModal();showPatientDetail(\""+esc(x.pid)+"\")'>查看监护记录</button>" : "";
+        return "<tr class='"+cls+"'><td>"+(i+1)+"</td><td>"+who+bed+"</td><td>"+fmtTime(x.linked_at)+"</td><td>"+link+"</td></tr>";
       }).join("");
-      html+="<table><thead><tr><th>#</th><th>患者</th><th>关联时间</th></tr></thead><tbody>"+rows+"</tbody></table>";
+      html+="<table><thead><tr><th>#</th><th>患者</th><th>关联时间</th><th>操作</th></tr></thead><tbody>"+rows+"</tbody></table>";
     }
     html+="<div class='actions'><button class='secondary' onclick='closeModal()'>关闭</button></div>";
-    document.getElementById("modalInner").innerHTML=html;
-    document.getElementById("modalBox").classList.remove("hidden");
+    $("modalInner").innerHTML=html;
+    $("modalBox").classList.remove("hidden");
   }).catch(function(){toast("加载历史失败","alarm");closeModal();});
 }
 
@@ -771,11 +803,16 @@ function showPatientDetail(pid){
       +"<div style='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px'>"
         +devs.map(function(d){return "<span class='tag'>"+esc(d.device_name||d.device_id)+" "+(d.online?"🟢":"🔴")+(d.fw_version?" <span class='small'>"+esc(d.fw_version)+"</span>":"")+"</span>";}).join("")||"<span class='empty'>未关联</span>"
       +"</div>"
+      // Issue 5: 监护记录按钮
+      +"<div class='row' style='gap:6px;margin-bottom:14px'>"
+        +"<button class='success small' onclick=\"startMonitorSession('"+pid+"')\">开始监护</button>"
+        +"<button class='warn small' onclick=\"showMonitorSessions('"+pid+"')\">监护记录</button>"
+      +"</div>"
       +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin-bottom:6px'>近 6 小时体征 ("+vit.length+" 条)</h3>"
       +"<table style='font-size:11px'><thead><tr><th>时间</th><th>源</th><th>SpO2</th><th>PR</th><th>ECG</th><th>RR</th><th>SBP</th><th>DBP</th><th>℃</th><th>Glu</th></tr></thead><tbody>"+vitHtml+"</tbody></table>"
-      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin:14px 0 6px'>医嘱 / 用药 ("+ord.length+" 条)</h3>"
+      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin:14px 0 6px'>医嘱 / 用药 ("+ord.length+" 条) <button class='secondary small' onclick=\"closeModal();MONITOR_PID='"+pid+"';showAddOrder()\">+ 添加医嘱</button></h3>"
       +"<table style='font-size:11px'><thead><tr><th>开始</th><th>编号</th><th>药品</th><th>剂量</th><th>途径</th><th>泵速mL/h</th><th>状态</th><th>操作</th></tr></thead><tbody>"+ordHtml+"</tbody></table>"
-      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin:14px 0 6px'>检验 / LIS ("+lab.length+" 条)</h3>"
+      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin:14px 0 6px'>检验 / LIS ("+lab.length+" 条) <button class='secondary small' onclick=\"closeModal();MONITOR_PID='"+pid+"';showAddLab()\">+ 添加检验</button></h3>"
       +"<table style='font-size:11px'><thead><tr><th>时间</th><th>项目</th><th>结果</th><th>参考</th><th>危急值</th></tr></thead><tbody>"+labHtml+"</tbody></table>"
     +"</div>";
     $("modalBox").classList.remove("hidden");
@@ -903,6 +940,45 @@ function doAddOrder(){
   api("/api/patients/"+pid+"/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
     toast("医嘱已录入");closeModal();loadOrders();
   }).catch(function(e){toast("保存失败: "+(e.message||""),"alarm");});
+}
+
+// Issue 4: showAddLab — 添加检验结果
+function showAddLab(){
+  var pid=MONITOR_PID;if(!pid){alert("请先选择患者");return;}
+  $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>ADD LAB · 添加检验</h2>"
+    +"<div class='kv'>"
+    +"<label>项目名称 *</label><input id='lItemName' maxlength='64' placeholder='如 血常规、血气分析' required>"
+    +"<label>项目代码</label><input id='lItemCode' maxlength='20' placeholder='如 HGB、K、Na'>"
+    +"<label>结果值 *</label><input id='lValue' type='number' step='0.01' required>"
+    +"<label>单位</label><input id='lUnit' maxlength='16' placeholder='g/L、mmol/L、...'>"
+    +"<label>参考下限</label><input id='lRefMin' type='number' step='0.01'>"
+    +"<label>参考上限</label><input id='lRefMax' type='number' step='0.01'>"
+    +"<label>危急值</label><div class='switchrow'><input type='checkbox' id='lCritical'><span>标记为危急值（超出参考范围自动标危急）</span></div>"
+    +"<label>来源</label><select id='lSource'><option value='lis'>LIS</option><option value='blood_gas'>血气</option><option value='manual'>手动</option></select>"
+    +"</div>"
+    +"<div style='font-size:11px;color:var(--dim);margin-top:8px'>患者 "+esc(pid)+"</div>"
+    +"<div class='actions'><button onclick='doAddLab()'>保存检验</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+  $("modalBox").classList.remove("hidden");
+}
+function doAddLab(){
+  var pid=MONITOR_PID;
+  var body={source:$("lSource").value,item_code:$("lItemCode").value.trim(),
+    item_name:$("lItemName").value.trim(),
+    value:parseFloat($("lValue").value),
+    unit:$("lUnit").value.trim(),
+    ref_min:$("lRefMin").value?parseFloat($("lRefMin").value):null,
+    ref_max:$("lRefMax").value?parseFloat($("lRefMax").value):null,
+    critical:$("lCritical").checked};
+  if(!body.item_name){alert("请输入项目名称");return;}
+  if(body.value==null||isNaN(body.value)){alert("请输入结果值");return;}
+  api("/api/patients/"+pid+"/lab",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
+    toast("检验结果已录入");closeModal();loadLabs();
+  }).catch(function(e){toast("保存失败: "+(e.message||""),"alarm");});
+}
+
+// Issue 4: showAddIo — 添加出入量（showIoForm 的别名 + 独立入口）
+function showAddIo(){
+  showIoForm();
 }
 
 function loadOrders(){
@@ -1097,6 +1173,122 @@ function showDeviceDiscover(){
 function registerDiscovered(id){
   api("/api/devices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device_id:id,name:""})}).then(function(){
     toast("已注册设备 "+id);loadDevices();showDeviceDiscover();}).catch(function(){});
+}
+
+// ==================== 监护记录 (Issue 5) ====================
+function loadMonitorSessionsView(){
+  api("/api/monitor/sessions?limit=200").then(function(d){
+    var sessions=d.sessions||[];
+    if(!sessions.length){$("sessionsList").innerHTML='<div class="empty">暂无监护记录</div>';return;}
+    $("sessionsList").innerHTML="<table><thead><tr><th>患者</th><th>床号</th><th>设备</th><th>开始时间</th><th>结束时间</th><th>持续</th><th>状态</th><th>摘要</th><th>操作</th></tr></thead><tbody>"
+      +sessions.map(function(s){
+        var st=s.end_ts?'<span class="ok">已结束</span>':'<span class="bad">进行中</span>';
+        return "<tr><td>"+esc(s.name||s.pid||"-")+"</td>"
+          +"<td>"+esc(s.bed_no||"-")+"</td>"
+          +"<td>"+esc(s.device_id||"-")+"</td>"
+          +"<td>"+fmtTime(s.start_ts)+"</td>"
+          +"<td>"+(s.end_ts?fmtTime(s.end_ts):"-")+"</td>"
+          +"<td>"+esc(s.duration_str||"-")+"</td>"
+          +"<td>"+st+"</td>"
+          +"<td>"+esc(s.summary||"-")+"</td>"
+          +"<td><button class='secondary small' onclick=\"showSessionDetail("+s.id+")\">详情</button></td></tr>";
+      }).join("")
+      +"</tbody></table>";
+  }).catch(function(){$("sessionsList").innerHTML='<div class="empty">加载失败</div>';});
+}
+
+function showSessionDetail(sid){
+  api("/api/monitor/sessions/"+sid).then(function(d){
+    var s=d.session||{};
+    var vit=d.vitals||[], ord=d.orders||[], lab=d.labs||[], io=d.io_logs||[];
+    var vitHtml=vit.slice(-20).map(function(v){
+      return "<tr><td>"+fmtTime(v.ts)+"</td><td>"+esc(v.source)+"</td>"
+        +"<td>"+(v.ecg_hr!=null?v.ecg_hr.toFixed(0):"-")+"</td>"
+        +"<td>"+(v.sp_o2!=null?v.sp_o2.toFixed(0):"-")+"</td>"
+        +"<td>"+(v.sbp!=null?v.sbp.toFixed(0):"-")+"/"+(v.dbp!=null?v.dbp.toFixed(0):"-")+"</td>"
+        +"<td>"+(v.rr_bpm!=null?v.rr_bpm.toFixed(0):"-")+"</td>"
+        +"<td>"+(v.temp_c!=null?v.temp_c.toFixed(1):"-")+"</td></tr>";
+    }).join("");
+    var ordHtml=ord.map(function(o){
+      return "<tr><td>"+fmtTime(o.start_ts)+"</td><td>"+esc(o.drug_name||"-")+"</td>"
+        +"<td>"+esc(o.dosage||"-")+"</td><td>"+esc(o.route||"-")+"</td>"
+        +"<td>"+(o.status==="active"?"运行中":"已停")+"</td></tr>";
+    }).join("");
+    var labHtml=lab.map(function(l){
+      return "<tr><td>"+fmtTime(l.result_ts)+"</td><td>"+esc(l.item_name||"-")+"</td>"
+        +"<td>"+(l.value!=null?l.value.toFixed(2):"-")+" "+esc(l.unit||"")+"</td>"
+        +"<td>"+(l.critical?"<span class='bad'>危急</span>":"-")+"</td></tr>";
+    }).join("");
+    var ioHtml=io.map(function(e){
+      return "<tr><td>"+fmtTime(e.ts)+"</td><td>"+esc(e.direction)+"</td>"
+        +"<td>"+esc(e.kind)+"</td><td>"+(e.amount_ml||0).toFixed(0)+" mL</td></tr>";
+    }).join("");
+    $("modalInner").innerHTML="<div style='max-height:70vh;overflow:auto'>"
+      +"<h2 style='font-size:14px;color:var(--sub);letter-spacing:1px'>监护记录详情 · "+esc(s.pid||"-")+" "+esc(s.name||"")+"</h2>"
+      +"<div class='grid' style='margin:8px 0 14px'>"
+        +"<span>床号 <b>"+esc(s.bed_no||"-")+"</b></span>"
+        +"<span>设备 <b>"+esc(s.device_id||"-")+"</b></span>"
+        +"<span>开始 <b>"+fmtTime(s.start_ts)+"</b></span>"
+        +"<span>结束 <b>"+(s.end_ts?fmtTime(s.end_ts):"进行中")+"</b></span>"
+        +"<span>持续 <b>"+esc(s.duration_str||"-")+"</b></span>"
+      +"</div>"
+      +(s.summary?"<div style='margin-bottom:14px;padding:8px;background:var(--panel2);border-radius:4px;font-size:12px'><b>摘要：</b>"+esc(s.summary)+"</div>":"")
+      +"<h3 style='font-size:12px;color:var(--sub);margin-bottom:6px'>体征 ("+vit.length+" 条)</h3>"
+      +"<table style='font-size:11px'><thead><tr><th>时间</th><th>源</th><th>HR</th><th>SpO2</th><th>BP</th><th>RR</th><th>℃</th></tr></thead><tbody>"+vitHtml+"</tbody></table>"
+      +"<h3 style='font-size:12px;color:var(--sub);margin:14px 0 6px'>医嘱 ("+ord.length+" 条)</h3>"
+      +"<table style='font-size:11px'><thead><tr><th>开始</th><th>药品</th><th>剂量</th><th>途径</th><th>状态</th></tr></thead><tbody>"+ordHtml+"</tbody></table>"
+      +"<h3 style='font-size:12px;color:var(--sub);margin:14px 0 6px'>检验 ("+lab.length+" 条)</h3>"
+      +"<table style='font-size:11px'><thead><tr><th>时间</th><th>项目</th><th>结果</th><th>危急</th></tr></thead><tbody>"+labHtml+"</tbody></table>"
+      +"<h3 style='font-size:12px;color:var(--sub);margin:14px 0 6px'>出入量 ("+io.length+" 条)</h3>"
+      +"<table style='font-size:11px'><thead><tr><th>时间</th><th>方向</th><th>类别</th><th>量</th></tr></thead><tbody>"+ioHtml+"</tbody></table>"
+      +"<div class='actions' style='margin-top:14px'><button class='secondary' onclick='closeModal()'>关闭</button></div>"
+      +"</div>";
+    $("modalBox").classList.remove("hidden");
+  }).catch(function(){toast("加载监护记录失败","alarm");closeModal();});
+}
+
+function startMonitorSession(pid){
+  // 从已关联设备中找第一个设备作为监护设备
+  api("/api/patients/"+pid+"/devices").then(function(d){
+    var devs=d.devices||[];
+    var devId=devs.length?devs[0].device_id:null;
+    var body=devId?{device_id:devId}:{};
+    api("/api/patients/"+pid+"/monitor/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){
+      toast("已开始监护 (ID:"+r.session_id+")");
+      showMonitorSessions(pid);
+    }).catch(function(e){toast("开始监护失败: "+(e.message||""),"alarm");});
+  }).catch(function(){toast("获取设备列表失败","alarm");});
+}
+
+function showMonitorSessions(pid){
+  api("/api/patients/"+pid+"/monitor/sessions").then(function(d){
+    var sessions=d.sessions||[];
+    var html="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>监护记录 · "+esc(pid)+"</h2>";
+    if(!sessions.length){html+="<div class='empty'>暂无监护记录</div>";}
+    else{
+      html+="<table><thead><tr><th>开始</th><th>结束</th><th>持续</th><th>设备</th><th>状态</th><th>摘要</th><th>操作</th></tr></thead><tbody>";
+      sessions.forEach(function(s){
+        var st=s.end_ts?'<span class="ok">已结束</span>':'<span class="bad">进行中</span>';
+        var endBtn=s.end_ts?'':'<button class="warn small" onclick="endMonitorSession('+s.id+',\''+pid+'\')">结束监护</button>';
+        html+="<tr><td>"+fmtTime(s.start_ts)+"</td><td>"+(s.end_ts?fmtTime(s.end_ts):"-")+"</td>"
+          +"<td>"+esc(s.duration_str||"-")+"</td><td>"+esc(s.device_id||"-")+"</td>"
+          +"<td>"+st+"</td><td>"+esc(s.summary||"-")+"</td>"
+          +"<td><button class='secondary small' onclick='showSessionDetail("+s.id+")'>详情</button>"+endBtn+"</td></tr>";
+      });
+      html+="</tbody></table>";
+    }
+    html+="<div class='actions'><button class='secondary' onclick='closeModal()'>关闭</button></div>";
+    $("modalInner").innerHTML=html;
+    $("modalBox").classList.remove("hidden");
+  }).catch(function(){toast("加载监护记录失败","alarm");closeModal();});
+}
+
+function endMonitorSession(sid, pid){
+  var summary=prompt("请输入监护摘要（可选）：","")||"";
+  api("/api/patients/"+pid+"/monitor/"+sid+"/end",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({summary:summary})}).then(function(){
+    toast("监护已结束");
+    showMonitorSessions(pid);
+  }).catch(function(e){toast("结束监护失败: "+(e.message||""),"alarm");});
 }
 
 // ==================== AI 评估 ====================

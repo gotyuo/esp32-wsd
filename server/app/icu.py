@@ -370,6 +370,80 @@ def io_balance(patient_id: int, hours: int = 24) -> Dict:
             "net_ml": round(inc - out, 1), "hours": hours}
 
 
+# ---------- 监护记录 ----------
+
+def start_monitor_session(patient_id: int, device_id: str = None) -> Dict:
+    """为患者开启一段监护记录。若该患者已有未结束的监护，先自动结束旧的。"""
+    now = _now()
+    # 自动结束该患者之前的未结束监护
+    open_sess = fetchone(
+        "SELECT id FROM monitor_sessions WHERE patient_id=? AND end_ts IS NULL ORDER BY start_ts DESC LIMIT 1",
+        (patient_id,),
+    )
+    if open_sess:
+        run("UPDATE monitor_sessions SET end_ts=? WHERE id=?", (now, open_sess["id"]))
+    sid = run(
+        "INSERT INTO monitor_sessions (patient_id, device_id, start_ts, created_at) VALUES (?,?,?,?)",
+        (patient_id, device_id, now, now),
+    )
+    return {"session_id": sid, "patient_id": patient_id, "device_id": device_id, "start_ts": now}
+
+
+def end_monitor_session(session_id: int, summary: str = None) -> Dict:
+    """结束一段监护记录。"""
+    now = _now()
+    run("UPDATE monitor_sessions SET end_ts=?, summary=? WHERE id=? AND end_ts IS NULL",
+        (now, summary, session_id))
+    return {"session_id": session_id, "end_ts": now, "summary": summary}
+
+
+def list_monitor_sessions(patient_id: int = None, device_id: str = None,
+                          start: str = None, end: str = None,
+                          limit: int = 200) -> List[Dict]:
+    """查询监护记录列表，可按患者/设备/日期范围过滤。"""
+    sql = ("SELECT ms.*, p.pid, p.name, p.bed_no "
+           "FROM monitor_sessions ms "
+           "LEFT JOIN patients p ON p.id=ms.patient_id WHERE 1=1")
+    params: list = []
+    if patient_id is not None:
+        sql += " AND ms.patient_id=?"
+        params.append(patient_id)
+    if device_id:
+        sql += " AND ms.device_id=?"
+        params.append(device_id)
+    if start:
+        sql += " AND ms.start_ts>=?"
+        params.append(start)
+    if end:
+        sql += " AND ms.start_ts<=?"
+        params.append(end)
+    sql += " ORDER BY ms.start_ts DESC LIMIT ?"
+    params.append(limit)
+    return fetchall(sql, tuple(params))
+
+
+def get_monitor_session(session_id: int) -> Optional[Dict]:
+    """获取单条监护记录详情。"""
+    return fetchone(
+        "SELECT ms.*, p.pid, p.name, p.bed_no, p.diagnosis "
+        "FROM monitor_sessions ms "
+        "LEFT JOIN patients p ON p.id=ms.patient_id WHERE ms.id=?",
+        (session_id,),
+    )
+
+
+def active_session_for_device(device_id: str) -> Optional[Dict]:
+    """查询某设备当前活跃的监护记录（用于切换设备时同步患者）。"""
+    return fetchone(
+        "SELECT ms.*, p.pid, p.name, p.bed_no "
+        "FROM monitor_sessions ms "
+        "LEFT JOIN patients p ON p.id=ms.patient_id "
+        "WHERE ms.device_id=? AND ms.end_ts IS NULL "
+        "ORDER BY ms.start_ts DESC LIMIT 1",
+        (device_id,),
+    )
+
+
 # ---------- AI 评估 ----------
 def _trend_arrow(vals: List[float]) -> str:
     """根据序列斜率返回 ↗ / ➡ / ↘ —— 用最近 3 点 vs 更早 3 点加权比较"""

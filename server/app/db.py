@@ -106,6 +106,24 @@ def _pre_migrate(conn: sqlite3.Connection) -> None:
 
 
 def _post_migrate(conn: sqlite3.Connection) -> None:
+    # Issue 5: 监护记录表 — 患者在某设备上的监护时间段。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS monitor_sessions ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE, "
+        "device_id TEXT, "
+        "start_ts TEXT NOT NULL, "
+        "end_ts TEXT, "
+        "summary TEXT, "
+        "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_monitor_sessions_patient ON monitor_sessions(patient_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_monitor_sessions_device ON monitor_sessions(device_id)"
+    )
     # 设备-患者历史表：记录同设备历次分配给不同患者的时间线。
     conn.execute(
         "CREATE TABLE IF NOT EXISTS device_patient_history ("
