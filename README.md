@@ -88,6 +88,7 @@ sudo docker run --rm -v "$PWD/..:/work/firmware" -w /work/firmware \
 | v2.2 | 2026-08-18 | 实时监护 Tab + 出入量 + AI 规则评估 + 端口 12090 |
 | v2.3 | 2026-08-23 | ESP8266 双平台固件 + 医嘱/设备历史/聚光灯大屏 |
 | v2.4 | 2026-08-24 | 患者管理并排多行展示 + Docker 固件烧录环境 |
+| v2.5 | 2026-08-25 | 固件集成 MAX30102 血氧 + AD8232 心电 |
 
 ## 引脚速查
 
@@ -101,7 +102,8 @@ sudo docker run --rm -v "$PWD/..:/work/firmware" -w /work/firmware \
 | 喇叭 PWM | 21 |
 | RGB LED R/G/B | 15/16/17 |
 | 蜂鸣器 | 18 |
-| ECG / Pulse / Breath ADC | 25 / 27 / 14 |
+| ECG(AD8232) / Pulse(PPG) / Breath ADC | 1 / 2 / 3 |
+| 血氧/脉率(MAX30102, I2C) | 8(SDA) / 9(SCL) |
 
 ### ESP8266 (ESP-12F)
 
@@ -114,6 +116,9 @@ sudo docker run --rm -v "$PWD/..:/work/firmware" -w /work/firmware \
 | 串口 | GPIO1(TX) / GPIO3(RX) |
 
 > ESP8266 无屏幕、无体征 ADC、无 OTA；配网走 WiFi AP + Web 页面，状态用 LED 颜色指示。
+
+> 血氧/脉率由 **MAX30102**（I2C，与 AHT20/BMP280 并联，地址 0x57）、
+> 心电心率由 **AD8232**（模拟输出→GPIO1，5V 供电）负责，固件已集成并上报 `sp_o2/pr_hr/ecg_hr`。
 
 ## 技术栈
 
