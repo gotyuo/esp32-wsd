@@ -81,7 +81,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 
 /* ===== 设备网格 ===== */
 .devgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:14px;align-items:stretch}
-#pGrid .devcard{display:flex;flex-direction:column}
+#pGrid .devcard{display:flex;flex-direction:column;min-width:0} #pGrid .devcard > *{min-width:0}
 #pGrid .devcard .k{display:flex;flex-direction:column;flex:1}
 #pGrid .devcard .k .grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;font-size:12px;margin:6px 0;flex:0 0 auto}
 #pGrid .devcard .k .grid span{color:var(--dim);white-space:nowrap}
