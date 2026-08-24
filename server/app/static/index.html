@@ -80,7 +80,14 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .sw{width:14px;height:3px;border-radius:1px}
 
 /* ===== 设备网格 ===== */
-.devgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-bottom:14px}
+.devgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:14px;align-items:stretch}
+#pGrid .devcard{display:flex;flex-direction:column}
+#pGrid .devcard .k{display:flex;flex-direction:column;flex:1}
+#pGrid .devcard .k .grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;font-size:12px;margin:6px 0;flex:0 0 auto}
+#pGrid .devcard .k .grid span{color:var(--dim);white-space:nowrap}
+#pGrid .devcard .k .grid span b{color:var(--txt);font-weight:600}
+#pGrid .devcard .k .sub,#pGrid .devcard .k .tag{font-size:11px;color:var(--dim);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#pGrid .devcard .v{display:flex;gap:6px;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);flex:0 0 auto}
 .devcard{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;transition:transform .12s,border-color .2s}
 .devcard:hover{border-color:var(--blue);transform:translateY(-2px)}
 .devcard.alarm{border-color:var(--red)}
@@ -669,7 +676,7 @@ function loadPatients(){
           +'<div class="name">'+alarmIcon+' '+esc(p.pid)+' <span class="small">'+esc(p.name||"")+'</span></div>'
           +'<div class="grid">'
             +'<span>床号 <b>'+esc(p.bed_no||"-")+'</b></span>'
-            +'<span>年龄 <b>'+p.age+'岁</b></span>'
+            +'<span>年龄 <b>'+(p.age!=null?p.age:'-')+'</b> 岁</span>'
             +'<span>主管 <b>'+esc(p.doctor||"-")+'</b></span>'
           +'</div>'
           +'<div class="sub">诊断: '+esc(p.diagnosis||"-")+'</div>'
