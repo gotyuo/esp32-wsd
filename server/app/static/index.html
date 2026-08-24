@@ -167,7 +167,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   </div>
   <div class="left">
     <span class="badge"><span id="timeNow">--</span></span>
-    <span class="badge" id="wsState">WS 连接中…</span>
+    <span class="badge" id="wsState">WS 连接中…</span><span class="badge" style="cursor:pointer;color:#3fb6ff" onclick="window.open('/dashboard','_blank')" title="打开重症监护大屏(聚光灯轮播)">🖥 大屏展示</span>
     <button class="secondary small" onclick="loadAll()">刷新</button>
     <div class="menu">
       <button class="secondary menuBtn" onclick="toggleMenu(event)">👤 <span id="userName">-</span> ▾</button>
