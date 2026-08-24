@@ -96,14 +96,24 @@ G 阳极        ───→  220Ω ──→ D7 (GPIO13)
 
 ## 四、烧录命令
 
+```
+# 本机 PlatformIO（已装 python3 + platformio）
+cd firmware
+sudo -E $(which pio) run -e esp8266
+sudo -E $(which pio) run -e esp8266 -t upload --upload-port /dev/ttyUSB0
+
+# 或通过 Docker 一键（免装 PlatformIO，见 firmware/docker/README.md）
+cd firmware/docker
+sudo docker build -t envmon-firmware .
+sudo docker run --rm --device=/dev/ttyUSB0 \
+  -v "$PWD/..:/work/firmware" -w /work/firmware \
+  envmon-firmware esp8266 /dev/ttyUSB0
+```
+
+> 串口识别：CP210x/CP2102 通常为 `/dev/ttyUSB0`（`dmesg | grep ttyUSB` 确认），CH340 通常为 `/dev/ttyACM0`。
+> 端口权限不足加 `--group-add dialout` 或把当前用户加入 `dialout` 组。
+
 ```bash
-# 编译
-cd /home/hotyuo/tio/firmware
-pio run -e esp8266
-
-# 烧录（先进入烧录模式：按 FLASH + RESET）
-pio run -e esp8266 -t upload --upload-port /dev/ttyUSB0
-
 # 串口监视
 pio device monitor -e esp8266 --port /dev/ttyUSB0
 ```
