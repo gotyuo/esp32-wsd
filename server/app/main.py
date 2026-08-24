@@ -408,7 +408,8 @@ app = FastAPI(title="EnvMon Backend", version="2.0.0", lifespan=lifespan)
 # ================================================================ 页面
 @app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"),
+                        headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
 # 禁缓存：本地 ICU 内网改前端不用清浏览器缓存；静态文件直接从磁盘读，无需 rebuild。
@@ -697,7 +698,8 @@ def realtime(device: Optional[str] = None):
 # ================================================================ 大屏（公开，无需登录，适合投屏）
 @app.get("/dashboard", include_in_schema=False)
 def dashboard_page():
-    return FileResponse(os.path.join(STATIC_DIR, "dashboard.html"))
+    return FileResponse(os.path.join(STATIC_DIR, "dashboard.html"),
+                        headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
 @app.get("/api/dashboard")

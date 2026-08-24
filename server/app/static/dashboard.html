@@ -35,17 +35,53 @@ h1{font-size:clamp(20px,2.4vmin,38px);font-weight:600;letter-spacing:1px}
 #bar{flex-shrink:0;margin-top:1vmin;background:#0c1224;border:1px solid #1c2748;border-radius:.9vmin;padding:.85vmin 1vmin;display:flex;gap:2vmin;align-items:center;overflow-x:auto;font-size:clamp(11px,1.1vmin,15px)}
 #bar .seg{white-space:nowrap;display:flex;align-items:center;gap:.4em}
 #bar .seg .v{color:#21d07a;font-weight:600;font-variant-numeric:tabular-nums}
+#grid{position:relative}
+#grid{position:relative}
+#app{position:relative}
+#spotlight{position:absolute;left:0;right:0;top:0;bottom:0;display:none;flex-direction:column;justify-content:center;align-items:stretch;padding:3.5vmin 4vmin;z-index:20;pointer-events:none}
+#spotlight.on{display:flex}
+#spotlight .spot-inner{background:linear-gradient(160deg,#0d1630,#070b16);border:1px solid #243456;border-radius:1.1vmin;padding:2.4vmin 3vmin;display:flex;flex-direction:column;gap:1.6vmin;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);pointer-events:auto}
+.spotlight{position:absolute;inset:0;background:linear-gradient(160deg,#0d1630,#070b16);border:1px solid #243456;border-radius:1.1vmin;padding:2.2vmin 3vmin;display:none;flex-direction:column;gap:1.4vmin;z-index:5;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+.spotlight.on{display:flex}
+.spot-head{display:flex;align-items:baseline;gap:1.6vmin;border-bottom:1px solid #1c2748;padding-bottom:1vmin}
+.spot-name{font-size:clamp(26px,4.5vmin,72px);font-weight:700;letter-spacing:1px}
+.spot-bed{font-size:clamp(13px,1.8vmin,28px);color:#8a99c4}
+.spot-meta{font-size:clamp(12px,1.4vmin,22px);color:#7b87ad}
+.spot-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1.2vmin;flex:1;align-content:center}
+.spot-kv .item{background:#0a1122;border:1px solid #1c2748;border-radius:.9vmin;padding:1vmin 1.4vmin;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.spot-kv .lbl{font-size:clamp(11px,1.3vmin,20px);color:#7b87ad;letter-spacing:1px}
+.spot-kv .val{font-size:clamp(26px,4vmin,60px);font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.warn{color:#ff5470 !important}
+.spot-foot{display:flex;justify-content:space-between;align-items:center;gap:1.5vmin;font-size:clamp(11px,1.2vmin,18px);color:#6f7ba0}
+.spot-orders{display:flex;flex-wrap:wrap;gap:.6vmin;max-width:60%}
+.spot-orders .pill{background:#121d3a;border:1px solid #2a3c66;border-radius:999px;padding:.25em .7em;color:#b48cff}
+.spot-nav{display:flex;gap:1vmin;align-items:center}
+.spot-nav button{background:#0c1224;border:1px solid #243456;color:#e8eefc;border-radius:.6vmin;padding:.4em 1em;font-size:clamp(12px,1.2vmin,18px);cursor:pointer}
+.spot-nav button:hover{border-color:#3fb6ff}
+.spot-nav .cn{font-variant-numeric:tabular-nums;color:#8a99c4}
+.spot-bar{position:absolute;left:0;bottom:0;height:6px;background:#3fb6ff;width:0;transition:width .4s linear;border-radius:0 1vmin 0 0}
+#settings{display:none;position:absolute;top:1.2vmin;right:1.2vmin;z-index:6;background:#0c1224;border:1px solid #243456;border-radius:.9vmin;padding:1.2vmin 1.5vmin;font-size:clamp(12px,1.2vmin,17px);box-shadow:0 10px 30px rgba(0,0,0,.5)}
+#settings.on{display:block}
+#settings .row{display:flex;align-items:center;gap:.6em;margin:0 0 .6vmin}
+#settings label{color:#8a99c4;white-space:nowrap}
+#settings input[type=number]{width:4.2em;padding:.35em .4em;background:#0a1122;border:1px solid #243456;border-radius:.4vmin;color:#e8eefc;font-size:clamp(12px,1.2vmin,17px)}
+#settings .save{color:#21d07a;margin-left:.4em;cursor:pointer}
+#settings .save:hover{color:#fff}
+#bar .mode{display:flex;gap:1vmin;align-items:center;white-space:nowrap}
+#bar .mode button{background:#0a1122;border:1px solid #243456;color:#8a99c4;border-radius:.5vmin;padding:.3em .9em;font-size:clamp(11px,1.1vmin,15px);cursor:pointer}
+#bar .mode button.on{border-color:#3fb6ff;color:#3fb6ff}
 @media(max-width:500px){#app{padding:.6vmin}#bar{gap:1vmin}}
 </style>
 </head>
 <body>
-<div id="app">
+<div id="app"><div id="spotlight"><div class="spot-inner"><div class="spot-head"></div><div class="spot-kv"></div><div class="spot-foot"></div><div class="spot-bar"></div></div></div>
 <header>
  <h1>🏥 EnvMon 重症监护大屏</h1>
- <div class="meta"><span class="live"><b></b>实时</span> · <span id="clock">--</span> · 患者 <b id="ptn">0</b></div>
+ <div class="meta"><span class="live"><b></b>实时</span> · <span id="clock">--</span> · 患者 <b id="ptn">0</b> · <span style="cursor:pointer;color:#3fb6ff" onclick="toggleSettings()">⚙ 设置</span></div> <span style="font-size:clamp(10px,1.1vmin,14px);color:#8a99c4;display:flex;gap:.5vmin;align-items:center"><button id="mGrid" onclick="setMode('grid')" style="background:#0c1224;border:1px solid #243456;color:#8a99c4;border-radius:.5vmin;padding:.3em .9em;font-size:clamp(10px,1.1vmin,14px);cursor:pointer">网格</button><button id="mSpot" onclick="setMode('spot')" style="background:#0c1224;border:1px solid #243456;color:#8a99c4;border-radius:.5vmin;padding:.3em .9em;font-size:clamp(10px,1.1vmin,14px);cursor:pointer">聚光灯轮播</button></span>
 </header>
+<div id="settings"><div class="row"><label>展示时长(秒)</label><input type="number" id="stSec" min="3" max="60" value="15"> <span class="save" onclick="saveInterval()">保存</span></div><div class="row"><label>当前模式</label><span id="stMode">网格</span></div></div>
 <div id="grid"><div class="load">加载中…</div></div>
-<div id="bar"><span>环境监测：加载中…</span></div>
+<div id="bar"><b style="color:#8a99c4">环境：</b><span id="envBox">环境监测：加载中…</span></div>
 </div>
 <script>
 const GRID=document.getElementById('grid'),BAR=document.getElementById('bar'),CLK=document.getElementById('clock'),PTN=document.getElementById('ptn');
@@ -66,24 +102,68 @@ function card(p){
  return '<div class="'+cls+'"><div class="pt-head"><span class="pt-name">'+(p.name||'床位'+p.bed_no||'患者'+p.pid||'#'+p.id)+'</span><span class="pt-bed">'+(p.bed_no||'P'+p.id)+'</span></div><div class="kv">'+cells+'</div><div class="foot"><span>'+devTxt+'</span><span>'+ts+(p.active_alarms?' 🔴'+p.active_alarms:'')+'</span></div></div>';
 }
 function envBar(env){
- if(!env.length){BAR.innerHTML='<span>环境监测：无数据</span>';return}
- let html='<b style="color:#8a99c4">环境：</b>';
+ var envBox=document.getElementById("envBox");
+ if(!env.length){if(envBox)envBox.innerHTML='<span>无环境数据</span>';return}
+ let html='';
  env.forEach(d=>{
    const on=d.online;const t=d.temp_c,h=d.hum_pct,p=d.pres_hpa;
    html+='<span class="seg"><span class="dot '+(on?'on':'off')+'"></span>'+((d.name||d.device_id))+' <span class="v">'+(t==null?'-':t.toFixed(1))+'°C</span> '+(h==null?'-':h.toFixed(0))+'% P'+(p==null?'-':p.toFixed(0))+'hPa</span>';
  });
- BAR.innerHTML=html;
+ if(envBox)envBox.innerHTML=html;
 }
 function ageLabel(a){if(a==null)return'';return a<60?a+'s前':(a/60|0)+'m前'}
 async function tick(){
  try{
   const r=await fetch('/api/dashboard?'+Date.now());const d=await r.json();
-  GRID.innerHTML=(d.patients&&d.patients.length)?d.patients.map(card).join(''):'<div class="empty">暂无患者数据（请先在管理端添加患者并关联设备）</div>';
+  STATE.patients=d.patients||[];
+  if(STATE.mode==='grid'){
+    GRID.innerHTML=(STATE.patients.length)?STATE.patients.map(card).join(''):'<div class="empty">暂无患者数据（请先在管理端添加患者并关联设备）</div>';
+    SPOT.classList.remove('on');cancelAnimationFrame(STATE.raf);
+  } else {
+    GRID.innerHTML=(STATE.patients.length)?STATE.patients.map(card).join(''):'<div class="empty">暂无患者数据（请先在管理端添加患者并关联设备）</div>';
+    if(STATE.patients.length){if(!SPOT.classList.contains('on')){runSpot();}else{spotCard(STATE.patients[STATE.idx%STATE.patients.length]);}}
+  }
   PTN.textContent=d.total||0;CLK.textContent=new Date(d.now).toLocaleString('zh-CN',{hour12:false})+' UTC';
   envBar(d.environment||[]);
  }catch(e){GRID.innerHTML='<div class="empty">刷新失败，请检查服务器</div>';console.warn(e)}
 }
 (function clk(){CLK.textContent=new Date().toLocaleString('zh-CN',{hour12:false});setTimeout(clk,1000)})();
+(function init(){try{var m=localStorage.getItem('dash.mode');if(m){MGRID.classList.toggle('on',m==='grid');MSPOT.classList.toggle('on',m==='spot');ST_MODE.textContent=m==='grid'?'网格':'聚光灯轮播';STATE.mode=m;}var v=localStorage.getItem('dash.interval');if(v){var n=parseInt(v,10);if(!isNaN(n)&&n>=3&&n<=60){ST_SEC.value=n;STATE.intervalSec=n;}}}catch(e){}})();
+
+const SPOT=document.getElementById('spotlight'),SPOT_BAR=document.querySelector('.spot-bar'),SETTINGS=document.getElementById('settings'),ST_SEC=document.getElementById('stSec'),ST_MODE=document.getElementById('stMode'),MGRID=document.getElementById('mGrid'),MSPOT=document.getElementById('mSpot');
+var STATE={mode:'grid',intervalSec:15,patients:[],idx:0,raf:null};
+function toggleSettings(){SETTINGS.classList.toggle('on')}
+function saveInterval(){var v=Math.max(3,Math.min(60,parseInt(ST_SEC.value,10)||15));ST_SEC.value=v;STATE.intervalSec=v;try{localStorage.setItem('dash.interval',String(v))}catch(e){}}
+function setMode(m){STATE.mode=m;MGRID.classList.toggle('on',m==='grid');MSPOT.classList.toggle('on',m==='spot');ST_MODE.textContent=m==='grid'?'网格':'聚光灯轮播';try{localStorage.setItem('dash.mode',m)}catch(e){}tick();}
+function fmtSpotVal(u){
+ var vv=STATE.curV[u];if(vv==null||isNaN(vv))return{text:'--',warn:false};
+ var isInt=Number.isInteger(vv);var dp=(isInt)?0:((vv<10)?1:0);
+ var shown=isInt?vv:String(vv).length>8?vv.toFixed(1):parseFloat(vv.toFixed(dp));
+ var txt=isInt?String(vv):(String(shown));
+ var w=(THRESH[u]&&vv<THRESH[u][0])||(THRESH[u]&&vv>THRESH[u][1]);
+ return{text:txt+' '+UNIT[u],warn:w};
+}
+function spotCard(p){
+ var v=p.vitals||{};STATE.curV=v;
+ var cells=VITALS.map(function(u){var f=fmtSpotVal(u);return '<div class="item"><span class="lbl">'+LBL[u]+'</span><span class="val c-'+CLR[u]+(f.warn?' warn':'')+'">'+f.text+'</span></div>';}).join('');
+ var head='<div class="spot-head"><span class="spot-name">'+(p.name||'床位'+p.bed_no||'患者'+p.pid||'#'+p.id)+'</span><span class="spot-bed">'+(p.bed_no||('P'+p.pid))+'</span></div><div class="spot-meta">'+(p.diagnosis?'诊断：'+p.diagnosis:'')+(p.doctor?('· 主管：'+p.doctor):'')+'</div>';
+ var orders=(p.orders||[]).slice(0,6).map(function(o){return '<span class="pill">'+(o.drug_name||o.order_no||'医嘱')+(o.rate_mlph!=null?' @'+o.rate_mlph+'mL/h':'')+'</span>';}).join('');
+ var foot='<div class="spot-foot"><div class="spot-orders">'+(orders||'<span>无运行中医嘱</span>')+'</div><div class="spot-nav"><button onclick="spotPrev()">◀ 上一位</button><span class="cn">'+(STATE.idx+1)+'/'+STATE.patients.length+'</span><button onclick="spotNext()">下一位 ▶</button></div></div>';
+ SPOT.querySelector('.spot-head').innerHTML=head;SPOT.querySelector('.spot-kv').innerHTML=cells;SPOT.querySelector('.spot-foot').innerHTML=foot;
+ SPOT_BAR.style.width='0%';
+}
+function runSpot(){
+ if(STATE.patients.length===0)return;
+ SPOT.classList.add('on');
+ spotCard(STATE.patients[STATE.idx%STATE.patients.length]);
+ var dur=STATE.intervalSec*1000, start=performance.now();
+ cancelAnimationFrame(STATE.raf);
+ function step(t){var pr=Math.min(100,(t-start)/dur*100);SPOT_BAR.style.width=pr+'%';
+  if((t-start)<dur){STATE.raf=requestAnimationFrame(step);}else{STATE.idx=(STATE.idx+1)%STATE.patients.length;SPOT.classList.remove('on');tick();}}
+ STATE.raf=requestAnimationFrame(step);
+}
+function spotNext(){STATE.idx=(STATE.idx+1)%STATE.patients.length;tick();}
+function spotPrev(){STATE.idx=(STATE.idx-1+STATE.patients.length)%STATE.patients.length;tick();}
 tick();setInterval(tick,5000);
 </script>
 </body>
