@@ -4,9 +4,12 @@
 //  - STA 模式：连接已保存 WiFi，断线自动重连（指数退避）
 //  - AP 配网模式：无配置或长按复位时，开启热点 + 网页配置
 //    （DNS 劫持 captive portal，手机连热点后访问任意网址即弹出）
+//  - LAN 自动发现：server_mode==0 且未保存 MQTT host 时，
+//    在多播组 239.255.1.1:12091 上广播发现服务器
 // ============================================================
 #include <Arduino.h>
 #include <functional>
+#include <WiFiUdp.h>
 #include "config_store.h"
 
 enum NetMode : uint8_t {
@@ -14,7 +17,6 @@ enum NetMode : uint8_t {
     MODE_AP
 };
 
-// 配网完成后由主程序重启使用
 typedef std::function<void(const DeviceConfig &)> ConfigSavedCb;
 
 class NetManager {
@@ -22,23 +24,25 @@ public:
     void begin();
     void loop();
 
-    // 进入 AP 配网模式（长按复位或无配置时调用）
     void startAP();
     bool inAPMode() const { return _mode == MODE_AP; }
 
-    // STA 状态
     bool wifiConnected() const;
     bool staHasConfig() const { return _cfg->has_wifi(); }
 
     String apSSID() const { return _ap_ssid; }
     void onConfigSaved(ConfigSavedCb cb) { _onSaved = cb; }
-
     void setConfig(DeviceConfig *cfg) { _cfg = cfg; }
+
+    // LAN 自动发现（public：main loop 需要调用）
+    void startDiscover();
+    int  discoverLoop(uint32_t now);   // 0=继续 1=已发现(重启) -1=超时(回AP)
+    void stopDiscover();
+    bool inDiscovery() const { return _discActive; }
 
 private:
     void startSTA();
     void tryReconnect();
-    // AP 内部
     void handleRoot();
     void handleSave();
     void handleScan();
@@ -56,12 +60,18 @@ private:
     ConfigSavedCb _onSaved;
     bool     _portalRunning = false;
 
-    // 异步 WiFi 扫描缓存（避免 handleScan 阻塞导致手机断线）
     String  _scanCache;
     uint32_t _scanStartedAt = 0;
     bool    _scanBusy = false;
     void buildScanCache(int n);
-    void requestScan();   // 手动触发一次后台异步扫描
+    void requestScan();
+
+    // LAN 自动发现状态
+    WiFiUDP _udp;
+    bool    _udpBound = false;
+    bool    _discActive = false;
+    uint32_t _discLastSent = 0;
+    uint32_t _discStartAt  = 0;
 };
 
 extern NetManager g_net;

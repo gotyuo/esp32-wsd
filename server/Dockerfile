@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 应用代码
 COPY app ./app
+COPY scripts ./scripts
 COPY schema.sql .
 
 # SQLite 数据目录

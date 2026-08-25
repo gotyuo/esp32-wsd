@@ -33,6 +33,10 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 .netrow .ss{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .netrow .meta{color:#64748b;font-size:12px;flex-shrink:0;margin-left:10px}
 .btn-close{margin-top:14px;background:#334155}
+.mopt{display:inline-block;padding:7px 12px;border-radius:20px;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:14px;cursor:pointer;user-select:none}
+.mopt.on{background:#0ea5e9;color:#0f172a;border-color:#0ea5e9;font-weight:600}
+.mopt .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#94a3b8;margin-right:6px;vertical-align:middle}
+.mopt.on .dot{background:#0f172a}
 </style></head><body>
 <h2>环境监测站 配网</h2>
 <form method="POST" action="/save">
@@ -49,8 +53,11 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 <div class="hint">点按钮弹出扫描结果，点击一个网络自动填入上方名称。</div>
 </div>
 <div class="card"><b>服务器（MQTT）</b>
+<div class="card-mode" style="display:flex;gap:8px;margin-bottom:10px"><label class="mopt on" id="m_auto" onclick="switchMode('auto')"><span class="dot"></span>局域网自动发现</label><label class="mopt" id="m_manual" onclick="switchMode('manual')"><span class="dot"></span>手动指定</label></div>
+<div class="hint" id="m_hint">局域网自动发现：设备上电后在同一无线网下自动找到服务器并上报，无需手动填地址。</div>
+<div id="m_manual_box">
 <label>服务器地址（IP 或域名）</label>
-<input name="host" placeholder="例如 192.168.1.100" required>
+<input name="host" id="m_host" placeholder="例如 192.168.1.100"></div>
 <label>MQTT 端口</label>
 <input name="port" type="number" value="18830">
 <label>MQTT 用户名</label>
@@ -58,14 +65,30 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 <label>MQTT 密码</label>
 <input name="mpass" type="password">
 <label>设备编号</label>
-<input name="devid" placeholder="留空自动生成">
+<input name="devid" placeholder="留空自动生成"><input type="hidden" name="smode" id="m_smode" value="0">
 <label>上报间隔（秒）</label>
 <input name="interval" type="number" value="10" min="3">
 </div>
 <button type="submit">保存并连接</button>
 <div class="hint">保存后设备将自动重启并连接网络。</div>
 </form>
-<script>var _ssid = document.getElementById('ssid2');
+<script>function switchMode(m){
+  var auto=document.getElementById("m_auto");
+  var man=document.getElementById("m_manual");
+  var box=document.getElementById("m_manual_box");
+  var host=document.getElementById("m_host");
+  var hint=document.getElementById("m_hint");
+  if(m==="auto"){auto.className="mopt on";man.className="mopt";
+    box.style.display="none";host.removeAttribute("required");
+    hint.textContent="局域网自动发现：设备上电后在同一无线网下自动找到服务器并上报，无需手动填地址。";
+    host.value="";}
+  else{man.className="mopt on";auto.className="mopt";
+    box.style.display="block";host.setAttribute("required","required");
+    hint.textContent="手动指定：填写服务器公网 IP/域名，外网可直达。";}
+  document.getElementById("m_smode").value = m==="manual" ? "1" : "0";
+}
+document.getElementById("m_smode").value = "0";
+var _ssid = document.getElementById('ssid2');
 var _refBtn = document.getElementById('refBtn');
 function _lock(){ return ' 🔒'; }
 function _popup(){
@@ -275,7 +298,9 @@ void NetManager::handleSave() {
         memset(c.ap_ssid, 0, sizeof(c.ap_ssid));
         apssid.toCharArray(c.ap_ssid, sizeof(c.ap_ssid));
     }
-    web.arg("host").toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
+    c.server_mode = (uint8_t)web.arg("smode").toInt();
+    String host = web.arg("host");
+    if (host.length() > 0) host.toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
     c.mqtt_port = (uint16_t)web.arg("port").toInt();
     if (c.mqtt_port == 0) c.mqtt_port = 18830;
     web.arg("user").toCharArray(c.mqtt_user, sizeof(c.mqtt_user));
@@ -295,4 +320,104 @@ void NetManager::handleSave() {
     Serial.println(F("[NET] Config saved, rebooting in 1.5s"));
     delay(1500);
     ESP.restart();
+}
+// =================== 局域网自动发现（UDP 多播 beacon） ===================
+// 服务器端 UDP 12091 监听；ESP 在 LAN 发现模式下周期广播 "ENVMON?"，
+// 收到服务端 JSON 应答后立即保存配置并重启，进入正常 MQTT 上报。
+// 应答 JSON: {"ip":"192.168.1.100","port":18830,"user":"envmon","pass":"envmon"}
+// 无第三方依赖，极简 JSON 解析
+static const int DISC_PORT = 12091;
+static const char DISC_MCAST_IP[] = "239.255.1.1";
+static const char DISC_REQ[] = "ENVMON?";
+static const uint32_t DISC_SEND_INTERVAL = 4000;   // 每 4s 发一次
+static const uint32_t DISC_TIMEOUT = 45000;       // 45s 超时回 AP
+
+void NetManager::startDiscover() {
+    if (_udpBound) _udp.stop();
+    if (_udp.beginMulticast(IPAddress(239, 255, 1, 1), DISC_PORT) == 0) {
+        Serial.println(F("[DISC] UDP multicast begin failed"));
+        _udpBound = false;
+        return;
+    }
+    _udpBound = true;
+    _discLastSent = 0;
+    _discStartAt  = millis();
+    _discActive   = true;
+    Serial.printf("[DISC] mode=LAN discover, send every %us, timeout %us\n",
+                  DISC_SEND_INTERVAL / 1000, DISC_TIMEOUT / 1000);
+}
+
+void NetManager::stopDiscover() {
+    if (_udpBound) { _udp.stop(); _udpBound = false; }
+    _discActive = false;
+}
+
+// 抠出 "key":"value" 或 "key":number；只匹配 JSON 键（前缀 { 或 ,）
+static bool jsonPop(const String &j, const char *key, String &val) {
+    String tgt = "\"" + String(key) + "\"";
+    int p = 0;
+    while (true) {
+        int i = j.indexOf(tgt, p);
+        if (i < 0) return false;
+        if (i > 0) {
+            char b = j.charAt(i - 1);
+            if (b != '{' && b != ',') { p = i + 1; continue; }
+        }
+        int c = j.indexOf(':', i + 1);
+        if (c < 0) return false;
+        int start = j.indexOf('"', c);
+        if (start >= 0 && start < (int)j.length()) {
+            int end = j.indexOf('"', start + 1);
+            if (end < 0) return false;
+            val = j.substring(start + 1, end);
+            return true;
+        }
+        int s2 = c + 1;
+        while (s2 < (int)j.length() && (j[s2] == ' ' || j[s2] == '\t')) s2++;
+        int e2 = s2;
+        while (e2 < (int)j.length() && j[e2] != ',' && j[e2] != '}') e2++;
+        val = j.substring(s2, e2);
+        return true;
+    }
+}
+
+int NetManager::discoverLoop(uint32_t now) {
+    if (!_discActive) return 0;
+    // 超时 -> 回到 AP 配网
+    if (now - _discStartAt > DISC_TIMEOUT) {
+        Serial.println(F("[DISC] timeout -> back to AP portal"));
+        stopDiscover();
+        return -1;
+    }
+    // 周期 beacon
+    if ((now - _discLastSent) > DISC_SEND_INTERVAL) {
+        _discLastSent = now;
+        _udp.beginPacket(IPAddress(239, 255, 1, 1), DISC_PORT);
+        _udp.print(DISC_REQ);
+        _udp.endPacket();
+    }
+    int n = _udp.parsePacket();
+    if (n <= 0) return 0;
+    String buf; buf.reserve(n + 1);
+    while (_udp.available()) buf += (char)_udp.read();
+    Serial.printf("[DISC] reply len=%d: %s\n", buf.length(), buf.c_str());
+
+    String ip, port, user, psw;
+    if (!jsonPop(buf, "ip", ip) || ip.length() == 0) return 0;
+    jsonPop(buf, "port", port);
+    if (port.isEmpty()) port = "18830";
+    jsonPop(buf, "user", user);
+    jsonPop(buf, "pass", psw);
+
+    strcpy(_cfg->mqtt_host, ip.c_str());
+    _cfg->mqtt_port = (uint16_t)port.toInt();
+    if (_cfg->mqtt_port == 0) _cfg->mqtt_port = 18830;
+    if (user.length() > 0) strcpy(_cfg->mqtt_user, user.c_str());
+    if (psw.length() > 0)  strcpy(_cfg->mqtt_pass, psw.c_str());
+    _cfg->server_mode = 1;   // 发现成功后标记为手动，避免重启再扫
+    stopDiscover();
+    Serial.printf("[DISC] got server %s:%d, saving & rebooting\n",
+                  _cfg->mqtt_host, _cfg->mqtt_port);
+    g_cfgStore.save(*_cfg);
+    return 1;
 }

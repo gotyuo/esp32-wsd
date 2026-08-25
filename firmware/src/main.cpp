@@ -149,8 +149,9 @@ void setup() {
     g_net.setConfig(&g_cfg);
     g_net.begin();
 
-    // 根据保存的 MQTT host 自动推断 OTA 服务器
-    ota_set_server((String(g_cfg.mqtt_host) + ":" + String(g_cfg.mqtt_port)).c_str(), nullptr);
+    // 根据保存的 MQTT host 自动推断 OTA 服务器（空 host 时 OTA 暂不检查）
+    String _otaHost = String(g_cfg.mqtt_host) + ":" + String(g_cfg.mqtt_port);
+    ota_set_server(_otaHost.length() > 1 ? _otaHost.c_str() : nullptr, nullptr);
 
     initMic();  // 初始化麦克风
 
@@ -186,6 +187,37 @@ void loop() {
         g_mqttReady = true;
     }
     if (g_mqttReady) g_mqtt.loop();
+
+    // ---------- 局域网自动发现（LAN 模式且尚未连上 MQTT 时） ----------
+    if (!g_mqttReady && g_net.wifiConnected()
+            && g_cfg.server_mode == 0 && !g_cfg.has_mqtt()) {
+        if (!g_net.inDiscovery()) {
+            g_net.startDiscover();
+        }
+        int disc = g_net.discoverLoop(now);
+        if (disc == 1) {
+            Serial.println(F("[MAIN] server discovered -> restarting to apply"));
+            delay(500);
+            ESP.restart();
+        } else if (disc == -1) {
+            // 超时未收到应答：退回到 AP 配网让用户手动指定
+            Serial.println(F("[MAIN] discovery failed -> entering AP portal"));
+            g_net.startAP();
+        }
+    }
+
+    // ---------- TTS 语音播报处理 ----------
+    {
+        int ttsLevel = 0;
+        String ttsText = g_mqtt.takeTtsText(&ttsLevel);
+        if (ttsText.length() > 0) {
+            Serial.printf("[TTS] %s (level=%d)\n", ttsText.c_str(), ttsLevel);
+            // 屏幕显示播报文本（3 秒）
+            g_ui.showTtsMessage(ttsText);
+            // 喇叭提示音
+            playTtsAlert(ttsLevel);
+        }
+    }
 
     // ---------- 传感器采样（每 2s） ----------
     if (now - g_lastRead >= 2000) {

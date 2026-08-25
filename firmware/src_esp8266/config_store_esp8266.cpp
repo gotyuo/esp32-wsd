@@ -20,6 +20,7 @@ void ConfigStore::begin() {
 bool ConfigStore::load(DeviceConfig &cfg) {
     memset(&cfg, 0, sizeof(cfg));
     cfg.mqtt_port       = 18830;
+    cfg.server_mode     = 0;          // 默认=自动发现(LAN)
     cfg.report_interval = 10;
     cfg.temp_min = 5.0f;   cfg.temp_max = 40.0f;
     cfg.hum_min  = 20.0f;  cfg.hum_max  = 90.0f;

@@ -45,6 +45,7 @@ bool ConfigStore::load(DeviceConfig &cfg) {
     s = _prefs.getString("user", "");      s.toCharArray(cfg.mqtt_user, sizeof(cfg.mqtt_user));
     s = _prefs.getString("mpass", "");     s.toCharArray(cfg.mqtt_pass, sizeof(cfg.mqtt_pass));
     cfg.mqtt_port       = _prefs.getUShort("port", 18830);
+    cfg.server_mode     = (uint8_t)_prefs.getUShort("smode", 0);   // 默认=自动发现
     cfg.report_interval = _prefs.getUShort("interval", 10);
     s = _prefs.getString("devid", cfg.device_id);
     s.toCharArray(cfg.device_id, sizeof(cfg.device_id));
@@ -68,6 +69,7 @@ bool ConfigStore::save(const DeviceConfig &cfg) {
     _prefs.putString("user", cfg.mqtt_user);
     _prefs.putString("mpass", cfg.mqtt_pass);
     _prefs.putUShort("port", cfg.mqtt_port);
+    _prefs.putUShort("smode", cfg.server_mode);
     _prefs.putUShort("interval", cfg.report_interval);
     _prefs.putString("devid", cfg.device_id);
     _prefs.putFloat("tmin", cfg.temp_min);

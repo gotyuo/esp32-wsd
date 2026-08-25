@@ -4,6 +4,7 @@
 # 非常规端口设计（降低扫描风险）:
 #   MQTT 对外 18830（设备接入）
 #   Web  对外 8627 （管理仪表盘/API）
+#   TTS  对内 10200（Piper 本地语音合成，不对外暴露）
 # 可通过 .env 文件覆盖: MQTT_PORT / WEB_PORT / MQTT_USER / MQTT_PASS / ADMIN_TOKEN
 # ============================================================
 services:
@@ -21,6 +22,27 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  # Piper 本地神经 TTS 服务器（Wyoming 协议）
+  # 文本不出内网，合成后返回 16kHz mono WAV
+  # 语音模型默认 zh_CN-huayan-medium（中文），首次启动自动从 HuggingFace 下载
+  piper:
+    image: linuxserver/piper:2.4.2
+    container_name: envmon-tts
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Shanghai
+      # 必填：语音模型，格式 <语言>-<名称>-<质量>
+      - PIPER_VOICE=${TTS_VOICE:-zh_CN-huayan-medium}
+      # 离线模式：模型已下载后可设为 true，不再请求在线 voices.json
+      # - LOCAL_ONLY=true
+    volumes:
+      - ./piper-config:/config
+    # Wyoming TCP 10200，仅容器间网络访问（不对外暴露端口）
+    expose:
+      - "10200"
 
   backend:
     build: .
@@ -41,7 +63,37 @@ services:
       - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-168}
       - RAW_RETENTION_DAYS=${RAW_RETENTION_DAYS:-7}
       - MINUTE_RETENTION_DAYS=${MINUTE_RETENTION_DAYS:-400}
+      # Piper TTS 服务器地址（Wyoming 协议）
+      - TTS_HOST=piper
+      - TTS_PORT=10200
+      - TTS_VOICE=${TTS_VOICE:-zh_CN-huayan-medium}
+      # 语音播报开关（1=开启报警自动语音，0=关闭）
+      - TTS_ENABLED=${TTS_ENABLED:-1}
     volumes:
       - ./data:/data
+    depends_on:
+      - mosquitto
+      - piper
+
+  # 局域网设备自动发现应答器（UDP 多播）
+  # 设备端在 LAN 模式下广播 "ENVMON?" 到 239.255.1.1:12091，
+  # 本服务回复 {"ip":<本机LAN IP>,"port":18830,"user":...,"pass":...}，
+  # 设备据此自动保存配置并重启，无需手动填服务器地址。
+  # 采用 network_mode: host，直接监听宿主机网卡并发送多播。
+  discovery:
+    build: .
+    container_name: envmon-discovery
+    restart: unless-stopped
+    network_mode: host
+    command: python /app/scripts/envmon-discovery.py
+    environment:
+      - DISC_MCAST=239.255.1.1
+      - DISC_PORT=12091
+      - DISC_REQ=ENVMON?
+      - MQTT_PORT=18830
+      - MQTT_USER=${MQTT_USER:-envmon}
+      - MQTT_PASS=${MQTT_PASS:-envmon-secret}
+      # DISC_IP: 留空则自动探测本机多播接口 IP；如需指定，填 <本机 LAN IP>
+      # DISC_IFACE: 留空则自动；多网卡环境可填 eth0 / wlan0
     depends_on:
       - mosquitto

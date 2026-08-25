@@ -24,6 +24,8 @@ struct DeviceConfig {
     char     mqtt_user[MAX_USER_LEN + 1];
     char     mqtt_pass[MAX_PASS_LEN + 1];
     char     device_id[MAX_DEV_LEN + 1];
+    // 服务器接入模式: 0=局域网自动发现(LAN beacon), 1=手动指定(填入 mqtt_host)
+    uint8_t  server_mode;
     // 上报间隔（秒）
     uint16_t report_interval;
     // 报警阈值

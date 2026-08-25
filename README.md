@@ -33,9 +33,12 @@ tio/
 ## 快速开始（后端）
 
 ```bash
-cd server && docker compose up -d          # 端口 12090:Web / 18830:MQTT
+cd server && docker compose up -d          # 端口 12090:Web / 18830:MQTT / 12091:UDP 设备发现
 # 首次 admin 账号由 bootstrap 生成；登录 http://<IP>:12090
+# docker compose up -d 会自动拉起 discovery 服务，设备 LAN 模式下开机即自动发现服务器
 ```
+
+> **设备首次接入（v2.3）**：设备开 AP 配网 → 手机连 `ENVMON-XXXXXX` → 打开配网页 → 保持默认「局域网自动发现」模式，填好 WiFi SSID/密码后保存。设备连上同一无线网后自动广播 UDP 探测，收到 discovery 服务应答后自动保存 MQTT 配置并重启上线，**无需手填服务器 IP**。外网/固定 IP 场景：切换为「手动指定」模式并填写地址。
 
 ## 固件构建 & 烧录（本机 PlatformIO）
 

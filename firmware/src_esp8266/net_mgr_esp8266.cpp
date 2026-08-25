@@ -40,6 +40,10 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 .netrow .ss{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .netrow .meta{color:#64748b;font-size:12px;flex-shrink:0;margin-left:10px}
 .btn-close{margin-top:14px;background:#334155}
+.mopt{display:inline-block;padding:7px 12px;border-radius:20px;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:14px;cursor:pointer;user-select:none}
+.mopt.on{background:#0ea5e9;color:#0f172a;border-color:#0ea5e9;font-weight:600}
+.mopt .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#94a3b8;margin-right:6px;vertical-align:middle}
+.mopt.on .dot{background:#0f172a}
 </style></head><body>
 <h2>环境监测站 (ESP8266) 配网</h2>
 <form method="POST" action="/save">
@@ -52,8 +56,10 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 <div class="hint">点按钮弹出扫描结果，点击一个网络自动填入上方名称。</div>
 </div>
 <div class="card"><b>服务器（MQTT）</b>
-<label>服务器地址</label>
-<input name="host" placeholder="例如 192.168.1.100" required>
+<div class="card-mode" style="display:flex;gap:8px;margin-bottom:10px"><label class="mopt on" id="m_auto" onclick="switchMode('auto')"><span class="dot"></span>局域网自动发现</label><label class="mopt" id="m_manual" onclick="switchMode('manual')"><span class="dot"></span>手动指定</label></div>
+<div class="hint" id="m_hint">局域网自动发现：同一无线网下自动找到服务器并上报。</div>
+<div id="m_manual_box"><label>服务器地址</label>
+<input name="host" id="m_host" placeholder="例如 192.168.1.100"></div>
 <label>MQTT 端口</label>
 <input name="port" type="number" value="18830">
 <label>MQTT 用户名</label>
@@ -61,7 +67,7 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 <label>MQTT 密码</label>
 <input name="mpass" type="password" value="envmon">
 <label>设备编号</label>
-<input name="devid" placeholder="留空自动生成">
+<input name="devid" placeholder="留空自动生成"><input type="hidden" name="smode" id="m_smode" value="0">
 <label>上报间隔（秒）</label>
 <input name="interval" type="number" value="10" min="3">
 </div>
@@ -69,6 +75,21 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 <div class="hint">保存后设备将自动重启并连接网络。</div>
 </form>
 <script>
+function switchMode(m){
+var auto=document.getElementById("m_auto");
+var man=document.getElementById("m_manual");
+var box=document.getElementById("m_manual_box");
+var host=document.getElementById("m_host");
+var hint=document.getElementById("m_hint");
+if(m==="auto"){auto.className="mopt on";man.className="mopt";
+box.style.display="none";host.removeAttribute("required");
+hint.textContent="局域网自动发现：同一无线网下自动找到服务器并上报。";host.value="";}
+else{man.className="mopt on";auto.className="mopt";
+box.style.display="block";host.setAttribute("required","required");
+hint.textContent="手动指定：填写服务器公网IP/域名，外网可直达。";}
+document.getElementById("m_smode").value=m==="manual"?"1":"0";
+}
+document.getElementById("m_smode").value="0";
 var _ssid=document.getElementById('ssid2');
 var _refBtn=document.getElementById('refBtn');
 function _popup(){
@@ -216,7 +237,9 @@ void NetManager::handleSave() {
     memset(c.wifi_pass, 0, sizeof(c.wifi_pass));
     ssid.toCharArray(c.wifi_ssid, sizeof(c.wifi_ssid));
     web.arg("pass").toCharArray(c.wifi_pass, sizeof(c.wifi_pass));
-    web.arg("host").toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
+    c.server_mode = (uint8_t)web.arg("smode").toInt();
+    String _h=web.arg("host");
+    if (_h.length()>0) _h.toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
     c.mqtt_port = (uint16_t)web.arg("port").toInt();
     if (c.mqtt_port == 0) c.mqtt_port = 18830;
     web.arg("user").toCharArray(c.mqtt_user, sizeof(c.mqtt_user));

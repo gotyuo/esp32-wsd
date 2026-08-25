@@ -24,6 +24,7 @@ struct DeviceConfig {
     char     mqtt_user[MAX_USER_LEN + 1];
     char     mqtt_pass[MAX_PASS_LEN + 1];
     char     device_id[MAX_DEV_LEN + 1];
+    uint8_t  server_mode;   // 0=LAN发现 1=手动
     uint16_t report_interval;
     float    temp_min, temp_max;
     float    hum_min,  hum_max;
