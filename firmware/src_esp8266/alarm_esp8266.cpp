@@ -14,8 +14,6 @@ void AlarmDevice::begin() {
     pinMode(PIN_LED_R, OUTPUT);
     pinMode(PIN_LED_G, OUTPUT);
     setRGB(false, false);
-    pinMode(PIN_BUZZER, OUTPUT);
-    buzzerOff();
 }
 
 void AlarmDevice::setRGB(bool r, bool g) {
@@ -23,13 +21,8 @@ void AlarmDevice::setRGB(bool r, bool g) {
     digitalWrite(PIN_LED_G, g ? HIGH : LOW);
 }
 
-void AlarmDevice::buzzerOn(uint32_t freq) {
-    tone(PIN_BUZZER, freq);
-}
-
-void AlarmDevice::buzzerOff() {
-    noTone(PIN_BUZZER);
-}
+void AlarmDevice::buzzerOn(uint32_t freq) { (void)freq; }  // 蜂鸣器已移除（D5 改作 I2C 时钟）
+void AlarmDevice::buzzerOff() { }
 
 static int band(float v, float lo, float hi) {
     if (isnan(v)) return 0;
