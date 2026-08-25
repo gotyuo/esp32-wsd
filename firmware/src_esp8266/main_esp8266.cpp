@@ -1,7 +1,8 @@
 // ============================================================
 // EnvMon ESP8266 固件主程序
 //
-// 数据流: AHT20/BMP280 -> 采样 -> 阈值判定 -> LED/蜂鸣器 -> MQTT
+// 数据流: AHT20/BMP280 -> 采样 -> 阈值判定 -> LED -> MQTT
+// OLED: 0.96" SSD1306 (u8g2 库, 软件 I2C, SDA=GPIO2/SCL=GPIO14)
 //
 // 串口调试命令(115200):
 //   config   立即进入 AP 配网模式
@@ -10,17 +11,18 @@
 // ============================================================
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
+#include <U8g2lib.h>
 #include "pins_esp8266.h"
 #include "config_store_esp8266.h"
 #include "sensors_esp8266.h"
 #include "alarm_esp8266.h"
 #include "net_mgr_esp8266.h"
 #include "mqtt_mgr_esp8266.h"
-#include "ssd1306.h"
 
-static SensorHub   g_sensors;
-static Ssd1306     g_oled;
+// u8g2 SSD1306 128x64, 软件 I2C: (rotation, clock=SCL, data=SDA, reset)
+U8G2_SSD1306_128X64_NONAME_F_SW_I2C g_oled(U8G2_R0, /*clock=*/ PIN_OLED_SCL, /*data=*/ PIN_OLED_SDA, /*reset=*/ U8X8_PIN_NONE);
 static bool        g_oledOk = false;
+static SensorHub   g_sensors;
 static AlarmDevice g_alarm;
 static EnvData     g_last;
 static uint32_t    g_lastRead = 0;
@@ -30,34 +32,57 @@ static uint32_t    g_lastOled = 0;
 
 static void renderOled() {
     if (!g_oledOk) return;
-    g_oled.clear();
-    g_oled.drawString(2, 0, "EnvMon v" FW_VERSION);
-    g_oled.drawString(2, 8, "ESP8266");
+    g_oled.clearBuffer();
+    g_oled.setFont(u8g2_font_6x10_tr);
+
+    // 标题行
+    char line[24];
+    snprintf(line, sizeof(line), "EnvMon v%s", FW_VERSION);
+    g_oled.drawStr(2, 9, line);
+    g_oled.drawStr(2, 19, "ESP8266");
+
+    // WiFi 信号条
     int8_t rssi = g_net.wifiConnected() ? WiFi.RSSI() : 127;
     uint8_t bars = 0;
     if (rssi >= -50) bars = 4;
     else if (rssi >= -65) bars = 3;
     else if (rssi >= -78) bars = 2;
     else if (rssi >= -90) bars = 1;
-    g_oled.drawWifiBars(104, 1, bars);
-    g_oled.drawLineH(2, 17, OLED_W - 4, 1);
-    g_oled.drawString(2, 20, "Temp :");
-    g_oled.drawNumFP(58, 20, g_last.temp_c, 1);
-    g_oled.drawString(96, 20, "C");
-    g_oled.drawString(2, 29, "Hum  :");
-    g_oled.drawNumFP(58, 29, g_last.hum_pct, 1);
-    g_oled.drawString(96, 29, "%");
-    g_oled.drawString(2, 38, "Pres :");
-    g_oled.drawNum(58, 38, (int32_t)g_last.pres_hpa);
-    g_oled.drawString(96, 38, "hPa");
-    g_oled.drawLineH(2, 47, OLED_W - 4, 1);
-    const char *wifiTxt = g_net.wifiConnected() ? "WiFi OK" : "No WiFi";
-    const char *mqttTxt = g_mqttReady ? "MQTT OK" : "MQTT -";
-    g_oled.drawString(2, 50, wifiTxt);
-    g_oled.drawString(2, 58, mqttTxt);
-    g_oled.drawString(70, 58, "lvl:");
-    g_oled.drawNum(96, 58, (int32_t)g_alarm.level());
-    g_oled.flush();
+    for (int i = 0; i < 4; i++) {
+        uint8_t h = 2 + i * 2;
+        if (i < bars) g_oled.drawBox(102 + i * 6, 17 - h, 4, h);
+        else          g_oled.drawFrame(102 + i * 6, 17 - h, 4, h);
+    }
+
+    // 分隔线
+    g_oled.drawHLine(2, 21, 124);
+
+    // 温湿度气压
+    g_oled.drawStr(2, 32, "Temp :");
+    snprintf(line, sizeof(line), "%.1f", g_last.temp_c);
+    g_oled.drawStr(52, 32, line);
+    g_oled.drawStr(90, 32, "C");
+
+    g_oled.drawStr(2, 43, "Hum  :");
+    snprintf(line, sizeof(line), "%.1f", g_last.hum_pct);
+    g_oled.drawStr(52, 43, line);
+    g_oled.drawStr(90, 43, "%");
+
+    g_oled.drawStr(2, 54, "Pres :");
+    snprintf(line, sizeof(line), "%d", (int)g_last.pres_hpa);
+    g_oled.drawStr(52, 54, line);
+    g_oled.drawStr(90, 54, "hPa");
+
+    // 底部状态
+    g_oled.drawHLine(2, 57, 124);
+    const char *wifiTxt = g_net.wifiConnected() ? "WIFI" : "wifi";
+    const char *mqttTxt = g_mqttReady ? "MQTT" : "mqtt";
+    g_oled.drawStr(2, 64, wifiTxt);
+    g_oled.drawStr(40, 64, mqttTxt);
+    snprintf(line, sizeof(line), "lvl:%d", (int)g_alarm.level());
+    g_oled.drawStr(80, 64, line);
+
+    g_oled.sendBuffer();
 }
 
 static void handleSerialCmd() {
@@ -99,19 +124,17 @@ void setup() {
     if (!g_sensors.begin()) {
         Serial.println(F("[BOOT] WARNING: sensors unavailable"));
     }
-    if (g_oled.beginSoftware(PIN_OLED_SCL, PIN_OLED_SDA, OLED_ADDR)) {
-        g_oledOk = true;
-        Serial.println(F("[BOOT] OLED 0.96\" OK"));
-    } else {
-        g_oledOk = false;
-        Serial.println(F("[BOOT] OLED not found (continue without screen)"));
-    }
-    if (g_oledOk) {
-        g_oled.clear();
-        g_oled.drawString(4, 20, "EnvMon starting...");
-        g_oled.drawString(4, 32, "please wait");
-        g_oled.flush();
-    }
+
+    // OLED: u8g2 初始化 (软件 I2C SCL=GPIO14, SDA=GPIO2)
+    g_oled.begin();
+    g_oled.clearBuffer();
+    g_oled.setFont(u8g2_font_6x10_tr);
+    g_oled.drawStr(2, 12, "EnvMon starting...");
+    g_oled.drawStr(2, 26, "ESP8266 v" FW_VERSION);
+    g_oled.sendBuffer();
+    g_oledOk = true;
+    Serial.println(F("[BOOT] OLED 0.96\" u8g2 OK (SDA=GPIO2 SCL=GPIO14)"));
+
     g_net.setConfig(&g_cfg);
     g_net.begin();
     delay(1000);
@@ -124,6 +147,10 @@ void loop() {
 
     // ---------- AP 配网模式 ----------
     if (g_net.inAPMode()) {
+        if (g_oledOk && (now - g_lastOled >= 500)) {
+            g_lastOled = now;
+            renderOled();
+        }
         if (now - g_lastRead >= 2000) {
             g_lastRead = now;
             g_sensors.read(g_last);

@@ -39,3 +39,6 @@ mosquitto/data/
 .platformio/### 备份/临时文件
 *.bak
 *.diag_bak
+firmware/lib/
+firmware/-
+eink_esp/

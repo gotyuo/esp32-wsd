@@ -28,36 +28,26 @@
 
 ## 二、ESP8266 引脚分配（4 线 OLED 变体）
 
-### 三组完全分引脚，互不共享：
+### 实测引脚分配（2026-08 版，u8g2 驱动）
 
 | 功能组 | 引脚 | GPIO | 通信 | 说明 |
 |--------|------|------|------|------|
-| 传感器 AHT20+BMP280 | SDA → D4 | GPIO2 | 硬件 I2C | AHT20 0x38 / BMP280 0x76 |
-| 传感器 AHT20+BMP280 | SCL → D5 | GPIO14 | 硬件 I2C | 传感器 I2C 时钟 |
-| **屏幕 OLED** | **SDA → D0** | **GPIO16** | **软件 I2C** | bit-bang，独立一组 |
-| **屏幕 OLED** | **SCL → D1** | **GPIO5** | **软件 I2C** | bit-bang，独立一组 |
-| 报警 LED 红 | → D6 | GPIO12 | GPIO | 共阴 RGB 红 |
-| 报警 LED 绿 | → D7 | GPIO13 | GPIO | 共阴 RGB 绿 |
-| （蓝） | — | — | — | 省略 |
+| **屏幕 OLED** | **SDA → D4** | **GPIO2** | **u8g2 软件 I2C** | SSD1306 0x3C，**实测接线** |
+| **屏幕 OLED** | **SCL → D5** | **GPIO14** | u8g2 软件 I2C | 屏幕时钟 |
+| 传感器 AHT20+BMP280 | SDA → D7 | GPIO13 | Wire 硬件 I2C | AHT20 0x38 / BMP280 0x77（实测） |
+| 传感器 AHT20+BMP280 | SCL → D6 | GPIO12 | Wire 硬件 I2C | 传感器 I2C 时钟 |
 
-**OLED 4 线接线：** VSS→GND，VDD→3V3，**SCL→D1(GPIO5)，SDA→D0(GPIO16)**。
-I2C 地址 0x3C，与传感器 0x38/0x76 不冲突。
+**OLED 4 线接线：** VSS→GND，VDD→3V3，**SCL→D5(GPIO14)，SDA→D4(GPIO2)**。
+I2C 地址 0x3C，与传感器 0x38/0x77 不冲突。
 
-> ⚠️ **重要说明**：ESP8266 只有 **一个硬件 I2C 外设**。要三组物理完全分离，
-> 传感器走**硬件 I2C**（D4/D5），OLED 走**软件模拟 I2C（bit-bang）**（D0/D1），
-> 固件里 ssd1306 驱动新增 `beginSoftware(scl,sda,addr)` 后端处理软件总线。
-> 两条总线在物理电路上**完全没有交集**，三者真正分成三组。
-
-### 代价：ESP8266 舍弃蜂鸣器
-- 无蜂鸣器；OLED 软件 I2C 不需要 PWM/定时器引脚。
-- 报警只通过 RGB LED + 服务器推送，无蜂鸣音。
-- `alarm_esp8266.cpp` 内蜂鸣器代码已移除。
-
-### ESP8266 空闲/保留引脚一览
-- D0（GPIO16）：用作 OLED SDA（软件 I2C）；上电前电平要干净，最好 VDD 跟随主控上电
-- D1（GPIO5）：用作 OLED SCL（软件 I2C）
-- GPIO0（D3）：可用，上电前必须拉高（boot 敏感）
-- GPIO6–11：**Flash 引脚，禁止使用**
+> ⚠️ **2026-08 实测修正**：原文档标称"OLED=D0/D1、传感器=D4/D5"，与实物不符。
+> 用 I2C 扫描固件实测：OLED(0x3C) 实际接 **GPIO2(SDA)/GPIO14(SCL)**，
+> 传感器(0x38/0x77) 实际接 **GPIO13(SDA)/GPIO12(SCL)**。已按实物更新固件与本文档。
+>
+> ⚠️ **驱动已从自研 ssd1306 换成 u8g2 库**：自研字库 FONT5X7 被链接到 irom0 高位
+> （0x4024783a 附近）超出 ESP8266 IROM 缓存窗口，读字库即 `Exception (3)`；
+> u8g2 字库位于低地址不受影响（参考 eink_esp 项目 + 腾讯云 1920918 文章例程）。
+> OLED 渲染改用 `U8G2_SSD1306_128X64_NONAME_F_SW_I2C`。
 
 ---
 
