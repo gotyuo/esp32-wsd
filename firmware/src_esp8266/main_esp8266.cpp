@@ -16,13 +16,49 @@
 #include "alarm_esp8266.h"
 #include "net_mgr_esp8266.h"
 #include "mqtt_mgr_esp8266.h"
+#include "ssd1306.h"
 
 static SensorHub   g_sensors;
+static Ssd1306     g_oled;
+static bool        g_oledOk = false;
 static AlarmDevice g_alarm;
 static EnvData     g_last;
 static uint32_t    g_lastRead = 0;
 static uint32_t    g_lastPub  = 0;
 static bool        g_mqttReady = false;
+static uint32_t    g_lastOled = 0;
+
+static void renderOled() {
+    if (!g_oledOk) return;
+    g_oled.clear();
+    g_oled.drawString(2, 0, "EnvMon v" FW_VERSION);
+    g_oled.drawString(2, 8, "ESP8266");
+    int8_t rssi = g_net.wifiConnected() ? WiFi.RSSI() : 127;
+    uint8_t bars = 0;
+    if (rssi >= -50) bars = 4;
+    else if (rssi >= -65) bars = 3;
+    else if (rssi >= -78) bars = 2;
+    else if (rssi >= -90) bars = 1;
+    g_oled.drawWifiBars(104, 1, bars);
+    g_oled.drawLineH(2, 17, OLED_W - 4, 1);
+    g_oled.drawString(2, 20, "Temp :");
+    g_oled.drawNumFP(58, 20, g_last.temp_c, 1);
+    g_oled.drawString(96, 20, "C");
+    g_oled.drawString(2, 29, "Hum  :");
+    g_oled.drawNumFP(58, 29, g_last.hum_pct, 1);
+    g_oled.drawString(96, 29, "%");
+    g_oled.drawString(2, 38, "Pres :");
+    g_oled.drawNum(58, 38, (int32_t)g_last.pres_hpa);
+    g_oled.drawString(96, 38, "hPa");
+    g_oled.drawLineH(2, 47, OLED_W - 4, 1);
+    const char *wifiTxt = g_net.wifiConnected() ? "WiFi OK" : "No WiFi";
+    const char *mqttTxt = g_mqttReady ? "MQTT OK" : "MQTT -";
+    g_oled.drawString(2, 50, wifiTxt);
+    g_oled.drawString(2, 58, mqttTxt);
+    g_oled.drawString(70, 58, "lvl:");
+    g_oled.drawNum(96, 58, (int32_t)g_alarm.level());
+    g_oled.flush();
+}
 
 static void handleSerialCmd() {
     if (!Serial.available()) return;
@@ -63,6 +99,19 @@ void setup() {
     if (!g_sensors.begin()) {
         Serial.println(F("[BOOT] WARNING: sensors unavailable"));
     }
+    if (g_oled.begin(PIN_I2C_SCL, PIN_I2C_SDA, OLED_ADDR)) {
+        g_oledOk = true;
+        Serial.println(F("[BOOT] OLED 0.96\" OK"));
+    } else {
+        g_oledOk = false;
+        Serial.println(F("[BOOT] OLED not found (continue without screen)"));
+    }
+    if (g_oledOk) {
+        g_oled.clear();
+        g_oled.drawString(4, 20, "EnvMon starting...");
+        g_oled.drawString(4, 32, "please wait");
+        g_oled.flush();
+    }
     g_net.setConfig(&g_cfg);
     g_net.begin();
     delay(1000);
@@ -98,6 +147,10 @@ void loop() {
     }
     AlarmLevel lvl = g_alarm.evaluate(g_last, g_cfg);
     g_alarm.update(lvl, g_cfg.alarm_sound);
+    if (g_oledOk && (now - g_lastOled >= 500)) {
+        g_lastOled = now;
+        renderOled();
+    }
 
     // ---------- MQTT 周期上报 ----------
     if (g_mqttReady && g_mqtt.connected() &&
