@@ -12,7 +12,9 @@ bool Ssd1306::begin(uint8_t scl, uint8_t sda, uint8_t addr, TwoWire *wire) {
     if (!wire) return false;
     _wire = wire;
     _addr = addr;
-    _wire->begin(sda, scl);
+    _sw = false;
+    _scl = scl; _sda = sda;
+    _wire->begin(sda, scl);  // ESP32-S3: sda,scl; ESP8266: 同
     _wire->setClock(400000);
     delay(60);
 
@@ -39,18 +41,116 @@ bool Ssd1306::begin(uint8_t scl, uint8_t sda, uint8_t addr, TwoWire *wire) {
     return _ok;
 }
 
+// 软件模拟 I2C: sda/scl 为任意 GPIO,与硬件 I2C 完全物理分离。
+// ESP8266 仅 1 个硬件 I2C 外设,给 OLED 单独一组 SDA/SCL 必须用 bit-bang。
+bool Ssd1306::beginSoftware(uint8_t scl, uint8_t sda, uint8_t addr) {
+    _sw = true;
+    _scl = scl;
+    _sda = sda;
+    _addr = addr;
+    _wire = nullptr;
+
+    pinMode(_scl, OUTPUT);
+    pinMode(_sda, OUTPUT);
+    // idle: 两线拉高
+    digitalWrite(_scl, HIGH);
+    digitalWrite(_sda, HIGH);
+    delay(60);
+
+    cmd(C_DISPLAY_OFF);
+    cmd(C_SET_DISPLAY_CLK);   cmd(0x80);
+    cmd(C_SET_MULTIPLEX);     cmd(63);
+    cmd(C_SET_OFFSET);        cmd(0);
+    cmd(C_SET_START_LINE);
+    cmd(C_SET_CONTRAST_A);    cmd(0xCF);
+    cmd(C_ENTIRE_DISP);
+    cmd(C_NORMAL_DISP);
+    cmd(C_SEG_REMAP_HI);
+    cmd(C_COM_REMAPPED);
+    cmd(C_SET_COM_PIN);     cmd(0x12);
+    cmd(C_SET_PRECHARGE);   cmd(0xF1);
+    cmd(C_SET_VCOM_DESELECT); cmd(0x40);
+    cmd(C_MEMORY_ADDR);     cmd(0x00);
+    cmd(C_CHARGE_PUMP);     cmd(0x14);
+    cmd(C_DISPLAY_ON);
+
+    clear();
+    _ok = true;
+    return _ok;
+}
+
+// ---- 软件 I2C 原语 (bit-bang) ----
+void Ssd1306::_sw_start() {
+    digitalWrite(_sda, HIGH);
+    digitalWrite(_scl, HIGH);
+    delayMicroseconds(5);
+    digitalWrite(_sda, LOW);        // SDA 下降沿(SCL 高) = START
+    delayMicroseconds(5);
+    digitalWrite(_scl, LOW);
+}
+
+void Ssd1306::_sw_stop() {
+    digitalWrite(_sda, LOW);
+    delayMicroseconds(5);
+    digitalWrite(_scl, HIGH);
+    delayMicroseconds(5);
+    digitalWrite(_sda, HIGH);       // SDA 上升沿(SCL 高) = STOP
+    delayMicroseconds(5);
+}
+
+// 写一字节,返回 ACK(0)=成功 / NACK(1)
+bool Ssd1306::_sw_write(uint8_t b) {
+    for (int i = 7; i >= 0; i--) {
+        digitalWrite(_sda, (b & (1 << i)) ? HIGH : LOW);
+        delayMicroseconds(5);
+        digitalWrite(_scl, HIGH);
+        delayMicroseconds(5);
+        digitalWrite(_scl, LOW);
+        delayMicroseconds(5);
+    }
+    // 读 ACK
+    digitalWrite(_sda, HIGH);
+    pinMode(_sda, INPUT);          // 释放,读从机应答
+    delayMicroseconds(5);
+    digitalWrite(_scl, HIGH);
+    delayMicroseconds(5);
+    bool nack = digitalRead(_sda);
+    digitalWrite(_scl, LOW);
+    pinMode(_sda, OUTPUT);
+    delayMicroseconds(5);
+    return nack;
+}
+
+// 一次 START + 地址(写) + mode + [buf] + STOP
+void Ssd1306::_sw_xfer(uint8_t mode, const uint8_t *buf, uint16_t len) {
+    uint8_t addr = (uint8_t)(_addr << 1) | 0;   // 写方向
+    _sw_start();
+    _sw_write(addr);
+    _sw_write(mode);
+    if (buf && len) {
+        for (uint16_t k = 0; k < len; k++) _sw_write(buf[k]);
+    }
+    _sw_stop();
+}
+
 void Ssd1306::i2c_write(uint8_t mode, const uint8_t *buf, uint16_t len) {
-    _wire->beginTransmission(_addr);
-    _wire->write(mode);
-    if (buf && len) _wire->write(buf, len);
-    _wire->endTransmission(true);
+    if (_sw) _sw_xfer(mode, buf, len);
+    else {
+        _wire->beginTransmission(_addr);
+        _wire->write(mode);
+        if (buf && len) _wire->write(buf, len);
+        _wire->endTransmission(true);
+    }
 }
 
 void Ssd1306::cmd(uint8_t b) {
-    _wire->beginTransmission(_addr);
-    _wire->write(OLED_MODE_CMD);
-    _wire->write(b);
-    _wire->endTransmission(true);
+    if (_sw) _sw_xfer(OLED_MODE_CMD, &b, 1);
+    else {
+        _wire->beginTransmission(_addr);
+        _wire->write(OLED_MODE_CMD);
+        _wire->write(b);
+        _wire->endTransmission(true);
+    }
 }
 
 void Ssd1306::data(const uint8_t *b, uint16_t len) {
@@ -61,12 +161,16 @@ void Ssd1306::data(const uint8_t *b, uint16_t len) {
 void Ssd1306::flush() {
     cmd(C_COLUMN_ADDR); cmd(0); cmd(OLED_W - 1);
     cmd(C_PAGE_ADDR);   cmd(0); cmd((OLED_H / 8) - 1);
-    _wire->beginTransmission(_addr);
-    _wire->write(OLED_MODE_DATA);
-    for (int p = 0; p < (OLED_H / 8); p++) {
-        _wire->write((uint8_t *)g_framebuf[p], OLED_W);
+    if (_sw) {
+        _sw_xfer(OLED_MODE_DATA, (uint8_t *)g_framebuf, OLED_W * (OLED_H / 8));
+    } else {
+        _wire->beginTransmission(_addr);
+        _wire->write(OLED_MODE_DATA);
+        for (int p = 0; p < (OLED_H / 8); p++) {
+            _wire->write((uint8_t *)g_framebuf[p], OLED_W);
+        }
+        _wire->endTransmission(true);
     }
-    _wire->endTransmission(true);
 }
 
 void Ssd1306::clear() {

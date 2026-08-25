@@ -99,7 +99,7 @@ void setup() {
     if (!g_sensors.begin()) {
         Serial.println(F("[BOOT] WARNING: sensors unavailable"));
     }
-    if (g_oled.begin(PIN_I2C_SCL, PIN_I2C_SDA, OLED_ADDR)) {
+    if (g_oled.beginSoftware(PIN_OLED_SCL, PIN_OLED_SDA, OLED_ADDR)) {
         g_oledOk = true;
         Serial.println(F("[BOOT] OLED 0.96\" OK"));
     } else {

@@ -1,8 +1,13 @@
 #pragma once
 // ============================================================
 // 0.96" I2C OLED (SSD1306 / SSD1315 兼容) 128x64 驱动
-// 4 孔: VSS=GND, VDD=3V3, SCL=D5(GPIO14), SDA=D3(GPIO2)
-// 地址 0x3C；与 AHT20(0x38)/BMP280(0x76) 并联同一 I2C 总线，地址不冲突
+// 4 孔: VSS=GND, VDD=3V3, SCL=引脚, SDA=引脚 (地址 0x3C)
+// 地址与 AHT20(0x38)/BMP280(0x76) 不冲突。
+// 两种后端：
+//   begin(scl, sda, addr)          -> 硬件 I2C (Wire)
+//   begin(scl, sda, addr, TwoWire*)-> 指定硬件 I2C 实例(ESP32-S3 I2C1)
+//   beginSoftware(scl, sda, addr)  -> 软件模拟(bit-bang)，引脚与硬件 I2C 完全独立
+//                                      (ESP8266 仅 1 个硬件 I2C 时用来给 OLED 单独一组 SDA/SCL)
 // 纯手写 I2C 命令/数据协议，零第三方库；复用 src/font5x7.h (5x7 ASCII)
 // ============================================================
 #include <Arduino.h>
@@ -46,6 +51,8 @@ public:
     bool begin(uint8_t scl = 14, uint8_t sda = 2, uint8_t addr = OLED_ADDR);
     // 指定 I2C 接口（ESP32-S3 OLED 走 I2C1，传感器走 I2C0；ESP8266 默认用 Wire）
     bool begin(uint8_t scl, uint8_t sda, uint8_t addr, TwoWire *wire);
+    // 软件模拟 I2C (bit-bang)：scl/sda 为任意 GPIO，与硬件 I2C 物理分离
+    bool beginSoftware(uint8_t scl, uint8_t sda, uint8_t addr);
 
     // 清屏(填充 0)
     void clear();
@@ -80,9 +87,15 @@ public:
     void data(const uint8_t *b, uint16_t len);
 
 private:
-    void i2c_write(uint8_t mode, const uint8_t *buf, uint16_t len);
-
     uint8_t _addr;
     bool    _ok;
+    bool    _sw = false;          // true = 软件 bit-bang
     TwoWire *_wire = nullptr;
+    uint8_t _scl = 0, _sda = 0;
+    void i2c_write(uint8_t mode, const uint8_t *buf, uint16_t len);
+    // 软件 I2C 原语
+    void _sw_start();
+    void _sw_stop();
+    bool _sw_write(uint8_t b);
+    void _sw_xfer(uint8_t mode, const uint8_t *buf, uint16_t len);
 };
