@@ -4,7 +4,7 @@
 > 屏幕、传感器（AHT20+BMP280）、报警 LED 三组使用**完全不同的引脚**。
 >
 > 适用固件变体：
-> - ESP8266 → `env:esp8266`（4 线 I2C OLED，D3/D5）
+> - ESP8266 → `env:esp8266`（4 线 I2C OLED，软件 I2C D0/D1，与传感器硬件 I2C 物理分离）
 > - ESP32-S3 → `env:esp32-s3-oled`（4 线 I2C OLED，走独立 I2C1 总线 GPIO14/13）
 > - ESP32-S3 6 线 SPI TFT → `env:esp32-s3`（ST7735，6 线，**非 OLED**）
 
@@ -18,7 +18,7 @@
 | 通信 | I2C（SCL + SDA） | SPI（SCK + MOSI + CS + DC + RST + 背光） |
 | 典型尺寸 | 0.96" / 1.3" | 1.8" / 2.4" |
 | 接线数 | 4 根 | 6–8 根 |
-| ESP8266 支持 | **支持（4 线）** | ❌ 不支持（无空闲 SPI 引脚） |
+| ESP8266 支持 | **支持（4 线, 软件 I2C）** | ❌ 不支持（无空闲 SPI 引脚） |
 | ESP32-S3 支持 | **支持（I2C1）** | **支持（SPI）** |
 
 > ⚠️ ESP8266 没有空闲的 SPI 引脚（D5=OLED、D6/D7=LED、D3 是上电复位引脚不可靠），
@@ -30,35 +30,34 @@
 
 ### 三组完全分引脚，互不共享：
 
-| 功能组 | 引脚 | GPIO | 说明 |
-|--------|------|------|------|
-| **屏幕 OLED** | **SCL → D5** | **GPIO14** | 独立 I2C 信号（OLED 专用） |
-| **屏幕 OLED** | **SDA → D3** | **GPIO2**  | 独立 I2C 信号（OLED 专用） |
-| 传感器 AHT20+BMP280 | SCL → D1 | GPIO5 | 传感器 I2C（AHT20 0x38 / BMP280 0x76） |
-| 传感器 AHT20+BMP280 | SDA → D2 | GPIO4 | 传感器 I2C |
-| 报警 LED 红 | → D6 | GPIO12 | 共阴 RGB 红 |
-| 报警 LED 绿 | → D7 | GPIO13 | 共阴 RGB 绿 |
-| （蓝） | — | — | 省略 |
+| 功能组 | 引脚 | GPIO | 通信 | 说明 |
+|--------|------|------|------|------|
+| 传感器 AHT20+BMP280 | SDA → D4 | GPIO2 | 硬件 I2C | AHT20 0x38 / BMP280 0x76 |
+| 传感器 AHT20+BMP280 | SCL → D5 | GPIO14 | 硬件 I2C | 传感器 I2C 时钟 |
+| **屏幕 OLED** | **SDA → D0** | **GPIO16** | **软件 I2C** | bit-bang，独立一组 |
+| **屏幕 OLED** | **SCL → D1** | **GPIO5** | **软件 I2C** | bit-bang，独立一组 |
+| 报警 LED 红 | → D6 | GPIO12 | GPIO | 共阴 RGB 红 |
+| 报警 LED 绿 | → D7 | GPIO13 | GPIO | 共阴 RGB 绿 |
+| （蓝） | — | — | — | 省略 |
 
-**OLED 4 线接线：** VSS→GND，VDD→3V3，**SCL→D5(GPIO14)，SDA→D3(GPIO2)**。
+**OLED 4 线接线：** VSS→GND，VDD→3V3，**SCL→D1(GPIO5)，SDA→D0(GPIO16)**。
 I2C 地址 0x3C，与传感器 0x38/0x76 不冲突。
 
-> ⚠️ **重要限制**：ESP8266 只有 **一个 I2C 接口（Wire 单例）**。
-> 屏幕与传感器**必须在同一 I2C 总线上**才能同时工作。因此：
-> - 方案是「屏幕独占 D3/D5，**传感器也迁到 D3/D5**」——屏幕+传感器共用 D3/D5，LED 单独 D6/D7。
-> - 三者分成**两组**（屏+传感一组 / LED 一组），不能再拆成三组。
-> - 旧版是 OLED 与传感器共用 D1/D2；本版把整套迁到 D3/D5 腾出 D1/D2。
+> ⚠️ **重要说明**：ESP8266 只有 **一个硬件 I2C 外设**。要三组物理完全分离，
+> 传感器走**硬件 I2C**（D4/D5），OLED 走**软件模拟 I2C（bit-bang）**（D0/D1），
+> 固件里 ssd1306 驱动新增 `beginSoftware(scl,sda,addr)` 后端处理软件总线。
+> 两条总线在物理电路上**完全没有交集**，三者真正分成三组。
 
 ### 代价：ESP8266 舍弃蜂鸣器
-- 旧版 D5 是蜂鸣器（GPIO14），现改为 OLED SCL。
+- 无蜂鸣器；OLED 软件 I2C 不需要 PWM/定时器引脚。
 - 报警只通过 RGB LED + 服务器推送，无蜂鸣音。
-- `alarm_esp8266.cpp` 内蜂鸣器 `tone()/ledc` 初始化与鸣响代码已移除。
+- `alarm_esp8266.cpp` 内蜂鸣器代码已移除。
 
 ### ESP8266 空闲/保留引脚一览
-- GPIO0（D0）：可用，但**上电前必须拉高**，否则无法启动（boot 敏感）
+- D0（GPIO16）：用作 OLED SDA（软件 I2C）；上电前电平要干净，最好 VDD 跟随主控上电
+- D1（GPIO5）：用作 OLED SCL（软件 I2C）
+- GPIO0（D3）：可用，上电前必须拉高（boot 敏感）
 - GPIO6–11：**Flash 引脚，禁止使用**
-- GPIO16：无 I2C 功能，仅作普通 IO
-- D3（GPIO2）：现用作 OLED SDA（之前是蜂鸣器的邻居，注意上电时序）
 
 ---
 
@@ -153,6 +152,6 @@ firmware/firmware_bin/envmon_esp32s3_tft.bin          ESP32-S3 6线SPI TFT版（
 ## 六、故障排查
 
 1. **屏幕不亮但 I2C 探测不到 0x3C** → 检查 SCL/SDA 是否插反（4 线板 SCL 和 SDA 相邻，极易插错）。
-2. **传感器读数消失**（ESP8266）→ 屏幕与传感器必须接在同一对 I2C 引脚上；本版统一用 D3/D5，确认传感器也迁到了 D3/D5。
+2. **传感器读数消失**（ESP8266）→ 确认传感器接在 **D4(SDA)/D5(SCL)**，OLED 接在 **D0(SDA)/D1(SCL)**，两组不要接反。
 3. **ESP32-S3 OLED 变体不显示** → 确认选的是 `env:esp32-s3-oled`（不是默认 `esp32-s3`，后者是 TFT 编译，不含 OLED 代码）。
-4. **ESP8266 上电不启动** → D3（GPIO2）上电前电平异常会触发 boot 模式；确保 VDD 稳定上电。
+4. **ESP8266 上电不启动** → D0(D1) 上电前被屏幕拉低会触发 boot 模式；确保 OLED 的 VDD 跟随主控上电，开机前 SDA/SCL 不被拉低。
