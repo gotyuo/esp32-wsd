@@ -29,19 +29,56 @@ static uint32_t    g_lastRead = 0;
 static uint32_t    g_lastPub  = 0;
 static bool        g_mqttReady = false;
 static uint32_t    g_lastOled = 0;
+static char        g_lastSsid[33] = "";
+static bool        g_displayDirty = false;
+
+static void renderOled();
+static void forceRefreshOled();
+
+// 当前 SSID (WiFi 已连 -> SDK 值; AP 配网模式 -> "AP-CONFIG"; 已保存配置兜底)
+static String getCurSsid() {
+    wl_status_t st = WiFi.status();
+    if (st == WL_CONNECTED) {
+        String s = WiFi.SSID();
+        s.trim();
+        if (!s.isEmpty()) return s;
+    }
+    if (g_net.inAPMode()) return "AP-CONFIG";
+    if (g_cfg.has_wifi()) return String(g_cfg.wifi_ssid);
+    return "";
+}
+
+static void checkSsidChanged() {
+    String cur = getCurSsid();
+    const char *cp = cur.c_str();
+    if (strcmp(g_lastSsid, cp) != 0) {
+        strncpy(g_lastSsid, cp, sizeof(g_lastSsid) - 1);
+        g_lastSsid[sizeof(g_lastSsid) - 1] = '\0';
+        g_displayDirty = true;
+    }
+}
 
 static void renderOled() {
     if (!g_oledOk) return;
     g_oled.clearBuffer();
     g_oled.setFont(u8g2_font_6x10_tr);
 
-    // 标题行
+    // ---- 顶部: 版本号 + 芯片 ----
     char line[24];
     snprintf(line, sizeof(line), "EnvMon v%s", FW_VERSION);
     g_oled.drawStr(2, 9, line);
-    g_oled.drawStr(2, 19, "ESP8266");
+    g_oled.drawStr(90, 9, "8266");
 
-    // WiFi 信号条
+    // ---- 第二行: 当前 SSID(连接目标,新接入时最直观) ----
+    // 布局: SSID:<name> (最多 12 字截断),右侧信号条
+    String ssid = getCurSsid();
+    if (ssid.isEmpty()) ssid = "---";
+    // 截断到 12 字符,防溢出信号条
+    if (ssid.length() > 12) ssid = ssid.substring(0, 12);
+    String ssidLine = "SSID:" + ssid;
+    g_oled.setCursor(2, 20);
+    g_oled.print(ssidLine.c_str());
+
     int8_t rssi = g_net.wifiConnected() ? WiFi.RSSI() : 127;
     uint8_t bars = 0;
     if (rssi >= -50) bars = 4;
@@ -55,34 +92,32 @@ static void renderOled() {
     }
 
     // 分隔线
-    g_oled.drawHLine(2, 21, 124);
+    g_oled.drawHLine(2, 23, 124);
 
     // 温湿度气压
-    g_oled.drawStr(2, 32, "Temp :");
+    g_oled.drawStr(2, 34, "T:");
     snprintf(line, sizeof(line), "%.1f", g_last.temp_c);
-    g_oled.drawStr(52, 32, line);
-    g_oled.drawStr(90, 32, "C");
+    g_oled.drawStr(14, 34, line);
+    g_oled.drawStr(46, 34, "C");
 
-    g_oled.drawStr(2, 43, "Hum  :");
+    g_oled.drawStr(2, 45, "H:");
     snprintf(line, sizeof(line), "%.1f", g_last.hum_pct);
-    g_oled.drawStr(52, 43, line);
-    g_oled.drawStr(90, 43, "%");
+    g_oled.drawStr(14, 45, line);
+    g_oled.drawStr(46, 45, "%");
 
-    g_oled.drawStr(2, 54, "Pres :");
+    g_oled.drawStr(2, 58, "P:");
     snprintf(line, sizeof(line), "%d", (int)g_last.pres_hpa);
-    g_oled.drawStr(52, 54, line);
-    g_oled.drawStr(90, 54, "hPa");
-
-    // 底部状态
-    g_oled.drawHLine(2, 57, 124);
-    const char *wifiTxt = g_net.wifiConnected() ? "WIFI" : "wifi";
-    const char *mqttTxt = g_mqttReady ? "MQTT" : "mqtt";
-    g_oled.drawStr(2, 64, wifiTxt);
-    g_oled.drawStr(40, 64, mqttTxt);
-    snprintf(line, sizeof(line), "lvl:%d", (int)g_alarm.level());
-    g_oled.drawStr(80, 64, line);
+    g_oled.drawStr(14, 58, line);
+    g_oled.drawStr(48, 58, "hPa");
 
     g_oled.sendBuffer();
+    g_displayDirty = false;
+}
+
+// 强制刷新(OLED 显示内容变化时调用,不受 500ms 节流限制)
+static void forceRefreshOled() {
+    if (!g_oledOk) return;
+    g_lastOled = 0;  // 让下一次正常轮询命中
 }
 
 static void handleSerialCmd() {
@@ -137,17 +172,36 @@ void setup() {
 
     g_net.setConfig(&g_cfg);
     g_net.begin();
-    delay(1000);
+
+    // 启动页: 显示当前要连的 SSID / AP 名, 2s 停留
+    delay(200);
+    if (g_oledOk) {
+        String bootSsid = getCurSsid();
+        g_oled.clearBuffer();
+        g_oled.setFont(u8g2_font_6x10_tr);
+        g_oled.drawStr(2, 18, "Connecting...");
+        if (bootSsid.isEmpty()) bootSsid = "---";
+        if (bootSsid.length() > 18) bootSsid = bootSsid.substring(0, 18);
+        String bootLine = "SSID:" + bootSsid;
+        g_oled.setCursor(2, 38);
+        g_oled.print(bootLine.c_str());
+        g_oled.drawStr(2, 54, "EnvMon " FW_VERSION);
+        g_oled.sendBuffer();
+    }
+    Serial.printf("[BOOT] target SSID: %s\n", getCurSsid().c_str());
+    delay(2000);
+    forceRefreshOled();
 }
 
 void loop() {
     handleSerialCmd();
     g_net.loop();
+    checkSsidChanged();   // 每次循环检测 SSID 是否变化, 变化则 OLED 立即刷新
     uint32_t now = millis();
 
     // ---------- AP 配网模式 ----------
     if (g_net.inAPMode()) {
-        if (g_oledOk && (now - g_lastOled >= 500)) {
+        if (g_oledOk && (now - g_lastOled >= 500 || g_displayDirty)) {
             g_lastOled = now;
             renderOled();
         }
@@ -174,7 +228,7 @@ void loop() {
     }
     AlarmLevel lvl = g_alarm.evaluate(g_last, g_cfg);
     g_alarm.update(lvl, g_cfg.alarm_sound);
-    if (g_oledOk && (now - g_lastOled >= 500)) {
+    if (g_oledOk && (now - g_lastOled >= 500 || g_displayDirty)) {
         g_lastOled = now;
         renderOled();
     }
