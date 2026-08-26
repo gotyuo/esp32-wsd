@@ -38,6 +38,11 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def localnow() -> str:
+    """本地时间戳,默认东八区(系统 TZ 若已设置则以其为准)。用于 UI 展示。"""
+    return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%dT%H:%M:%S+08:00")
+
+
 def utcnow_ms() -> str:
     """带毫秒的 UTC 时间戳。ESP 无法同步时钟，服务器用它补 ts 时能天然去重
     （旧 telemetry 表带 UNIQUE(device_id,ts) 约束，同秒多行会被丢弃；

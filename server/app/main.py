@@ -583,7 +583,7 @@ def health(q: Optional[str] = Query(default=None)):
     if q == "reset_bucket":
         _login_buckets.clear()
         return {"ok": True, "bucket_cleared": True}
-    return {"ok": True, "mqtt_connected": bridge.connected, "time": db.utcnow()}
+    return {"ok": True, "mqtt_connected": bridge.connected, "time": db.localnow()}
 
 
 @app.get("/api/devices")

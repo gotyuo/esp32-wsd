@@ -492,8 +492,8 @@ var ME=null, DEV=null, CURRENT_VIEW="dashboard", RANGE=24, HIST=[], ws=null, SOU
 var DASHBOARD_MODE="grid", AI_ASSESS=false, AI_SETTINGS={};
 function $(id){return document.getElementById(id)}
 function fmt(v,d){return (v==null||isNaN(v))?"--":Number(v).toFixed(d==null?1:d)}
-function fmtTime(s){if(!s)return"--";return s.replace("T"," ").replace("Z","").slice(0,19)}
-function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function fmtTime(s){if(!s)return"--";var t=s.replace("T"," ").replace("Z","");return t.slice(0,19)+" (UTC+8)"}
 function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opt.headers||{});return fetch(path,opt).then(function(r){if(r.status===401){showLogin();throw new Error("登录已过期，请重新登录");}if(r.status===403){throw new Error("需要管理员权限");}if(!r.ok){throw new Error("接口异常("+r.status+")");}return r.json();});}
 
 function _refreshBtn(ev,fn){
@@ -560,7 +560,7 @@ function loadDashboardGrid(ev){_refreshBtn(ev,function(){
 function jumpToMonitor(pid){MONITOR_PID=pid;switchView("monitor");setTimeout(function(){if($("mPid")){$("mPid").value=pid;refreshMonitor();}},50);}
 
 // 顶栏时钟
-setInterval(function(){var d=new Date();$("timeNow").textContent=d.toISOString().replace("T"," ").slice(0,19)+" (UTC)";},1000);
+setInterval(function(){var d=new Date();var off=d.getTimezoneOffset()*60000;var dt=new Date(d.getTime()+off+8*60*60000);function p(n){return n<10?"0"+n:""+n;}var s=dt.getFullYear()+"-"+p(dt.getMonth()+1)+"-"+p(dt.getDate())+" "+p(dt.getHours())+":"+p(dt.getMinutes())+":"+p(dt.getSeconds())+" (UTC+8)";$("timeNow").textContent=s;},1000);
 
 function showLogin(){TOKEN="";localStorage.removeItem("envmon_token");$("mainView").classList.add("hidden");$("loginView").classList.remove("hidden");$("lgUser").focus();}
 function doLogin(ev){ev.preventDefault();var u=$("lgUser").value.trim(),p=$("lgPass").value;
