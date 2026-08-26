@@ -970,14 +970,13 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
     // 加载关联设备的实时环境数据(ESP8266/ESP32 telemetry)
     api("/api/patients/"+pid+"/devices").then(function(dd){
       var devs=dd.devices||[];
-      var envEl=$("mEnvData");
+      var envEl=document.getElementById('mEnvData');
       if(!envEl){
-        // 如果监护界面没有环境数据容器,动态创建
-        var mBody=document.querySelector("#view-monitor .m-body, #view-monitor .monitor-body, #view-monitor > div");
+        var mBody=document.getElementById('view-monitor');
         if(mBody){
           envEl=document.createElement("div");
           envEl.id="mEnvData";
-          envEl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding:8px;background:var(--card-bg);border-radius:6px;font-size:12px";
+          envEl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding:8px;background:var(--card-bg);border-radius:6px;font-size:12px";
           mBody.appendChild(envEl);
         }
       }
