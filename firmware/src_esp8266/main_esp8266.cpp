@@ -63,20 +63,12 @@ static void renderOled() {
     g_oled.clearBuffer();
     g_oled.setFont(u8g2_font_6x10_tr);
 
-    // ---- 顶部: 版本号 + 芯片 ----
-    char line[24];
-    snprintf(line, sizeof(line), "EnvMon v%s", FW_VERSION);
-    g_oled.drawStr(2, 9, line);
-    g_oled.drawStr(90, 9, "8266");
-
-    // ---- 第二行: 当前 SSID(连接目标,新接入时最直观) ----
-    // 布局: SSID:<name> (最多 12 字截断),右侧信号条
+    // ---- 第一行: 当前 SSID + 信号条 ----
     String ssid = getCurSsid();
     if (ssid.isEmpty()) ssid = "---";
-    // 截断到 12 字符,防溢出信号条
     if (ssid.length() > 12) ssid = ssid.substring(0, 12);
     String ssidLine = "SSID:" + ssid;
-    g_oled.setCursor(2, 20);
+    g_oled.setCursor(2, 14);
     g_oled.print(ssidLine.c_str());
 
     int8_t rssi = g_net.wifiConnected() ? WiFi.RSSI() : 127;
@@ -87,23 +79,24 @@ static void renderOled() {
     else if (rssi >= -90) bars = 1;
     for (int i = 0; i < 4; i++) {
         uint8_t h = 2 + i * 2;
-        if (i < bars) g_oled.drawBox(102 + i * 6, 17 - h, 4, h);
-        else          g_oled.drawFrame(102 + i * 6, 17 - h, 4, h);
+        if (i < bars) g_oled.drawBox(102 + i * 6, 11 - h, 4, h);
+        else          g_oled.drawFrame(102 + i * 6, 11 - h, 4, h);
     }
 
     // 分隔线
-    g_oled.drawHLine(2, 23, 124);
+    g_oled.drawHLine(2, 22, 124);
 
     // 温湿度气压
+    char line[24];
     g_oled.drawStr(2, 34, "T:");
     snprintf(line, sizeof(line), "%.1f", g_last.temp_c);
     g_oled.drawStr(14, 34, line);
     g_oled.drawStr(46, 34, "C");
 
-    g_oled.drawStr(2, 45, "H:");
+    g_oled.drawStr(2, 46, "H:");
     snprintf(line, sizeof(line), "%.1f", g_last.hum_pct);
-    g_oled.drawStr(14, 45, line);
-    g_oled.drawStr(46, 45, "%");
+    g_oled.drawStr(14, 46, line);
+    g_oled.drawStr(46, 46, "%");
 
     g_oled.drawStr(2, 58, "P:");
     snprintf(line, sizeof(line), "%d", (int)g_last.pres_hpa);
