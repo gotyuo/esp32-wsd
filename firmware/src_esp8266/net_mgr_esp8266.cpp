@@ -8,7 +8,8 @@ NetManager g_net;
 
 void NetManager::begin() {
     WiFi.mode(WIFI_STA);
-    WiFi.setAutoReconnect(false);
+    WiFi.setAutoReconnect(true);    // SDK 层兜底自动重连,防止掉入中间态
+    WiFi.setSleepMode(WIFI_NONE_SLEEP);  // 关闭射频 sleep,避免丢 AP deauth/DTIM 帧导致假掉线
     if (_cfg->has_wifi()) {
         startSTA();
     } else {
@@ -147,13 +148,17 @@ void NetManager::tryReconnect() {
     _lastTry = now;
     _retryDelay = min((uint32_t)30000, _retryDelay * 2);
     Serial.println(F("[NET] WiFi lost, reconnecting..."));
-    WiFi.disconnect();
+    WiFi.disconnect(true, false);  // wifioff=true 强制射频 down; erase=false 保留 saved config
+    delay(300);                   // ESP8266 SDK 需要短暂冷却,否则 begin 卡死
     WiFi.begin(_cfg->wifi_ssid, _cfg->wifi_pass);
 }
 
 void NetManager::loop() {
     if (_mode == MODE_STA) {
-        if (_staStarted && !(WiFi.status() == WL_CONNECTED)) {
+        if (_staStarted && (WiFi.status() != WL_CONNECTED)) {
+            // 只在 status 明确进入"非连接"区间时尝试,任何非 WL_CONNECTED 都算,
+            // 覆盖 WL_DISCONNECTED / WL_IDLE_STATUS / WL_SCAN / WL_NO_SSID_AVAIL
+            // 等 ESP8266 中间态,避免卡死在某个伪稳定状态。
             tryReconnect();
         } else if (WiFi.status() == WL_CONNECTED) {
             _retryDelay = 1000;
