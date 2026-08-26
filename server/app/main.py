@@ -703,6 +703,7 @@ def devices_discover(refresh: bool = Query(False),
                 "registered_at": d.get("first_seen"),
                 "status": "registered",
                 "rssi": r.get("rssi"),
+                "network": _network_type(d.get("ip_addr")),
             })
         else:
             items.append({
