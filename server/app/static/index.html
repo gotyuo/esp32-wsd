@@ -1411,7 +1411,7 @@ function _loadHl7View(){
   var ingestUrlEl=document.getElementById('hl7IngestUrl');
   var parseUrlEl=document.getElementById('hl7ParseUrl');
   if(ingestUrlEl)ingestUrlEl.textContent=location.origin+'/api/ingest';
-  if(parseUrlEl)parseUrlEl.textContent=location.origin+'/api/ingest';
+  if(parseUrlEl)parseUrlEl.textContent=location.origin+'/api/hl7/parse';
   var resultEl=document.getElementById('hl7TestResult');
   if(resultEl)resultEl.textContent='就绪。填写设备ID和数值后点击推送。';
 }
