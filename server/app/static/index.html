@@ -389,7 +389,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
         <div class="actions" style="margin-top:0">
           <button onclick="showAddDevice()">+ 注册设备</button>
           <button class="secondary small" onclick="showDeviceDiscover()">📡 局域网发现</button>
-          <button class="secondary small" onclick="loadDevices(true)">刷新</button>
+          <button class="secondary small" onclick="loadDevices(null)">刷新</button>
           <span class="hint" id="devCount">0 台</span>
         </div>
       </h2>
@@ -589,17 +589,20 @@ function delUser(id){if(!confirm("确定删除该用户？"))return;api("/api/us
 
 function loadDevices(pick){return api("/api/devices").then(function(d){var devs=d.devices||[];DEVICES=devs;
   var sel=$("devSel");sel.innerHTML=devs.map(function(x){return "<option value=\""+esc(x.id)+"\">"+esc(x.name||x.id)+"</option>";}).join("");
-  if(!devs.length){sel.innerHTML="<option value=''>无设备</option>";DEV=null;}else if(!DEV||!devs.some(function(x){return x.id===DEV;})){DEV=devs[0].id;}sel.value=DEV||"";
-  renderDeviceGrid(devs);$("devCount").textContent=devs.length+" 台";loadReal();loadHistory();loadTh();loadAlarms();return devs;}).catch(function(){return[];});}
-function switchDevice(){DEV=$("devSel").value;loadReal();loadHistory();loadTh();
-  // Issue 2: 切换设备时同步监护页患者（通过设备当前活跃监护记录查找患者）
+  // pick=true 强制切到第一台(首次进入/显式刷新的语义);否则保留当前 DEV,只在 DEV 不在列表时才回落
+  if(!devs.length){sel.innerHTML="<option value=''>无设备</option>";DEV=null;}
+  else if(pick){DEV=devs[0].id;}
+  else if(!DEV||!devs.some(function(x){return x.id===DEV;})){DEV=devs[0].id;}
+  sel.value=DEV||"";
+  renderDeviceGrid(devs);$("devCount").textContent=devs.length+" 台";loadReal();loadHistory();loadTh();loadAlarms();loadDashboardGrid();return devs;}).catch(function(){return[];});}
+function switchDevice(){
+  DEV=$("devSel").value;
+  // 切到下拉所选 —— 同步刷新 vitals / history / 阈值 / 报警,并重绘监护网格让顶部实时卡片跟着换设备
+  loadReal();loadHistory();loadTh();loadAlarms();loadDashboardGrid();
+  // 同步监护页患者
   if(DEV){
     api("/api/devices/"+encodeURIComponent(DEV)+"/active-patient").then(function(d){
-      if(d && d.patient_pid){
-        MONITOR_PID=d.patient_pid;
-        var mPidSel=$("mPid");
-        if(mPidSel){mPidSel.value=MONITOR_PID;}
-      }
+      if(d && d.patient_pid){MONITOR_PID=d.patient_pid;var mp=$("mPid");if(mp)mp.value=MONITOR_PID;}
     }).catch(function(){});
   }
 }
@@ -1326,20 +1329,31 @@ function _buildDiscover(net) {
             root.appendChild(e);
         } else {
             var tbl = document.createElement('table');
-            tbl.innerHTML = '<thead><tr><th>设备 ID</th><th>名称</th><th>固件/IP</th><th>最后上报</th><th>状态</th><th>操作</th></tr></thead>';
+            tbl.innerHTML = '<thead><tr>'
+                + '<th style="width:30px"><label><input type="checkbox" id="discCheckAll" title="全选"></label></th>'
+                + '<th>设备 ID</th><th>名称</th><th>固件/IP</th><th>最后上报</th><th>状态</th><th>操作</th></tr></thead>';
             var tb = document.createElement('tbody');
             devs.forEach(function(x) {
                 var tr = document.createElement('tr');
-                var st = x.status === 'registered' ? '<span class="ok">已注册</span>' : '<span class="bad">未注册</span>';
-                var on = x.online ? ' <span class="ok">在线</span>' : ' <span class="bad">离线</span>';
-                var actHtml;
-                if (x.status === 'unregistered') {
-                    actHtml = '<button class="success small" data-reg="' + esc(x.device_id) + '">注册</button>';
-                } else {
-                    actHtml = '<span class="small">' + st + on + '</span>';
-                }
-                tr.innerHTML = '<td>' + esc(x.device_id) + '</td><td>' + esc(x.name||'-') + '</td><td>' + esc(x.fw||'-') + ' / ' + esc(x.ip||'-') + '</td><td>' + fmtTime(x.last_seen) + '</td><td>' + st + '</td><td>' + actHtml + '</td>';
-                // 用事件委托注册按钮
+                var isReg = x.status === 'registered';
+                var badge = isReg
+                    ? '<span class="ok">● 已接入</span>'
+                    : '<span class="bad">○ 未接入</span>';
+                var online = x.online ? ' <span class="ok">在线</span>' : ' <span class="bad">离线</span>';
+                // 已接入的行不给勾选框(已接入无需再勾选)
+                var checkTd = isReg
+                    ? '<td>-</td>'
+                    : '<td><input type="checkbox" class="disc-cb" value="' + esc(x.device_id) + '"></td>';
+                var actHtml = isReg
+                    ? '<span class="small">已接入</span>'
+                    : '<button class="success small" data-reg="' + esc(x.device_id) + '">注册</button>';
+                tr.innerHTML = checkTd
+                    + '<td>' + esc(x.device_id) + '</td>'
+                    + '<td>' + esc(x.name||'-') + '</td>'
+                    + '<td>' + esc(x.fw||'-') + ' / ' + esc(x.ip||'-') + '</td>'
+                    + '<td>' + fmtTime(x.last_seen) + '</td>'
+                    + '<td>' + badge + online + '</td>'
+                    + '<td>' + actHtml + '</td>';
                 var regBtn = tr.querySelector('[data-reg]');
                 if (regBtn) {
                     var did = regBtn.getAttribute('data-reg');
@@ -1349,11 +1363,28 @@ function _buildDiscover(net) {
             });
             tbl.appendChild(tb);
             root.appendChild(tbl);
+            // 全选/反选
+            var checkAll = root.querySelector('#discCheckAll');
+            var cbs = root.querySelectorAll('.disc-cb');
+            checkAll.checked = false;
+            checkAll.onchange = function(){ cbs.forEach(function(cb){cb.checked=checkAll.checked;}); };
+            cbs.forEach(function(cb){
+                cb.onchange = function(){
+                    var any=false;
+                    cbs.forEach(function(c){if(c.checked)any=true;});
+                    checkAll.checked = any && cbs.length>0 && Array.prototype.every.call(cbs,function(c){return c.checked;});
+                };
+            });
         }
 
         // 底部操作
         var act = document.createElement('div');
         act.className = 'actions';
+        var regSelBtn = document.createElement('button');
+        regSelBtn.className = 'success small';
+        regSelBtn.textContent = '批量注册已勾选';
+        regSelBtn.onclick = function(){ batchRegisterSelected(); };
+        act.appendChild(regSelBtn);
         var rescanBtn = document.createElement('button');
         rescanBtn.textContent = '重新扫描';
         rescanBtn.onclick = function(){ _buildDiscover(DISC_NET); };
@@ -1368,6 +1399,19 @@ function _buildDiscover(net) {
         mi.innerHTML = '';
         mi.appendChild(root);
     }).catch(function() { toast("扫描失败，请检查网络与登录状态"); });
+}
+function batchRegisterSelected() {
+    var cbs = document.querySelectorAll('.disc-cb:checked');
+    if (!cbs.length) { toast('请先勾选要接入的设备'); return; }
+    var ids = Array.prototype.map.call(cbs, function(cb){ return cb.value; });
+    api("/api/devices/batch-register", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({device_ids: ids})
+    }).then(function(d){
+        toast('已批量注册 ' + d.registered + ' / ' + d.total + ' 台');
+        loadDevices(); _buildDiscover(DISC_NET);
+    }).catch(function(e){ toast('批量注册失败: '+(e&&e.message?e.message:'')); });
 }
 function showDeviceDiscover() { _buildDiscover('internal'); }
 function showAddExternalDevice() {

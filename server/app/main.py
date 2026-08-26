@@ -597,6 +597,26 @@ def register_device(body: RegisterDeviceIn):
     return {"ok": True}
 
 
+@app.post("/api/devices/batch-register", dependencies=[Depends(require_admin)])
+def batch_register_devices(body: dict):
+    """批量注册设备(局域网发现勾选后)。body: {\"device_ids\":[\"a\",\"b\"]}"""
+    ids = body.get("device_ids", [])
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="device_ids 不能为空")
+    done = 0
+    for did in ids:
+        did = str(did).strip()
+        if not did:
+            continue
+        # register_device 内部对已存在 id 会幂等
+        try:
+            db.register_device(did, "")
+            done += 1
+        except Exception:
+            pass
+    return {"ok": True, "registered": done, "total": len(ids)}
+
+
 @app.get("/api/devices/{device_id}")
 def get_device_detail(device_id: str):
     d = db.device_detail(device_id)
