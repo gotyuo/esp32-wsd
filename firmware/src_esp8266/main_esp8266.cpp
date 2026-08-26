@@ -63,7 +63,8 @@ static void renderOled() {
     g_oled.clearBuffer();
     g_oled.setFont(u8g2_font_6x10_tr);
 
-    // ---- 第一行: 当前 SSID + 信号条 ----
+    // ---- 第一行: SSID + 信号条 ----
+    bool isApMode = g_net.inAPMode();
     String ssid = getCurSsid();
     if (ssid.isEmpty()) ssid = "---";
     if (ssid.length() > 12) ssid = ssid.substring(0, 12);
@@ -86,22 +87,28 @@ static void renderOled() {
     // 分隔线
     g_oled.drawHLine(2, 22, 124);
 
-    // 温湿度气压
-    char line[24];
-    g_oled.drawStr(2, 34, "T:");
-    snprintf(line, sizeof(line), "%.1f", g_last.temp_c);
-    g_oled.drawStr(14, 34, line);
-    g_oled.drawStr(46, 34, "C");
+    // AP 模式下显示配网地址 + 提示; 联网模式下显示温湿度气压
+    if (isApMode) {
+        g_oled.drawStr(2, 34, "AP config");
+        g_oled.drawStr(2, 46, "192.168.4.1");
+        g_oled.drawStr(2, 56, "set WiFi/MQTT");
+    } else {
+        char line[24];
+        g_oled.drawStr(2, 34, "T:");
+        snprintf(line, sizeof(line), "%.1f", g_last.temp_c);
+        g_oled.drawStr(14, 34, line);
+        g_oled.drawStr(46, 34, "C");
 
-    g_oled.drawStr(2, 46, "H:");
-    snprintf(line, sizeof(line), "%.1f", g_last.hum_pct);
-    g_oled.drawStr(14, 46, line);
-    g_oled.drawStr(46, 46, "%");
+        g_oled.drawStr(2, 46, "H:");
+        snprintf(line, sizeof(line), "%.1f", g_last.hum_pct);
+        g_oled.drawStr(14, 46, line);
+        g_oled.drawStr(46, 46, "%");
 
-    g_oled.drawStr(2, 58, "P:");
-    snprintf(line, sizeof(line), "%d", (int)g_last.pres_hpa);
-    g_oled.drawStr(14, 58, line);
-    g_oled.drawStr(48, 58, "hPa");
+        g_oled.drawStr(2, 58, "P:");
+        snprintf(line, sizeof(line), "%d", (int)g_last.pres_hpa);
+        g_oled.drawStr(14, 58, line);
+        g_oled.drawStr(48, 58, "hPa");
+    }
 
     g_oled.sendBuffer();
     g_displayDirty = false;
@@ -111,6 +118,28 @@ static void renderOled() {
 static void forceRefreshOled() {
     if (!g_oledOk) return;
     g_lastOled = 0;  // 让下一次正常轮询命中
+}
+
+// BOOT 键长按检测: 上电按住 D3(GPIO0) 超过 3 秒 -> factory reset
+static void checkBootKey() {
+    pinMode(PIN_BOOT_KEY, INPUT_PULLUP);
+    uint32_t t0 = millis();
+    while (digitalRead(PIN_BOOT_KEY) == LOW) {
+        if (millis() - t0 > 3000) {
+            Serial.println(F("[BOOT] BOOT key held 3s -> FACTORY RESET"));
+            if (g_oledOk) {
+                g_oled.clearBuffer();
+                g_oled.setFont(u8g2_font_6x10_tr);
+                g_oled.drawStr(2, 18, "FACTORY RESET");
+                g_oled.drawStr(2, 32, "Clearing config...");
+                g_oled.sendBuffer();
+            }
+            g_cfgStore.clear();
+            delay(500);
+            ESP.restart();
+        }
+        delay(50);
+    }
 }
 
 static void handleSerialCmd() {
@@ -143,6 +172,8 @@ void setup() {
     Serial.println(F("======================================"));
 
     g_cfgStore.begin();
+    // BOOT 键长按 3s → factory reset（在 load 之前，清掉配置包括 device_id）
+    checkBootKey();
     bool saved = g_cfgStore.load(g_cfg);
     g_cfgStore.applyDefaults(g_cfg);
     Serial.printf("[BOOT] config %s, device_id=%s\n",

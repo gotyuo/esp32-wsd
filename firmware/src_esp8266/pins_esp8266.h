@@ -33,4 +33,9 @@
 #define PIN_LED_R 255        // 未接
 #define PIN_LED_G 255        // 未接
 
+// ---------- RESET / BOOT 键 ----------
+// GPIO0 = D3 = BOOT 键。上电按住 3 秒触发 factory reset,
+// 重启后进默认 AP 模式(192.168.4.1), 换位置时恢复出厂即用。
+#define PIN_BOOT_KEY 0
+
 #define FW_VER FW_VERSION

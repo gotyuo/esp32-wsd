@@ -35,4 +35,9 @@
 // 无源蜂鸣器
 #define PIN_BUZZER 18
 
+// ---------- RESET / BOOT 键 ----------
+// GPIO0 = BOOT 键(开发板上标 "BOOT")，上电时为高电平
+// 长按 3 秒触发 factory reset: 清配置 -> 重启 -> 进默认 AP 模式
+#define PIN_BOOT_KEY 0
+
 #define FW_VER FW_VERSION
