@@ -30,6 +30,10 @@ button.danger{background:rgba(255,23,68,.15);color:var(--red);border:1px solid r
 button.success{background:rgba(0,230,118,.15);color:var(--green);border:1px solid rgba(0,230,118,.5)}
 button.warn{background:rgba(255,171,0,.15);color:var(--orange);border:1px solid rgba(255,171,0,.5)}
 button.small{padding:4px 9px;font-size:11px}
+.disc-tab{padding:6px 12px;border-radius:18px;border:1px solid var(--line);background:var(--panel);color:var(--sub);font-size:12px;cursor:pointer;user-select:none}
+.disc-tab.on{background:var(--blue);color:#00141f;border-color:var(--blue);font-weight:600}
+.disc-tab{padding:6px 12px;border-radius:18px;border:1px solid var(--line);background:var(--panel);color:var(--sub);font-size:12px;cursor:pointer;user-select:none}
+.disc-tab.on{background:var(--blue);color:#00141f;border-color:var(--blue);font-weight:600}
 button:disabled{opacity:.5;cursor:not-allowed}
 
 /* 视图 tab */
@@ -163,12 +167,13 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab" data-view="devices" onclick="switchView('devices')">🖥 设备管理</span>
       <span class="vtab" data-view="sessions" onclick="switchView('sessions')">📋 监护记录</span>
       <span class="vtab" data-view="alarms" onclick="switchView('alarms')">🚨 报警</span>
+      <span class="vtab" data-view="hl7" onclick="switchView('hl7')">📡 非ESP接入</span>
     </div>
   </div>
   <div class="left">
     <span class="badge"><span id="timeNow">--</span></span>
     <span class="badge" id="wsState">WS 连接中…</span><span class="badge" style="cursor:pointer;color:#3fb6ff" onclick="window.open('/dashboard','_blank')" title="打开重症监护大屏(聚光灯轮播)">🖥 大屏展示</span>
-    <button class="secondary small" onclick="loadAll()">刷新</button>
+    <button class="secondary small" onclick="loadAll(event)">刷新</button>
     <div class="menu">
       <button class="secondary menuBtn" onclick="toggleMenu(event)">👤 <span id="userName">-</span> ▾</button>
       <div class="menuDrop hidden" id="userMenu">
@@ -191,7 +196,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="badge" id="lastSeen">最后上报 -</span>
       <button class="secondary small" onclick="dashboardSetMode('single')">单床位</button>
       <button class="secondary small active" id="dbGridBtn" onclick="dashboardSetMode('grid')">多人网格</button>
-      <button class="secondary small" onclick="loadDashboardGrid()">刷新网格</button>
+      <button class="secondary small" onclick="loadDashboardGrid(event)">刷新网格</button>
     </div>
     <div id="view-dashboard-single">
     <div class="vitals">
@@ -321,7 +326,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <span class="badge" id="mBadge">-</span>
   <span class="badge" id="mTime">--</span>
   <div style="flex:1"></div>
-  <button class="secondary small" onclick="refreshMonitor()">刷新</button>
+  <button class="secondary small" onclick="refreshMonitor(event)">刷新</button>
   <button class="secondary small" onclick="showIoForm()">+ 出入量</button>
   <button class="secondary small" id="mAssessBtn" onclick="assessPatient()">🤖 AI 评估</button>
 </div>
@@ -335,17 +340,17 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 </div>
 <div class="m-bottom">
   <div class="m-panel">
-    <h4>💊 运行中用药 <button class="secondary small" onclick="loadOrders()">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button></h4>
+    <h4>💊 运行中用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button></h4>
     <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
   </div>
   <div class="m-panel">
-    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo()">刷新</button><button class="secondary small" onclick="showAddIo()">+ 添加出入量</button></h4>
+    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showAddIo()">+ 添加出入量</button></h4>
     <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
     <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
     <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
   </div>
   <div class="m-panel">
-    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs()">刷新</button><button class="secondary small" onclick="showAddLab()">+ 添加检验</button></h4>
+    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新</button><button class="secondary small" onclick="showAddLab()">+ 添加检验</button></h4>
     <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
   </div>
 </div>
@@ -369,7 +374,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <h2>🏥 患者管理 / PATIENTS
         <div class="actions" style="margin-top:0">
           <button onclick="showPatientForm()">+ 新建患者</button>
-          <button class="secondary small" onclick="loadPatients()">刷新</button>
+          <button class="secondary small" onclick="loadPatients(event)">刷新</button>
           <button class="secondary small" onclick="triggerBackup()">💾 手动备份</button>
         </div>
       </h2>
@@ -397,7 +402,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <div class="section">
       <h2>📋 监护记录 / MONITOR SESSIONS
         <div class="actions" style="margin-top:0">
-          <button class="secondary small" onclick="loadMonitorSessionsView()">刷新</button>
+          <button class="secondary small" onclick="loadMonitorSessionsView(event)">刷新</button>
         </div>
       </h2>
       <div id="sessionsList"><div class="empty">加载中…</div></div>
@@ -407,9 +412,70 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <!-- ============= 报警 ============= -->
   <div id="view-alarms" class="hidden">
     <div class="section">
-      <h2>🚨 报警记录 / ALARM LOG <button class="secondary small" onclick="loadAlarms()">刷新</button></h2>
+      <h2>🚨 报警记录 / ALARM LOG <button class="secondary small" onclick="loadAlarms(event)">刷新</button></h2>
       <table><thead><tr><th>时间</th><th>设备</th><th>级别</th><th>原因</th><th>数值</th><th>状态</th></tr></thead>
         <tbody id="alarmBody"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- ============= 非ESP设备接入(HL7/HTTP) ============= -->
+  <div id="view-hl7" class="hidden">
+    <div class="section">
+      <h2>📡 非ESP设备接入 / HL7 & HTTP INGEST
+        <div class="actions" style="margin-top:0">
+          <button class="secondary small" onclick="loadHl7View(event)">刷新</button>
+        </div>
+      </h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <h3 style="font-size:13px;margin-bottom:8px">HTTP JSON 接入</h3>
+          <div style="font-size:12px;color:var(--dim);margin-bottom:8px">
+            外网/非ESP设备可通过 HTTP POST 推送 JSON 数据,无需 MQTT。
+          </div>
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:11px;line-height:1.8">
+            <div><b>URL:</b> <code id="hl7IngestUrl"></code></div>
+            <div><b>Header:</b> <code>Authorization: Bearer &lt;token&gt;</code></div>
+            <div><b>Method:</b> POST</div>
+            <div><b>Content-Type:</b> application/json</div>
+            <div style="margin-top:6px"><b>Body 示例:</b></div>
+            <pre style="margin:4px 0;padding:8px;background:var(--bg);border-radius:4px;overflow-x:auto">{
+  "device_id": "ext-001",
+  "temp_c": 25.5,
+  "hum_pct": 60.2,
+  "pres_hpa": 1013.0
+}</pre>
+          </div>
+        </div>
+        <div>
+          <h3 style="font-size:13px;margin-bottom:8px">HL7 v2.x 接入</h3>
+          <div style="font-size:12px;color:var(--dim);margin-bottom:8px">
+            支持 HL7 ORU^R01 观察结果消息,自动解析并入库。
+          </div>
+          <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:11px;line-height:1.8">
+            <div><b>URL:</b> <code id="hl7ParseUrl"></code></div>
+            <div><b>Method:</b> POST</div>
+            <div><b>Content-Type:</b> text/plain</div>
+            <div style="margin-top:6px"><b>HL7 示例:</b></div>
+            <pre style="margin:4px 0;padding:8px;background:var(--bg);border-radius:4px;overflow-x:auto;font-size:10px">MSH|^~\&|VENT|ICU|ENVMON|SERVER|202608261200||ORU^R01|MSG001|P|2.5
+PID||12345|12345||张三^A||19800101|M
+OBR|1||12345^VENT|TEMP^TEMPERATURE
+OBX|1|NM|TEMP^TEMPERATURE||36.8|C|35.0-37.5|N|||F
+OBX|2|NM|HR^HEART_RATE||72|bpm|60-100|N|||F
+OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <h3 style="font-size:13px;margin-bottom:8px">在线测试</h3>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input id="hl7TestId" placeholder="设备ID(如 ext-001)" style="flex:1">
+          <input id="hl7TestTemp" placeholder="温度" style="width:80px">
+          <input id="hl7TestHum" placeholder="湿度" style="width:80px">
+          <input id="hl7TestPres" placeholder="气压" style="width:80px">
+          <button onclick="testIngest()">推送测试数据</button>
+        </div>
+        <div id="hl7TestResult" style="font-size:11px;color:var(--dim);min-height:20px"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -428,12 +494,28 @@ function $(id){return document.getElementById(id)}
 function fmt(v,d){return (v==null||isNaN(v))?"--":Number(v).toFixed(d==null?1:d)}
 function fmtTime(s){if(!s)return"--";return s.replace("T"," ").replace("Z","").slice(0,19)}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
-function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opt.headers||{});return fetch(path,opt).then(function(r){if(r.status===401){showLogin();throw new Error("unauthorized");}if(r.status===403){alert("需要管理员权限");throw new Error("forbidden");}return r.json();});}
+function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opt.headers||{});return fetch(path,opt).then(function(r){if(r.status===401){showLogin();throw new Error("登录已过期，请重新登录");}if(r.status===403){throw new Error("需要管理员权限");}if(!r.ok){throw new Error("接口异常("+r.status+")");}return r.json();});}
+
+function _refreshBtn(ev,fn){
+  var b=(ev&&ev.currentTarget)||null;
+  if(!b)return;
+  if(b.disabled)return;               // 防重复点击(仅锁当前按钮,不锁全局)
+  var o=b.textContent;
+  b.disabled=true;b.textContent=" 刷新中...";
+  var done=false;
+  function finish(ok,msg){ if(done)return; done=true; b.disabled=false; b.textContent=o; if(!ok&&msg)toast(msg); }
+  try{
+    var p=fn();
+    if(p&&typeof p.then==='function'){ p.then(function(){finish(true);}).catch(function(e){finish(false,e&&e.message?e.message:"刷新失败，请检查网络与登录状态");}); }
+    else { finish(true); }
+  }catch(e){ finish(false,e&&e.message?e.message:"刷新失败"); }
+  setTimeout(function(){finish(true);},10000);  // 10s 超时自动恢复
+}
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","monitor","patients","devices","sessions","alarms"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();}
+  ["dashboard","monitor","patients","devices","sessions","alarms","hl7"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -443,7 +525,7 @@ function dashboardSetMode(mode){
   if(mode==="grid")loadDashboardGrid();
 }
 
-function loadDashboardGrid(){
+function loadDashboardGrid(ev){_refreshBtn(ev,function(){
   var el=$("patientGrid")||$("dashGrid")||document.createElement("div");
   api("/api/patients/summary").then(function(d){
     var ps=d.patients||[];
@@ -474,8 +556,7 @@ function loadDashboardGrid(){
       return card;
     }).join("");
   }).catch(function(){el.innerHTML='<div class="empty">加载失败</div>';});
-}
-
+});}
 function jumpToMonitor(pid){MONITOR_PID=pid;switchView("monitor");setTimeout(function(){if($("mPid")){$("mPid").value=pid;refreshMonitor();}},50);}
 
 // 顶栏时钟
@@ -550,8 +631,7 @@ function loadTh(){api("/api/thresholds?device="+(DEV?encodeURIComponent(DEV):"*"
     $("sHum").textContent="正常区间 "+fmt(t.hum_min)+" ~ "+fmt(t.hum_max)+" %";
     $("sPres").textContent="正常区间 "+fmt(t.pres_min)+" ~ "+fmt(t.pres_max)+" hPa";
   }).catch(function(){});}
-function loadAlarms(){api("/api/alarms?limit=50").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+fmt(x.temp_c)+"℃ "+fmt(x.hum_pct)+"% "+fmt(x.pres_hpa)+"hPa</td><td>"+st+"</td></tr>";}).join("");}).catch(function(){});}
-function loadAll(){loadDevices();}
+function loadAlarms(ev){_refreshBtn(ev,function(){api("/api/alarms?limit=50").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+fmt(x.temp_c)+"℃ "+fmt(x.hum_pct)+"% "+fmt(x.pres_hpa)+"hPa</td><td>"+st+"</td></tr>";}).join("");}).catch(function(){});});}function loadAll(){loadDevices();}
 function saveTh(ev){ev.preventDefault();var body={device_id:$("fDev").value||"*",temp_min:+$("fTmin").value,temp_max:+$("fTmax").value,hum_min:+$("fHmin").value,hum_max:+$("fHmax").value,pres_min:+$("fPmin").value,pres_max:+$("fPmax").value,report_interval:+$("fIv").value,alarm_enabled:$("fEn").checked,alarm_sound:$("fSnd").checked};
   api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";setTimeout(function(){$("saveMsg").textContent="";},5000);}).catch(function(){});}
 
@@ -665,7 +745,7 @@ function connectWS(){try{ws=new WebSocket((location.protocol==="https:"?"wss://"
 if(TOKEN){api("/api/me").then(function(u){ME=u;SOUND=u.sound_alarm!==0;enterApp();}).catch(function(){showLogin();});}else{showLogin();}
 
 // ==================== 患者管理 ====================
-function loadPatients(){
+function loadPatients(ev){_refreshBtn(ev,function(){
   api("/api/patients").then(function(d){
     var ps=d.patients||[];
     if(!ps.length){$("pGrid").innerHTML='<div class="empty">暂无患者，点击「+ 新建患者」创建</div>';return;}
@@ -689,8 +769,7 @@ function loadPatients(){
         +'</div>';
     }).join("");
   }).catch(function(){$("pGrid").innerHTML='<div class="empty">加载失败</div>';});
-}
-
+});}
 function showPatientForm(pid){
   var fetchP = pid?api("/api/patients/"+pid):Promise.resolve({});
   fetchP.then(function(d){
@@ -849,11 +928,12 @@ function loadPatientsForMonitor(){
   }).catch(function(){});
 }
 
-function refreshMonitor(){
+function refreshMonitor(ev){_refreshBtn(ev,function(){
   var pid=$("mPid")&&$("mPid").value;
   if(!pid)return;
   MONITOR_PID=pid;
   $("mTime").textContent="患者 "+pid;
+  // 加载患者体征
   api("/api/patients/"+pid+"/vitals?hours=6").then(function(d){
     MONITOR_VITALS=d.points||[];
     var latest=MONITOR_VITALS.length?MONITOR_VITALS[MONITOR_VITALS.length-1]:null;
@@ -887,11 +967,51 @@ function refreshMonitor(){
       paintSpark(c.querySelector(".m-spark"),vals);
     });
     loadOrders();loadIo();loadLabs();
+    // 加载关联设备的实时环境数据(ESP8266/ESP32 telemetry)
+    api("/api/patients/"+pid+"/devices").then(function(dd){
+      var devs=dd.devices||[];
+      var envEl=$("mEnvData");
+      if(!envEl){
+        // 如果监护界面没有环境数据容器,动态创建
+        var mBody=document.querySelector("#view-monitor .m-body, #view-monitor .monitor-body, #view-monitor > div");
+        if(mBody){
+          envEl=document.createElement("div");
+          envEl.id="mEnvData";
+          envEl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding:8px;background:var(--card-bg);border-radius:6px;font-size:12px";
+          mBody.appendChild(envEl);
+        }
+      }
+      if(envEl){envEl.innerHTML="";}
+      var loaded=0;
+      devs.forEach(function(dv){
+        api("/api/realtime?device="+encodeURIComponent(dv.device_id)).then(function(rd){
+          var list=rd.devices||[];
+          list.forEach(function(x){
+            var L=x.latest;if(!L)return;
+            loaded++;
+            var chip=document.createElement("span");
+            chip.className="env-chip";
+            chip.style.cssText="display:inline-flex;gap:4px;align-items:center;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px";
+            chip.innerHTML='<b>'+esc(dv.device_id)+'</b> '
+              +'<span>🌡'+fmt(L.temp_c)+'℃</span>'
+              +'<span>💧'+fmt(L.hum_pct)+'%</span>'
+              +'<span>🧭'+fmt(L.pres_hpa,0)+'hPa</span>'
+              +(x.device.online?' <span style="color:var(--green)">●</span>':' <span style="color:var(--red)">○</span>');
+            if(envEl)envEl.appendChild(chip);
+          });
+          if(envEl&&!envEl.children.length&&loaded===0){
+            envEl.innerHTML='<span style="color:var(--dim)">关联设备暂无实时数据</span>';
+          }
+        }).catch(function(){});
+      });
+      if(envEl&&!envEl.children.length){
+        envEl.innerHTML='<span style="color:var(--dim)">关联设备暂无实时数据</span>';
+      }
+    }).catch(function(){});
   }).catch(function(){});
   // 评估自动刷新
   assessPatient();
-}
-
+});}
 function trendArrow(vals){
   if(!vals||vals.length<3)return "➡";
   var w=vals[vals.length-1]*0.5+vals[vals.length-2]*0.3+vals[vals.length-3]*0.2;
@@ -988,7 +1108,7 @@ function showAddIo(){
   showIoForm();
 }
 
-function loadOrders(){
+function loadOrders(ev){_refreshBtn(ev,function(){
   var pid=MONITOR_PID;if(!pid)return;
   api("/api/patients/"+pid+"/orders").then(function(d){
     var ord=(d.orders||[]).filter(function(o){return o.status==="active";}).slice(0,10);
@@ -1000,9 +1120,8 @@ function loadOrders(){
         +"<div class='small'>开 "+fmtTime(o.start_ts)+pump?"":""+"</div></div>";
     }).join("");
   }).catch(function(){});
-}
-
-function loadIo(){
+});}
+function loadIo(ev){_refreshBtn(ev,function(){
   var pid=MONITOR_PID;if(!pid)return;
   Promise.all([
     api("/api/patients/"+pid+"/io/balance?hours=24"),
@@ -1027,9 +1146,8 @@ function loadIo(){
         +"<span>"+amt+"</span></div>";
     }).join("")||"<div class='empty' style='font-size:11px'>暂无记录</div>";
   }).catch(function(){});
-}
-
-function loadLabs(){
+});}
+function loadLabs(ev){_refreshBtn(ev,function(){
   var pid=MONITOR_PID;if(!pid)return;
   api("/api/patients/"+pid+"/lab").then(function(d){
     var labs=(d.results||[]).slice(0,10);
@@ -1046,8 +1164,7 @@ function loadLabs(){
       +"</div>";
     }).join("");
   }).catch(function(){});
-}
-
+});}
 function showIoForm(){
   var pid=MONITOR_PID;if(!pid){toast("请先选择患者");return;}
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>IO · "+esc(pid)+"</h2>"
@@ -1150,40 +1267,177 @@ function saveSettings(){
   Promise.all(promises).then(function(){toast("AI 设置已保存");closeModal();loadSettingsForMenu();}).catch(function(){});
 }
 
-// ==================== 设备发现 ====================
-function showDeviceDiscover(){
-  api("/api/discover/devices?refresh=1").then(function(d){
-    var devs=d.devices||[];
-    var html="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>LAN DISCOVERY · 局域网发现</h2>";
-    html+="<div style='font-size:11px;color:var(--dim);margin-bottom:10px'>已注册 "+d.registered+" 台，未注册 "+d.unregistered+" 台。基于最近 telemetry 上报记录，去重列表。</div>";
-    if(!devs.length){html+="<div class='empty'>暂无发现设备</div>";}
-    else{
-      html+="<table><thead><tr><th>设备 ID</th><th>名称</th><th>固件/IP</th><th>最后上报</th><th>状态</th><th>操作</th></tr></thead><tbody>";
-      devs.forEach(function(x){
-        var st=x.status==="registered"?'<span class="ok">已注册</span>':'<span class="bad">未注册</span>';
-        var online = x.online?' <span class="ok">在线</span>':' <span class="bad">离线</span>';
-        var actionBtn;
-        if(x.status==="unregistered"){
-          actionBtn="<button class='success small' onclick='registerDiscovered(\""+esc(x.device_id)+"\")'>注册</button>";
-        }else{
-          actionBtn="<span class='small'>"+st+online+"</span>";
+// ==================== 设备接入（内网 / 外网 双扫描） ====================
+var DISC_NET = 'internal';
+function _buildDiscover(net) {
+    DISC_NET = net;
+    var mi = document.getElementById('modalInner');
+    mi.innerHTML = '<div style="text-align:center;padding:30px;color:var(--sub)">扫描中...</div>';
+    document.getElementById('modalBox').classList.remove('hidden');
+    api("/api/discover/devices?refresh=1&network=" + encodeURIComponent(net)).then(function(d) {
+        var devs = d.devices || [];
+        var nl = { all: "全部设备", internal: "内网设备（同网段）", external: "外网设备（公网接入）" }[net] || net;
+        var cs = "内网 " + (d.internal || 0) + " 台，外网 " + (d.external || 0) + " 台，共 " + (d.all || 0) + " 台。";
+
+        // 用 DOM 构建,避免引号地狱
+        var root = document.createElement('div');
+
+        var h2 = document.createElement('h2');
+        h2.style.cssText = 'font-size:14px;margin-bottom:8px;color:var(--sub);letter-spacing:1px';
+        h2.textContent = 'DEVICE DISCOVERY · ' + nl + '扫描';
+        root.appendChild(h2);
+
+        // Tab 按钮
+        var tabs = document.createElement('div');
+        tabs.className = 'disc-tabs';
+        tabs.style.cssText = 'display:flex;gap:6px;margin-bottom:12px';
+        ['internal','external','all'].forEach(function(t) {
+            var btn = document.createElement('button');
+            btn.className = 'disc-tab ' + (t === net ? 'on' : '');
+            btn.textContent = { internal:'内网设备', external:'外网设备', all:'全部' }[t];
+            btn.onclick = function(){ _buildDiscover(t); };
+            tabs.appendChild(btn);
+        });
+        root.appendChild(tabs);
+
+        // 统计
+        var stat = document.createElement('div');
+        stat.style.cssText = 'font-size:11px;color:var(--dim);margin-bottom:10px';
+        stat.textContent = cs + ' 基于最近 telemetry 上报，按设备 IP（RFC1918 私有地址=内网）自动分类。';
+        root.appendChild(stat);
+
+        // 外网接入入口
+        if (net === 'external' || net === 'all') {
+            var extHint = document.createElement('div');
+            extHint.style.cssText = 'background:var(--card-bg);border:1px dashed var(--border);padding:10px;margin-bottom:10px;border-radius:6px;font-size:12px';
+            extHint.innerHTML = '<b>📡 外网设备接入</b><br>外网设备通过 HTTP POST 推送数据到 <code>'+location.origin+'/api/ingest</code> 即可接入。<br>无需 MQTT，只需能访问本服务端口。';
+            var addBtn = document.createElement('button');
+            addBtn.textContent = '+ 手动添加外网设备';
+            addBtn.style.marginTop = '6px';
+            addBtn.onclick = function(){ showAddExternalDevice(); };
+            extHint.appendChild(addBtn);
+            root.appendChild(extHint);
         }
-        html+="<tr><td>"+esc(x.device_id)+"</td><td>"+esc(x.name||"-")+"</td><td>"+esc(x.fw||"-")+" / "+esc(x.ip||"-")+"</td><td>"+fmtTime(x.last_seen)+"</td><td>"+st+"</td><td>"+actionBtn+"</td></tr>";
-      });
-      html+="</tbody></table>";
-    }
-    html+="<div class='actions'><button onclick='showDeviceDiscover()'>📡 重新扫描</button><button class='secondary' onclick='closeModal()'>关闭</button></div>";
-    $("modalInner").innerHTML=html;
-    $("modalBox").classList.remove("hidden");
-  }).catch(function(){});
+
+        // 设备列表
+        if (!devs.length) {
+            var e = document.createElement('div');
+            e.className = 'empty';
+            e.textContent = '当前网络下暂无设备 · 确认设备已连上 WiFi 且 MQTT 在线';
+            root.appendChild(e);
+        } else {
+            var tbl = document.createElement('table');
+            tbl.innerHTML = '<thead><tr><th>设备 ID</th><th>名称</th><th>固件/IP</th><th>最后上报</th><th>状态</th><th>操作</th></tr></thead>';
+            var tb = document.createElement('tbody');
+            devs.forEach(function(x) {
+                var tr = document.createElement('tr');
+                var st = x.status === 'registered' ? '<span class="ok">已注册</span>' : '<span class="bad">未注册</span>';
+                var on = x.online ? ' <span class="ok">在线</span>' : ' <span class="bad">离线</span>';
+                var actHtml;
+                if (x.status === 'unregistered') {
+                    actHtml = '<button class="success small" data-reg="' + esc(x.device_id) + '">注册</button>';
+                } else {
+                    actHtml = '<span class="small">' + st + on + '</span>';
+                }
+                tr.innerHTML = '<td>' + esc(x.device_id) + '</td><td>' + esc(x.name||'-') + '</td><td>' + esc(x.fw||'-') + ' / ' + esc(x.ip||'-') + '</td><td>' + fmtTime(x.last_seen) + '</td><td>' + st + '</td><td>' + actHtml + '</td>';
+                // 用事件委托注册按钮
+                var regBtn = tr.querySelector('[data-reg]');
+                if (regBtn) {
+                    var did = regBtn.getAttribute('data-reg');
+                    regBtn.onclick = function(){ registerDiscovered(did); };
+                }
+                tb.appendChild(tr);
+            });
+            tbl.appendChild(tb);
+            root.appendChild(tbl);
+        }
+
+        // 底部操作
+        var act = document.createElement('div');
+        act.className = 'actions';
+        var rescanBtn = document.createElement('button');
+        rescanBtn.textContent = '重新扫描';
+        rescanBtn.onclick = function(){ _buildDiscover(DISC_NET); };
+        act.appendChild(rescanBtn);
+        var closeBtn = document.createElement('button');
+        closeBtn.className = 'secondary';
+        closeBtn.textContent = '关闭';
+        closeBtn.onclick = function(){ closeModal(); };
+        act.appendChild(closeBtn);
+        root.appendChild(act);
+
+        mi.innerHTML = '';
+        mi.appendChild(root);
+    }).catch(function() { toast("扫描失败，请检查网络与登录状态"); });
 }
-function registerDiscovered(id){
-  api("/api/devices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device_id:id,name:""})}).then(function(){
-    toast("已注册设备 "+id);loadDevices();showDeviceDiscover();}).catch(function(){});
+function showDeviceDiscover() { _buildDiscover('internal'); }
+function showAddExternalDevice() {
+    var mi = document.getElementById('modalInner');
+    var html = '<h2 style="font-size:14px;margin-bottom:8px;color:var(--sub)">+ 添加外网设备</h2>'
+        + '<div style="font-size:12px;color:var(--dim);margin-bottom:12px">外网设备通过 HTTP POST 推送数据到本服务器即可接入，无需 MQTT。</div>'
+        + '<label>设备 ID</label><input id="extDevId" placeholder="如 ext-001" style="width:100%;margin-bottom:8px">'
+        + '<label>设备名称</label><input id="extDevName" placeholder="如 远程监测站" style="width:100%;margin-bottom:8px">'
+        + '<label>接入说明</label><div style="font-size:11px;color:var(--dim);margin-bottom:8px">'
+        + '设备端配置推送地址: <code>'+location.origin+'/api/ingest</code><br>'
+        + 'HTTP POST Header: <code>Authorization: Bearer &lt;token&gt;</code><br>'
+        + 'Body 示例: <code>{"device_id":"ext-001","temp_c":25.5,"hum_pct":60,"pres_hpa":1013}</code><br>'
+        + '也支持 HL7 格式（见"非ESP设备接入"页面）。</div>'
+        + '<div class="actions"><button onclick="registerExternalDevice()">注册并生成接入信息</button><button class="secondary" onclick="showDeviceDiscover()">返回</button></div>';
+    mi.innerHTML = html;
+}
+function registerExternalDevice() {
+    var id = document.getElementById('extDevId').value.trim();
+    var name = document.getElementById('extDevName').value.trim();
+    if (!id) { toast('请输入设备 ID'); return; }
+    api("/api/devices", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({device_id:id, name:name}) }).then(function() {
+        toast("外网设备已注册: " + id);
+        _buildDiscover('external');
+    }).catch(function(e) { toast(e && e.message ? e.message : "注册失败"); });
+}
+function registerDiscovered(id) {
+    api("/api/devices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device_id: id, name: "" }) }).then(function() {
+        toast("已注册设备 " + id); loadDevices(); _buildDiscover(DISC_NET);
+    }).catch(function() { toast("注册失败"); });
 }
 
-// ==================== 监护记录 (Issue 5) ====================
-function loadMonitorSessionsView(){
+// ==================== HL7 / 非ESP设备接入 ====================
+function loadHl7View(ev){
+  if(ev)_refreshBtn(ev,function(){
+    _loadHl7View();
+  });
+  else _loadHl7View();
+}
+function _loadHl7View(){
+  var ingestUrlEl=document.getElementById('hl7IngestUrl');
+  var parseUrlEl=document.getElementById('hl7ParseUrl');
+  if(ingestUrlEl)ingestUrlEl.textContent=location.origin+'/api/ingest';
+  if(parseUrlEl)parseUrlEl.textContent=location.origin+'/api/ingest';
+  var resultEl=document.getElementById('hl7TestResult');
+  if(resultEl)resultEl.textContent='就绪。填写设备ID和数值后点击推送。';
+}
+function testIngest(){
+  var id=document.getElementById('hl7TestId').value.trim();
+  var temp=document.getElementById('hl7TestTemp').value.trim();
+  var hum=document.getElementById('hl7TestHum').value.trim();
+  var pres=document.getElementById('hl7TestPres').value.trim();
+  var resultEl=document.getElementById('hl7TestResult');
+  if(!id){resultEl.textContent='请填写设备ID';return;}
+  var body={device_id:id};
+  if(temp)body.temp_c=parseFloat(temp);
+  if(hum)body.hum_pct=parseFloat(hum);
+  if(pres)body.pres_hpa=parseFloat(pres);
+  resultEl.textContent='推送中...';
+  api('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(d){
+    resultEl.textContent='成功: '+JSON.stringify(d);
+    resultEl.style.color='var(--green)';
+    toast('测试数据已推送');
+  }).catch(function(e){
+    resultEl.textContent='失败: '+(e&&e.message?e.message:'未知错误');
+    resultEl.style.color='var(--red)';
+  });
+}
+
+function loadMonitorSessionsView(ev){_refreshBtn(ev,function(){
   api("/api/monitor/sessions?limit=200").then(function(d){
     var sessions=d.sessions||[];
     if(!sessions.length){$("sessionsList").innerHTML='<div class="empty">暂无监护记录</div>';return;}
@@ -1202,8 +1456,7 @@ function loadMonitorSessionsView(){
       }).join("")
       +"</tbody></table>";
   }).catch(function(){$("sessionsList").innerHTML='<div class="empty">加载失败</div>';});
-}
-
+});}
 function showSessionDetail(sid){
   api("/api/monitor/sessions/"+sid).then(function(d){
     var s=d.session||{};

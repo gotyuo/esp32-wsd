@@ -34,6 +34,7 @@ from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeI
 from . import icu
 from .models import PatientCreate, PatientUpdate, LinkDeviceIn, VitalIn, OrderIn, LabResultIn
 from .mqtt_bridge import MqttBridge
+from . import tts as tts_mod
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -200,10 +201,53 @@ def record_alarm_transition(device_id: str, level: int, reason: str, temp, hum, 
             hub.broadcast_threadsafe({"type": "alarm", "device_id": device_id,
                                       "level": level, "reason": reason})
             log.warning("ALARM [%s] lv%d %s", device_id, level, reason)
+            # TTS 语音播报：报警触发时自动合成语音并下发到设备
+            _trigger_tts_alarm(device_id, level, reason)
     else:
         if open_alarm:
             db.clear_open_alarms(device_id)
             hub.broadcast_threadsafe({"type": "alarm_cleared", "device_id": device_id})
+            # 报警解除时语音播报
+            _trigger_tts_alarm(device_id, 0, "")
+
+
+def _trigger_tts_alarm(device_id: str, level: int, reason: str):
+    """报警触发/解除时，通过 MQTT 下发语音文本到设备端播放。
+
+    设备端订阅 envmon/{device_id}/tts 主题，收到 JSON {"text":"...","level":N}
+    后用喇叭播放对应频率的提示音或合成语音。
+    """
+    if not tts_mod.is_enabled():
+        return
+    if not bridge.client or not bridge.connected:
+        log.debug("TTS skip: MQTT offline for %s", device_id)
+        return
+    try:
+        # 查询关联患者姓名
+        patient_name = None
+        try:
+            conn = icu._get_conn()
+            r = conn.execute(
+                "SELECT p.name FROM patient_devices pd "
+                "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=?",
+                (device_id,),
+            ).fetchone()
+            if r:
+                patient_name = r["name"]
+        except Exception:
+            pass
+
+        text = tts_mod.build_alarm_text(device_id, level, reason, patient_name)
+        payload = json.dumps({
+            "text": text,
+            "level": level,
+            "device_id": device_id,
+        }, ensure_ascii=False)
+        topic = f"envmon/{device_id}/tts"
+        bridge.client.publish(topic, payload, qos=1)
+        log.info("TTS dispatched to %s: %s", device_id, text)
+    except Exception as e:  # noqa: BLE001
+        log.error("TTS alarm dispatch failed for %s: %s", device_id, e)
 
 
 # ================================================================ MQTT 处理器
@@ -580,10 +624,40 @@ def delete_device(device_id: str, _: Dict = Depends(require_admin)):
     return {"ok": True}
 
 
+# ================================================================ 设备网络接入
+def _network_type(ip: str | None) -> str:
+    """根据设备上报 IP 归类为内网/外网。RFC1918 私有地址 = internal，其余 = external。"""
+    if not ip:
+        return "unknown"
+    ip = ip.strip()
+    try:
+        parts = ip.split(".")
+        if len(parts) != 4:
+            return "external"
+        a, b = int(parts[0]), int(parts[1])
+        if a == 10:
+            return "internal"
+        if a == 172 and 16 <= b <= 31:
+            return "internal"
+        if a == 192 and b == 168:
+            return "internal"
+        if a == 127:
+            return "internal"
+        if a == 169 and b == 254:  # link-local
+            return "internal"
+        return "external"
+    except (ValueError, IndexError):
+        return "external"
+
+
+# ================================================================ 设备接入 / discovery
 @app.get("/api/discover/devices", dependencies=[Depends(require_user)])
-def devices_discover(refresh: bool = Query(False)):
-    """局域网设备发现：基于 telemetry 上报记录去重，与 devices 表比对。"""
-    _ = refresh  # 触发重新查询，不使用进程内缓存
+def devices_discover(refresh: bool = Query(False),
+                     network: str = Query("all", pattern="^(all|internal|external)$")):
+    """设备接入：基于 telemetry 上报记录去重，与 devices 表比对。
+    network=all|internal|external：按 RFC1918 私有地址分类，支持只扫描内网/外网设备。
+    """
+    _ = refresh
     recent = db.query(
         "SELECT t.device_id, t.ts, t.temp_c, t.hum_pct, t.pres_hpa, t.rssi, "
         "t.alarm_level, t.free_heap FROM telemetry t "
@@ -621,8 +695,21 @@ def devices_discover(refresh: bool = Query(False)):
                 "registered_at": None,
                 "status": "unregistered",
                 "rssi": r.get("rssi"),
+                "network": _network_type(d.get("ip_addr") if d else r.get("ip")),
             })
-    return {"devices": items, "total": len(items),
+    # 网络分类过滤（前端按 内网/外网 分别扫描）
+    filtered = items
+    internal_items = [x for x in items if x.get("network") == "internal"]
+    external_items = [x for x in items if x.get("network") == "external"]
+    if network == "internal":
+        filtered = internal_items
+    elif network == "external":
+        filtered = external_items
+    return {"devices": filtered, "total": len(filtered),
+            "network": network,
+            "internal": len(internal_items),
+            "external": len(external_items),
+            "all": len(items),
             "registered": sum(1 for x in items if x["status"] == "registered"),
             "unregistered": sum(1 for x in items if x["status"] == "unregistered"),
             "refreshed": refresh}
@@ -818,22 +905,213 @@ def alarms(device: Optional[str] = None, limit: int = Query(50, le=500)):
     return {"alarms": db.list_alarms(device, limit)}
 
 
-@app.post("/api/ingest", dependencies=[Depends(require_admin)])
-def ingest(body: IngestIn):
-    """HTTP 备用接入通道（无 MQTT 时测试用）。"""
-    level, reason = check_alarm(body.device_id, body.temp, body.hum, body.pres)
-    db.upsert_device(body.device_id)
-    db.insert_telemetry(body.device_id, body.temp, body.hum, body.pres,
-                        body.rssi, level, None)
-    record_alarm_transition(body.device_id, level, reason,
-                            body.temp, body.hum, body.pres)
+# ================================================================ HL7 v2.x 解析
+# OBX-3 标识符到 telemetry/vitals 字段名的映射表。
+# 常见标识符（不区分大小写）覆盖主流监护设备输出。
+_HL7_OBX_MAP: Dict[str, str] = {
+    "temp": "temp_c", "temperature": "temp_c", "体温": "temp_c",
+    "hum": "hum_pct", "humidity": "hum_pct", "湿度": "hum_pct",
+    "pres": "pres_hpa", "pressure": "pres_hpa", "气压": "pres_hpa",
+    "spo2": "sp_o2", "sp_o2": "sp_o2", "血氧": "sp_o2",
+    "pr": "pr_hr", "hr": "pr_hr", "pulse": "pr_hr", "心率": "pr_hr",
+    "rr": "rr_bpm", "rr_bpm": "rr_bpm", "呼吸": "rr_bpm",
+    "sbp": "sbp", "dbp": "dbp", "map": "map_bp", "nibp_s": "sbp", "nibp_d": "dbp",
+    "ecg_hr": "ecg_hr", "etco2": "etco2",
+}
+
+
+def _parse_hl7(text: str) -> Dict[str, Any]:
+    """解析 HL7 v2.x 消息文本，返回结构化 dict。
+
+    支持 ORU^R01（观察结果）消息类型，提取 MSH / PID / OBX 段。
+    OBX 观察值通过 _HL7_OBX_MAP 映射到 temp_c/hum_pct/pres_hpa/sp_o2/pr_hr 等字段。
+
+    返回示例::
+
+        {
+            "message_type": "ORU^R01",
+            "device_id": "ESP32-001",
+            "patient": {"pid": "12345", "name": "张三", "bed": "ICU-01"},
+            "observations": [{"code": "Temp", "field": "temp_c", "value": 36.5, "unit": "C"}],
+            "mapped": {"temp_c": 36.5, "sp_o2": 98},
+        }
+    """
+    # HL7 段以行分隔（\\r 或 \\r\\n），字段以竖线 | 分隔
+    lines = text.replace("\r\n", "\r").replace("\n", "\r").split("\r")
+    segments: Dict[str, List[List[str]]] = {}
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        fields = line.split("|")
+        seg_id = fields[0].upper() if fields else ""
+        segments.setdefault(seg_id, []).append(fields)
+
+    result: Dict[str, Any] = {
+        "message_type": "",
+        "device_id": None,
+        "patient": {},
+        "observations": [],
+        "mapped": {},
+    }
+
+    # MSH 段 —— 消息头
+    msh_rows = segments.get("MSH", [])
+    if msh_rows:
+        msh = msh_rows[0]
+        # MSH-3 发送应用（设备标识）、MSH-4 发送设施、MSH-9 消息类型
+        if len(msh) > 2 and msh[2]:
+            result["device_id"] = msh[2]
+        elif len(msh) > 3 and msh[3]:
+            result["device_id"] = msh[3]
+        if len(msh) > 8:
+            result["message_type"] = msh[8]
+
+    # PID 段 —— 患者标识
+    pid_rows = segments.get("PID", [])
+    if pid_rows:
+        pid = pid_rows[0]
+        patient: Dict[str, str] = {}
+        if len(pid) > 3:
+            patient["pid"] = pid[3].split("^")[0] if pid[3] else ""
+        if len(pid) > 5:
+            # PID-5 患者姓名，格式：姓^名
+            patient["name"] = pid[5].replace("^", "") if pid[5] else ""
+        if len(pid) > 18:
+            # PID-18 床号（部分系统用 PID-3 的访问号）
+            patient["bed"] = pid[18] if pid[18] else ""
+        result["patient"] = patient
+
+    # OBX 段 —— 观察值
+    for obx in segments.get("OBX", []):
+        if len(obx) < 6:
+            continue
+        # OBX-3 观察标识、OBX-5 观察值、OBX-6 单位
+        obs_id = obx[3] if len(obx) > 3 else ""
+        obs_val = obx[5] if len(obx) > 5 else ""
+        obs_unit = obx[6] if len(obx) > 6 else ""
+        if not obs_val:
+            continue
+        # 标识符可能带 ^ 分隔的子字段（如 TEMP^BODY^L），取第一个
+        obs_key = obs_id.split("^")[0].strip().lower() if obs_id else ""
+        field_name = _HL7_OBX_MAP.get(obs_key)
+        obs_entry: Dict[str, Any] = {
+            "code": obs_id,
+            "field": field_name or obs_key,
+            "value": obs_val,
+            "unit": obs_unit,
+        }
+        result["observations"].append(obs_entry)
+        if field_name:
+            try:
+                val = float(obs_val)
+                result["mapped"][field_name] = val
+            except (ValueError, TypeError):
+                pass
+
+    return result
+
+
+@app.post("/api/ingest", dependencies=[Depends(require_user)])
+async def ingest(request: Request):
+    """HTTP 数据接入通道，支持 JSON 和 HL7 v2.x 文本两种格式。
+
+    - Content-Type: application/json
+        {"device_id":"xxx","temp_c":25,"hum_pct":60,"pres_hpa":1013}
+        或 {"device_id":"xxx","temp":25,"hum":60,"pres":1013,"rssi":-55}
+    - Content-Type: text/plain
+        HL7 v2.x 文本（ORU^R01），解析 OBX 段并映射到遥测字段
+
+    设备不存在时自动注册；解析后自动创建 telemetry 记录。
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
+    raw_body = (await request.body()).decode("utf-8", errors="replace").strip()
+    if not raw_body:
+        raise HTTPException(400, "请求体为空")
+
+    device_id: Optional[str] = None
+    temp: Optional[float] = None
+    hum: Optional[float] = None
+    pres: Optional[float] = None
+    rssi: Optional[int] = None
+    source = "json"
+
+    if "text/plain" in content_type or raw_body.startswith("MSH|"):
+        # —— HL7 v2.x 文本格式 ——
+        source = "hl7"
+        parsed = _parse_hl7(raw_body)
+        device_id = parsed.get("device_id")
+        mapped = parsed.get("mapped", {})
+        temp = mapped.get("temp_c")
+        hum = mapped.get("hum_pct")
+        pres = mapped.get("pres_hpa")
+        # HL7 消息不包含 rssi，保持 None
+        # 若映射到 sp_o2 / pr_hr 等 vitals 字段，也尝试写入 patient_vitals
+        vital_fields = {k: v for k, v in mapped.items()
+                        if k in ("sp_o2", "pr_hr", "ecg_hr", "rr_bpm",
+                                 "etco2", "sbp", "dbp", "map_bp")}
+        hl7_patient = parsed.get("patient", {})
+        hl7_pid = hl7_patient.get("pid", "")
+        if vital_fields and hl7_pid:
+            try:
+                p = icu.patient_by_pid(hl7_pid)
+                if p:
+                    icu.insert_vital(
+                        p["id"], icu._now(), "hl7",
+                        source_device=device_id or "",
+                        **vital_fields,
+                    )
+                    hub.broadcast_threadsafe({
+                        "type": "vital", "patient_id": p["id"], "pid": hl7_pid,
+                        "ts": icu._now(), "source": "hl7",
+                    })
+            except Exception as e:  # noqa: BLE001
+                log.warning("ingest: HL7 vital insert failed: %s", e)
+    else:
+        # —— JSON 格式 ——
+        try:
+            data = json.loads(raw_body)
+        except json.JSONDecodeError:
+            raise HTTPException(400, "无法解析 JSON 请求体")
+        if not isinstance(data, dict):
+            raise HTTPException(400, "JSON 请求体必须是对象")
+        device_id = data.get("device_id")
+        # 兼容两种字段命名：temp_c / temp，hum_pct / hum，pres_hpa / pres
+        temp = data.get("temp_c", data.get("temp"))
+        hum = data.get("hum_pct", data.get("hum"))
+        pres = data.get("pres_hpa", data.get("pres"))
+        rssi = data.get("rssi")
+
+    if not device_id:
+        raise HTTPException(400, "缺少 device_id")
+
+    # 设备不存在时自动注册
+    db.upsert_device(device_id)
+
+    level, reason = check_alarm(device_id, temp, hum, pres)
+    db.insert_telemetry(device_id, temp, hum, pres, rssi, level, None)
+    record_alarm_transition(device_id, level, reason, temp, hum, pres)
     hub.broadcast_threadsafe({
-        "type": "telemetry", "device_id": body.device_id,
-        "data": {"t": body.temp, "h": body.hum, "p": body.pres,
-                 "rssi": body.rssi, "alarm": level},
+        "type": "telemetry", "device_id": device_id,
+        "data": {"t": temp, "h": hum, "p": pres,
+                 "rssi": rssi, "alarm": level, "source": source},
         "ts": db.utcnow(),
     })
-    return {"ok": True, "alarm": level}
+    return {"ok": True, "alarm": level, "source": source, "device_id": device_id}
+
+
+@app.post("/api/hl7/parse", dependencies=[Depends(require_user)])
+async def hl7_parse(request: Request):
+    """解析 HL7 v2.x 消息文本，返回结构化 JSON。
+
+    请求体为 HL7 原始文本（Content-Type: text/plain 或任意文本）。
+    支持 ORU^R01 消息类型，提取 MSH/PID/OBX 段。
+    """
+    raw = await request.body()
+    text = raw.decode("utf-8", errors="replace")
+    if not text.strip():
+        raise HTTPException(400, "请求体为空")
+    return _parse_hl7(text)
 
 
 @app.post("/api/devices/{device_id}/push-config", dependencies=[Depends(require_admin)])
@@ -918,6 +1196,77 @@ def ota_push(device_id: str):
     except Exception as e:
         return {"ok": False, "topic": topic, "error": str(e)}
 
+
+# ================================================================ TTS 语音合成
+from fastapi import UploadFile, File
+from fastapi.responses import Response, JSONResponse
+
+
+@app.get("/api/tts/status")
+def tts_status():
+    """查询 TTS 服务状态。"""
+    return {
+        "enabled": tts_mod.is_enabled(),
+        "host": tts_mod.TTS_HOST,
+        "port": tts_mod.TTS_PORT,
+        "voice": tts_mod.TTS_VOICE,
+    }
+
+
+@app.post("/api/tts/speak")
+async def tts_speak(body: dict):
+    """文本转语音：调用 Piper 本地合成，返回 WAV 音频。
+
+    请求体: {"text": "要合成的中文文本", "voice": "可选模型ID"}
+    返回: audio/wav 二进制流
+    """
+    text = body.get("text", "").strip()
+    if not text:
+        raise HTTPException(400, "text 不能为空")
+    voice = body.get("voice")
+    try:
+        wav_data = await tts_mod.synthesize(text, voice)
+        return Response(
+            content=wav_data,
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": 'inline; filename="tts.wav"',
+                "Cache-Control": "no-store",
+            },
+        )
+    except ConnectionError as e:
+        raise HTTPException(503, f"TTS 服务不可用: {e}")
+    except Exception as e:
+        raise HTTPException(500, f"TTS 合成失败: {e}")
+
+
+@app.post("/api/tts/dispatch/{device_id}", dependencies=[Depends(require_admin)])
+async def tts_dispatch(device_id: str, body: dict):
+    """通过 MQTT 向指定设备下发语音播报文本。
+
+    请求体: {"text": "播报文本", "level": 0}
+    设备端订阅 envmon/{device_id}/tts 主题接收。
+    """
+    text = body.get("text", "").strip()
+    if not text:
+        raise HTTPException(400, "text 不能为空")
+    level = int(body.get("level", 0))
+    if not bridge.client or not bridge.connected:
+        raise HTTPException(503, "MQTT 未连接")
+    payload = json.dumps({
+        "text": text,
+        "level": level,
+        "device_id": device_id,
+    }, ensure_ascii=False)
+    topic = f"envmon/{device_id}/tts"
+    import paho.mqtt.client as mqtt
+    res = bridge.client.publish(topic, payload, qos=1)
+    return {
+        "ok": res.rc == mqtt.MQTT_ERR_SUCCESS,
+        "topic": topic,
+        "text": text,
+    }
+
 # ================================================================ WebSocket
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
@@ -999,12 +1348,20 @@ def unlink_device(pid: str, device_id: str):
     return {"ok": ok}
 
 
-@app.get("/api/patients/{pid}/devices")
+@app.get("/api/patients/{pid}/devices", dependencies=[Depends(require_user)])
 def patient_devices(pid: str):
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
-    return {"devices": icu.devices_for_patient(p["id"])}
+    devices = icu.devices_for_patient(p["id"])
+    # 为每个设备补充最新 telemetry 数据，前端监护界面可直接展示
+    for d in devices:
+        dev_id = d.get("device_id")
+        if dev_id:
+            d["latest_telemetry"] = db.latest_telemetry(dev_id)
+        else:
+            d["latest_telemetry"] = None
+    return {"devices": devices}
 
 
 # ---------- 生命体征 ----------
