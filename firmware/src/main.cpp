@@ -11,7 +11,164 @@
 //    status   打印当前状态
 // ============================================================
 #include <Arduino.h>
+#include <driver/i2s.h>
+#include <esp_err.h>
 #include <WiFi.h>
+#include <HTTPClient.h>
+
+// ---------- TTS 语音 WAV 下载 + 喇叭播放 ----------
+// 使用 I2S 模式(ESP32 I2S0)：PIN_SPEAKER=GPIO21 为 BCLK,
+// 数据走 GPIO18(I2S0_SDOUT), 16kHz 16bit mono。
+// 备选: 无 I2S 硬件时仅发提示音（兼容）
+static const int TTS_I2S_SDOUT_PIN = 18;   // I2S0 数据输出
+static const int TTS_I2S_BCLK_PIN  = 21;   // = PIN_SPEAKER, 复用为 BCLK
+static const int TTS_I2S_LRCLK_PIN = -1;   // mono 不需要 LRCLK
+
+// 状态机: 0=idle, 1=downloading body, 2=playing
+static uint8_t _ttsPhase = 0;
+static uint8_t *_ttsBuf = nullptr;
+static int     _ttsLen = 0;
+static int     _ttsPos = 0;
+static int     _ttsChannels = 1;
+static uint16_t _ttsSampleRate = 16000;
+static WiFiClient _ttsNet;
+static const int TTS_MAX_SIZE = 128 * 1024;
+static const int TTS_HDR_BUF  = 4096;   // header 临时缓冲
+
+static void _ttsFree() {
+    if (_ttsBuf) { free(_ttsBuf); _ttsBuf = nullptr; _ttsLen = 0; }
+}
+
+static void ttsStart(const String &url) {
+    if (_ttsPhase != 0) return;
+    _ttsFree();
+    _ttsNet.stop();
+    _ttsPos = 0; _ttsLen = 0; _ttsChannels = 1; _ttsSampleRate = 16000;
+
+    int scheme = url.indexOf("://");
+    String host; int port = 80;
+    if (scheme >= 0) {
+        String rest = url.substring(scheme + 3);
+        int slash = rest.indexOf('/');
+        String hostPort = (slash >= 0) ? rest.substring(0, slash) : rest;
+        int cp = hostPort.indexOf(':');
+        host = (cp >= 0) ? hostPort.substring(0, cp) : hostPort;
+        port = (cp >= 0) ? hostPort.substring(cp + 1).toInt() : 80;
+    }
+    String path = url.substring(url.lastIndexOf('/'));
+    if (path.length() == 0) path = "/";
+
+    if (!_ttsNet.connect(host.c_str(), port)) {
+        Serial.printf("[TTS] connect fail: %s:%d\n", host.c_str(), port);
+        return;
+    }
+    String req = "GET " + path + " HTTP/1.1\r\n"
+                 "Host: " + host + ":" + String(port) + "\r\n"
+                 "User-Agent: EnvMon\r\n"
+                 "Connection: close\r\n\r\n";
+    _ttsNet.write(req.c_str(), req.length());
+
+    // 收集 header 到第一个空行, 解析 Content-Length
+    uint8_t hdr[TTS_HDR_BUF];
+    int hdrLen = 0;
+    _ttsNet.setTimeout(3000);
+    while (_ttsNet.connected() && hdrLen < TTS_HDR_BUF) {
+        int n = _ttsNet.read(hdr + hdrLen, TTS_HDR_BUF - hdrLen);
+        if (n <= 0) break;
+        hdrLen += n;
+        for (int i = 4; i <= hdrLen; i++) {
+            if (memcmp(hdr + i - 4, "\r\n\r\n", 4) == 0) {
+                String h = (const char *)hdr;
+                int cl = h.indexOf("Content-Length:");
+                if (cl < 0) { _ttsNet.stop(); _ttsFree(); return; }
+                String clStr = h.substring(cl + 15);
+                int idx = clStr.indexOf('\r');
+                if (idx >= 0) clStr = clStr.substring(0, idx);
+                int size = clStr.toInt();
+                if (size <= 0 || size > TTS_MAX_SIZE) { _ttsNet.stop(); _ttsFree(); return; }
+                _ttsBuf = (uint8_t *)malloc(size);
+                if (!_ttsBuf) { _ttsNet.stop(); return; }
+                _ttsLen = size; _ttsPos = 0;
+                _ttsPhase = 1;
+                return;
+            }
+        }
+    }
+    Serial.println("[TTS] header incomplete");
+    _ttsNet.stop();
+}
+
+static void ttsStep() {
+    if (_ttsPhase == 1) {
+        if (_ttsPos < _ttsLen) {
+            int n = _ttsNet.read(_ttsBuf + _ttsPos, _ttsLen - _ttsPos);
+            if (n > 0) { _ttsPos += n; return; }
+        }
+        _ttsNet.stop();
+        if (_ttsPos < 44 || _ttsBuf[0] != 'R' || _ttsBuf[1] != 'A' ||
+            _ttsBuf[2] != 'T' || _ttsBuf[3] != 'E') {
+            Serial.println("[TTS] bad WAV");
+            _ttsFree(); _ttsPhase = 0; return;
+        }
+        _ttsChannels   = (_ttsBuf[22]) | (_ttsBuf[23] << 8);
+        _ttsSampleRate = (_ttsBuf[24]) | (_ttsBuf[25] << 8);
+        if (_ttsPos < _ttsLen) {
+            _ttsFree(); _ttsPhase = 0; return;
+        }
+        _ttsPos = 44;
+        _ttsPhase = 2;
+        #if CONFIG_IDF_TARGET_ESP32S3
+        i2s_driver_uninstall(I2S_NUM_0);
+        i2s_config_t i2s_cfg = {
+            .mode              = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+            .sample_rate       = _ttsSampleRate,
+            .bits_per_sample   = I2S_BITS_PER_SAMPLE_16BIT,
+            .channel_format    = _ttsChannels == 1 ? I2S_CHANNEL_FMT_ONLY_LEFT : I2S_CHANNEL_FMT_RIGHT_LEFT,
+            .communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_STAND_I2S),
+            .intr_alloc_flags  = 0,
+            .dma_buf_count     = 3,
+            .dma_buf_len       = 256,
+            .use_apll          = false,
+            .tx_desc_auto_clear = true,
+            .fixed_mclk        = 0,
+            .mclk_multiple     = I2S_MCLK_MULTIPLE_DEFAULT,
+            .bits_per_chan     = I2S_BITS_PER_CHAN_DEFAULT,
+        };
+        i2s_pin_config_t pin_cfg = {
+            .mck_io_num   = I2S_PIN_NO_CHANGE,
+            .bck_io_num   = TTS_I2S_BCLK_PIN,
+            .ws_io_num    = I2S_PIN_NO_CHANGE,
+            .data_out_num = TTS_I2S_SDOUT_PIN,
+            .data_in_num  = I2S_PIN_NO_CHANGE,
+        };
+        if (i2s_driver_install(I2S_NUM_0, &i2s_cfg, 0, NULL) == ESP_OK) {
+            i2s_set_pin(I2S_NUM_0, &pin_cfg);
+        }
+        #endif
+        return;
+    }
+    if (_ttsPhase == 2) {
+        #if CONFIG_IDF_TARGET_ESP32S3
+        if (_ttsPos < _ttsLen) {
+            size_t batch = 256;
+            if (_ttsPos + batch > _ttsLen) batch = _ttsLen - _ttsPos;
+            size_t sent = 0;
+            i2s_write(I2S_NUM_0, _ttsBuf + _ttsPos, batch, &sent, 100);
+            _ttsPos += sent;
+        }
+        #endif
+        if (_ttsPos >= _ttsLen) {
+            #if CONFIG_IDF_TARGET_ESP32S3
+            i2s_driver_uninstall(I2S_NUM_0);
+            #endif
+            _ttsFree();
+            _ttsPhase = 0;
+        }
+    }
+}
+
+static bool ttsIsPlaying() { return _ttsPhase != 0; }
+
 #include "pins.h"
 #include "config_store.h"
 #include "sensors.h"
@@ -212,10 +369,24 @@ void loop() {
         String ttsText = g_mqtt.takeTtsText(&ttsLevel);
         if (ttsText.length() > 0) {
             Serial.printf("[TTS] %s (level=%d)\n", ttsText.c_str(), ttsLevel);
-            // 屏幕显示播报文本（3 秒）
             g_ui.showTtsMessage(ttsText);
-            // 喇叭提示音
+            // 尝试通过 HTTP 从服务器拉 WAV 语音
+            if (!ttsIsPlaying() && g_cfg.has_mqtt() && g_net.wifiConnected()) {
+                String url = String("http://") + g_cfg.mqtt_host + "/api/tts/speak?text=";
+                // UTF-8 字节级 URL 编码（中文等多字节字符每字节 %XX）
+                for (int i = 0; i < ttsText.length(); i++) {
+                    unsigned char c = (unsigned char)ttsText[i];
+                    if (isalnum(c))       url += (char)c;
+                    else if (c == ' ')    url += '+';
+                    else if (c == '_' || c == '-' || c == '.') url += (char)c;
+                    else { char h[6]; sprintf(h, "%%%02X", c); url += h; }
+                }
+                ttsStart(url);
+            }
             playTtsAlert(ttsLevel);
+        }
+        if (ttsIsPlaying()) {
+            ttsStep();
         }
     }
 

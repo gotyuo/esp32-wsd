@@ -23,6 +23,8 @@ public:
     // 启动画面
     void showBoot(const char *fw_ver);
     void backlight(bool on);
+    // TTS 语音播报：在屏幕上显示文本 3 秒
+    void showTtsMessage(const String &text);
 #ifdef DISPLAY_DIAG
     // 屏幕方向诊断：循环尝试 8 种 MADCTL/偏移组合，不会返回
     void diagLoop();
@@ -41,4 +43,6 @@ private:
     bool     _apMode = false;
     uint8_t  _apPage = 0;
     uint32_t _apLastSwitch = 0;
+    // TTS 消息显示时间戳（0=无消息）
+    uint32_t _ttsShowUntil = 0;
 };

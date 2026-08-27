@@ -36,8 +36,8 @@ services:
       - TZ=Asia/Shanghai
       # 必填：语音模型，格式 <语言>-<名称>-<质量>
       - PIPER_VOICE=${TTS_VOICE:-zh_CN-huayan-medium}
-      # 离线模式：模型已下载后可设为 true，不再请求在线 voices.json
-      # - LOCAL_ONLY=true
+      # 离线模式：模型已手动放入 /config，不再请求 HuggingFace
+      - LOCAL_ONLY=true
     volumes:
       - ./piper-config:/config
     # Wyoming TCP 10200，仅容器间网络访问（不对外暴露端口）

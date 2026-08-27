@@ -349,3 +349,36 @@ void DisplayUI::diagLoop() {
     }
 }
 #endif  // DISPLAY_DIAG
+
+// ---------------- TTS 语音播报显示 ----------------
+void DisplayUI::showTtsMessage(const String &text) {
+    // 在屏幕中央显示 TTS 播报文本，3 秒后由 showMain 调用自然覆盖
+    _ttsShowUntil = millis() + 3000;
+
+    // 半屏黑底白字，2 行
+    tft.fillScreen(C_BLACK);
+    tft.setTextColor(C_YELLOW);
+    tft.setTextSize(1);
+    tft.setCursor(2, 4);
+    tft.print("[TTS]");
+
+    tft.setTextColor(C_WHITE);
+    tft.setTextSize(1);
+    // 自动换行：160px 宽，每行约 20 个 ASCII 字符或 10 个中文字符
+    // 中文用 font_cn.h 的 drawChinese，这里简单用 ASCII 方式
+    int y = 20;
+    int x = 2;
+    for (size_t i = 0; i < text.length() && y < 76; i++) {
+        char c = text.charAt(i);
+        if (c == '\n') { x = 2; y += 10; continue; }
+        if (x > 150) { x = 2; y += 10; }
+        tft.setCursor(x, y);
+        tft.print(c);
+        x += 6;
+    }
+
+    // 喇叭图标（简单 ASCII）
+    tft.setTextColor(C_CYAN);
+    tft.setCursor(140, 4);
+    tft.print(")");
+}

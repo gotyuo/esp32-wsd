@@ -21,6 +21,7 @@ static char _topicStat[64];
 static char _topicCfg[64];
 static char _topicAck[64];
 static char _topicReq[64];
+static char _topicTts[64];   // TTS 语音播报主题
 
 // ---------------- 迷你 JSON 解析（服务器下发的扁平配置） ----------------
 static bool jsonFindKey(const String &json, const char *key, int &pos) {
@@ -69,14 +70,21 @@ void MqttMgr::begin() {
     snprintf(_topicCfg,  sizeof(_topicCfg),  "envmon/%s/config",     g_cfg.device_id);
     snprintf(_topicAck,  sizeof(_topicAck),  "envmon/%s/config/ack", g_cfg.device_id);
     snprintf(_topicReq,  sizeof(_topicReq),  "envmon/%s/config/req", g_cfg.device_id);
+    snprintf(_topicTts,  sizeof(_topicTts),  "envmon/%s/tts",        g_cfg.device_id);
 
     _client.setClient(&_net);
     _client.setCallback([](const char *topic, const uint8_t *payload, size_t len) {
-        if (strcmp(topic, _topicCfg) != 0) return;
-        String json;
-        json.reserve(len);
-        for (size_t i = 0; i < len; i++) json += (char)payload[i];
-        g_mqtt.applyConfigPayload(json);
+        if (strcmp(topic, _topicCfg) == 0) {
+            String json;
+            json.reserve(len);
+            for (size_t i = 0; i < len; i++) json += (char)payload[i];
+            g_mqtt.applyConfigPayload(json);
+        } else if (strcmp(topic, _topicTts) == 0) {
+            String json;
+            json.reserve(len);
+            for (size_t i = 0; i < len; i++) json += (char)payload[i];
+            g_mqtt.applyTtsPayload(json);
+        }
     });
 }
 
@@ -93,6 +101,7 @@ bool MqttMgr::doConnect() {
         Serial.println(F("[MQTT] Connected"));
         _client.publish(_topicStat, "online", 6, true, 0);   // 在线状态(保留)
         _client.subscribe(_topicCfg, 1);
+        _client.subscribe(_topicTts, 1);   // 订阅 TTS 语音播报主题
         _client.publish(_topicReq, "{}", 2, false, 0);       // 请求最新配置
         _retryDelay = 2000;
     } else {
@@ -205,4 +214,64 @@ void MqttMgr::applyConfigPayload(const String &json) {
 
     g_cfgStore.save(g_cfg);   // 持久化，掉电保持
     _client.publish(_topicAck, "ok");
+}
+
+// ---------------- TTS 语音播报处理 ----------------
+
+// 从 JSON 中提取字符串值（简易解析，避免引入 ArduinoJson 库）
+static bool jsonGetString(const String &json, const char *key, String &out) {
+    String pat = String("\"") + key + "\"";
+    int p = json.indexOf(pat);
+    if (p < 0) return false;
+    p += pat.length();
+    // 跳到冒号
+    while (p < (int)json.length() && json.charAt(p) != ':') p++;
+    if (p >= (int)json.length()) return false;
+    p++;
+    // 跳过空格
+    while (p < (int)json.length() && (json.charAt(p) == ' ' || json.charAt(p) == '\t')) p++;
+    if (p >= (int)json.length() || json.charAt(p) != '"') return false;
+    p++;  // 跳过开头的 "
+    int start = p;
+    // 找到结尾的 "（不处理转义，TTS 文本中不应包含引号）
+    while (p < (int)json.length() && json.charAt(p) != '"') {
+        if (json.charAt(p) == '\\' && p + 1 < (int)json.length()) p++;  // 跳过转义
+        p++;
+    }
+    out = json.substring(start, p);
+    // 处理 unicode 转义 \uXXXX（中文）
+    out.replace("\\n", "\n");
+    return true;
+}
+
+void MqttMgr::applyTtsPayload(const String &json) {
+    if (json.length() < 2 || json.indexOf('{') < 0) {
+        Serial.println(F("[MQTT] Bad TTS payload"));
+        return;
+    }
+
+    String text;
+    int level = 0;
+
+    if (!jsonGetString(json, "text", text)) {
+        Serial.println(F("[MQTT] TTS: no text field"));
+        return;
+    }
+    jsonGetInt(json, "level", level);
+
+    _ttsText = text;
+    _ttsLevel = level;
+    _ttsPending = true;
+
+    Serial.printf("[MQTT] TTS received: %s (level=%d)\n", text.c_str(), level);
+}
+
+String MqttMgr::takeTtsText(int *outLevel) {
+    if (!_ttsPending) {
+        if (outLevel) *outLevel = 0;
+        return String();
+    }
+    _ttsPending = false;
+    if (outLevel) *outLevel = _ttsLevel;
+    return _ttsText;
 }

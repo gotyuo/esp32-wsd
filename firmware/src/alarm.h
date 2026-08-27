@@ -37,3 +37,6 @@ private:
     bool       _phase = false;
     uint32_t   _beepUntil = 0;
 };
+
+// TTS 提示音播放函数（由主循环调用，非阻塞 delay 在调用线程内）
+void playTtsAlert(int level);

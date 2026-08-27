@@ -388,7 +388,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <h2>🖥 设备管理 / DEVICE MANAGEMENT
         <div class="actions" style="margin-top:0">
           <button onclick="showAddDevice()">+ 注册设备</button>
-          <button class="secondary small" onclick="showDeviceDiscover()">📡 局域网发现</button>
+          <button class="secondary small" onclick="showDeviceDiscover()">🔎 监护设备发现</button>
           <button class="secondary small" onclick="loadDevices(null)">刷新</button>
           <span class="hint" id="devCount">0 台</span>
         </div>
@@ -525,9 +525,7 @@ function dashboardSetMode(mode){
   if(mode==="grid")loadDashboardGrid();
 }
 
-function loadDashboardGrid(ev){_refreshBtn(ev,function(){
-  var el=$("patientGrid")||$("dashGrid")||document.createElement("div");
-  api("/api/patients/summary").then(function(d){
+function loadDashboardGrid(ev){_refreshBtn(ev,function(){var el=document.getElementById("patientGrid");return api("/api/patients/summary").then(function(d){
     var ps=d.patients||[];
     if(!ps.length){el.innerHTML='<div class="empty">暂无患者数据，可在患者管理创建患者并录入体征</div>';return;}
     el.innerHTML=ps.map(function(p){
@@ -597,14 +595,20 @@ function loadDevices(pick){return api("/api/devices").then(function(d){var devs=
   renderDeviceGrid(devs);$("devCount").textContent=devs.length+" 台";loadReal();loadHistory();loadTh();loadAlarms();loadDashboardGrid();return devs;}).catch(function(){return[];});}
 function switchDevice(){
   DEV=$("devSel").value;
-  // 切到下拉所选 —— 同步刷新 vitals / history / 阈值 / 报警,并重绘监护网格让顶部实时卡片跟着换设备
-  loadReal();loadHistory();loadTh();loadAlarms();loadDashboardGrid();
-  // 同步监护页患者
+  var p = Promise.all([loadReal(),loadHistory(),loadTh(),loadAlarms(),loadDashboardGrid()]);
   if(DEV){
-    api("/api/devices/"+encodeURIComponent(DEV)+"/active-patient").then(function(d){
-      if(d && d.patient_pid){MONITOR_PID=d.patient_pid;var mp=$("mPid");if(mp)mp.value=MONITOR_PID;}
+    p = p.then(function(){return api("/api/devices/"+encodeURIComponent(DEV)+"/active-patient");})
+    .then(function(d){
+      if(d && d.patient_pid){
+        MONITOR_PID=d.patient_pid;
+        var mp=$("mPid"); if(mp)mp.value=MONITOR_PID;
+        if(CURRENT_VIEW==="monitor"){refreshMonitor();}
+      }
     }).catch(function(){});
+  }else{
+    p = p.catch(function(){});
   }
+  return p;
 }
 function loadReal(){api("/api/realtime"+(DEV?"?device="+encodeURIComponent(DEV):"")).then(function(d){var list=d.devices||[];list.forEach(function(x){var L=x.latest;if(!L)return;
     $("vTemp").textContent=fmt(L.temp_c);$("vHum").textContent=fmt(L.hum_pct);$("vPres").textContent=fmt(L.pres_hpa,1);
@@ -634,7 +638,20 @@ function loadTh(){api("/api/thresholds?device="+(DEV?encodeURIComponent(DEV):"*"
     $("sHum").textContent="正常区间 "+fmt(t.hum_min)+" ~ "+fmt(t.hum_max)+" %";
     $("sPres").textContent="正常区间 "+fmt(t.pres_min)+" ~ "+fmt(t.pres_max)+" hPa";
   }).catch(function(){});}
-function loadAlarms(ev){_refreshBtn(ev,function(){api("/api/alarms?limit=50").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+fmt(x.temp_c)+"℃ "+fmt(x.hum_pct)+"% "+fmt(x.pres_hpa)+"hPa</td><td>"+st+"</td></tr>";}).join("");}).catch(function(){});});}function loadAll(){loadDevices();}
+function loadAlarms(ev){_refreshBtn(ev,function(){return api("/api/alarms?limit=50").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+fmt(x.temp_c)+"℃ "+fmt(x.hum_pct)+"% "+fmt(x.pres_hpa)+"hPa</td><td>"+st+"</td></tr>";}).join("");}).catch(function(){});});
+function _doLoadAll(){
+  var v=CURRENT_VIEW;
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}
+  else if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}
+  else if(v==="patients"){loadPatients();}
+  else if(v==="devices"){loadDevices();_buildDiscover(DISC_NET);}
+  else if(v==="sessions"){loadMonitorSessionsView();}
+  else if(v==="alarms"){loadAlarms();}
+  else if(v==="hl7"){loadHl7View();}
+  else{loadDevices();}
+}
+function loadAll(ev){_refreshBtn(ev,function(){return _doLoadAll();});}
+function _viewRefresh(ev){loadAll(ev);}
 function saveTh(ev){ev.preventDefault();var body={device_id:$("fDev").value||"*",temp_min:+$("fTmin").value,temp_max:+$("fTmax").value,hum_min:+$("fHmin").value,hum_max:+$("fHmax").value,pres_min:+$("fPmin").value,pres_max:+$("fPmax").value,report_interval:+$("fIv").value,alarm_enabled:$("fEn").checked,alarm_sound:$("fSnd").checked};
   api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";setTimeout(function(){$("saveMsg").textContent="";},5000);}).catch(function(){});}
 
@@ -748,8 +765,7 @@ function connectWS(){try{ws=new WebSocket((location.protocol==="https:"?"wss://"
 if(TOKEN){api("/api/me").then(function(u){ME=u;SOUND=u.sound_alarm!==0;enterApp();}).catch(function(){showLogin();});}else{showLogin();}
 
 // ==================== 患者管理 ====================
-function loadPatients(ev){_refreshBtn(ev,function(){
-  api("/api/patients").then(function(d){
+function loadPatients(ev){_refreshBtn(ev,function(){return api("/api/patients").then(function(d){
     var ps=d.patients||[];
     if(!ps.length){$("pGrid").innerHTML='<div class="empty">暂无患者，点击「+ 新建患者」创建</div>';return;}
     $("pGrid").innerHTML=ps.map(function(p){
@@ -933,7 +949,7 @@ function loadPatientsForMonitor(){
 
 function refreshMonitor(ev){_refreshBtn(ev,function(){
   var pid=$("mPid")&&$("mPid").value;
-  if(!pid)return;
+  if(!pid)return Promise.resolve();
   MONITOR_PID=pid;
   $("mTime").textContent="患者 "+pid;
   // 加载患者体征
@@ -1278,15 +1294,17 @@ function _buildDiscover(net) {
     document.getElementById('modalBox').classList.remove('hidden');
     api("/api/discover/devices?refresh=1&network=" + encodeURIComponent(net)).then(function(d) {
         var devs = d.devices || [];
+        var scanned = d.scanned || false;
+        var totalScanned = d.total_scanned || 0;
+        var activeScanned = d.active_scanned || [];
         var nl = { all: "全部设备", internal: "内网设备（同网段）", external: "外网设备（公网接入）" }[net] || net;
-        var cs = "内网 " + (d.internal || 0) + " 台，外网 " + (d.external || 0) + " 台，共 " + (d.all || 0) + " 台。";
+        var cs = "内网 " + (d.internal || 0) + " 台，外网 " + (d.external || 0) + " 台，共 " + (d.all || 0) + " 台；局域网扫描 IP " + totalScanned + " 个，其中 " + activeScanned.length + " 个未注册。" + (scanned ? " [已刷新]" : "");
 
-        // 用 DOM 构建,避免引号地狱
         var root = document.createElement('div');
 
         var h2 = document.createElement('h2');
         h2.style.cssText = 'font-size:14px;margin-bottom:8px;color:var(--sub);letter-spacing:1px';
-        h2.textContent = 'DEVICE DISCOVERY · ' + nl + '扫描';
+        h2.textContent = '监护设备发现 · ' + nl + ' 扫描';
         root.appendChild(h2);
 
         // Tab 按钮
@@ -1377,6 +1395,41 @@ function _buildDiscover(net) {
             });
         }
 
+        // 新发现的未注册设备（来自局域网主动扫描，未在 devices 表注册）
+        if (activeScanned && activeScanned.length > 0) {
+            var newSec = document.createElement('div');
+            newSec.style.cssText = 'margin-top:10px;padding:8px;background:var(--card-bg);border:1px dashed var(--blue);border-radius:6px;font-size:12px';
+            var h3 = document.createElement('div');
+            h3.style.cssText = 'font-weight:600;margin-bottom:6px;color:var(--blue)';
+            h3.textContent = '📡 新发现的未注册设备（' + activeScanned.length + ' 个）';
+            newSec.appendChild(h3);
+            var ntbl = document.createElement('table');
+            ntbl.innerHTML = '<thead><tr><th>IP</th><th>发现时间</th><th>操作</th></tr></thead>';
+            var nt = document.createElement('tbody');
+            activeScanned.forEach(function(x){
+                var tr = document.createElement('tr');
+                var dt = x.last_seen_ts ? new Date(Math.round(x.last_seen_ts*1000)) : null;
+                var tsStr = dt ? (dt.toLocaleString('zh-CN',{hour12:false})) : '-';
+                var did = x.device_id || '';
+                var ipEsc = esc(x.ip);
+                tr.innerHTML = '<td><b>'+ipEsc+'</b>'+(did?' <span class="small">'+esc(did)+'</span>':'')
+                    +'</td><td>'+tsStr+'</td>'
+                    +'<td><button class="success small" data-reg-ip="'+ipEsc+'"'+(did?' data-reg-id="'+esc(did)+'"':'')+'>注册</button></td>';
+                var rbtn = tr.querySelector('[data-reg-ip]');
+                if(rbtn){
+                    rbtn.onclick = function(){
+                        var did_ = rbtn.getAttribute('data-reg-id');
+                        if(did_){ registerDiscovered(did_); }
+                        else{ registerExternalByIP(rbtn.getAttribute('data-reg-ip')); }
+                    };
+                }
+                nt.appendChild(tr);
+            });
+            ntbl.appendChild(nt);
+            newSec.appendChild(ntbl);
+            root.appendChild(newSec);
+        }
+
         // 底部操作
         var act = document.createElement('div');
         act.className = 'actions';
@@ -1387,7 +1440,7 @@ function _buildDiscover(net) {
         act.appendChild(regSelBtn);
         var rescanBtn = document.createElement('button');
         rescanBtn.textContent = '重新扫描';
-        rescanBtn.onclick = function(){ _buildDiscover(DISC_NET); };
+        rescanBtn.onclick = function(){ _buildDiscover('all'); };
         act.appendChild(rescanBtn);
         var closeBtn = document.createElement('button');
         closeBtn.className = 'secondary';
@@ -1438,8 +1491,15 @@ function registerExternalDevice() {
     }).catch(function(e) { toast(e && e.message ? e.message : "注册失败"); });
 }
 function registerDiscovered(id) {
-    api("/api/devices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device_id: id, name: "" }) }).then(function() {
+    api("/api/devices", { method: "POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify({ device_id: id, name: "" }) }).then(function() {
         toast("已注册设备 " + id); loadDevices(); _buildDiscover(DISC_NET);
+    }).catch(function() { toast("注册失败"); });
+}
+function registerExternalByIP(ip) {
+    var id = "ext-" + ip.replace(/\./g, "_");
+    api("/api/devices", { method: "POST", headers: { "Content-Type":"application/json" },
+        body: JSON.stringify({ device_id: id, name: "IP " + ip }) }).then(function() {
+        toast("已注册外网设备 " + id); loadDevices(); _buildDiscover(DISC_NET);
     }).catch(function() { toast("注册失败"); });
 }
 

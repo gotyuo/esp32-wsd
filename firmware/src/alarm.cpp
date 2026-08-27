@@ -130,3 +130,41 @@ void AlarmDevice::update(AlarmLevel level, bool alarm_sound) {
     }
     }
 }
+
+// ---------------- TTS 提示音 ----------------
+// 播放短促提示音序列，表示收到 TTS 语音播报消息
+// level: 0=信息(两短低音) 1=预警(三短中音) 2=报警(连续高音)
+void playTtsAlert(int level) {
+    // 直接用 ledc 驱动 PIN_BUZZER，不经过 AlarmDevice（避免干扰报警状态机）
+    // 注：BUZZ_CH=0 已在 AlarmDevice::begin() 中 setup
+    const uint32_t freqs[] = {880, 1200, 2000};  // 低/中/高
+    uint32_t freq = freqs[level > 2 ? 2 : level];
+
+    if (level == 0) {
+        // 信息：两短低音
+        ledcWriteTone(BUZZ_CH, freq);
+        ledcWrite(BUZZ_CH, 128);
+        delay(120);
+        ledcWrite(BUZZ_CH, 0);
+        delay(80);
+        ledcWriteTone(BUZZ_CH, freq);
+        ledcWrite(BUZZ_CH, 128);
+        delay(120);
+        ledcWrite(BUZZ_CH, 0);
+    } else if (level == 1) {
+        // 预警：三短中音
+        for (int i = 0; i < 3; i++) {
+            ledcWriteTone(BUZZ_CH, freq);
+            ledcWrite(BUZZ_CH, 128);
+            delay(100);
+            ledcWrite(BUZZ_CH, 0);
+            delay(60);
+        }
+    } else {
+        // 报警：连续高音 500ms
+        ledcWriteTone(BUZZ_CH, freq);
+        ledcWrite(BUZZ_CH, 128);
+        delay(500);
+        ledcWrite(BUZZ_CH, 0);
+    }
+}

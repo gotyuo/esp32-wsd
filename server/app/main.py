@@ -13,12 +13,17 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import hashlib
 import hmac
 import json
 import logging
 import os
 import secrets
+import selectors
+import socket
+import struct
+import subprocess
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -423,6 +428,288 @@ def start_backup_scheduler():
     _backup_task = asyncio.create_task(_backup_loop())
 
 
+# ================================================================ 局域网扫描 / UDP 发现
+UDP_DISC_PORT = 12091
+UDP_DISC_MCAST = "239.255.1.1"
+_scan_cache: Dict[str, dict] = {}
+_scan_cache_lock = asyncio.Lock()
+_scan_task: Optional[asyncio.Task] = None
+_udp_task: Optional[asyncio.Task] = None
+
+
+def _looks_like_ip(s: str) -> bool:
+    parts = s.split(".")
+    if len(parts) != 4:
+        return False
+    for p in parts:
+        try:
+            v = int(p)
+            if v < 0 or v > 255:
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def _is_local_or_loop(ip: str) -> bool:
+    if not ip:
+        return True
+    if not _looks_like_ip(ip):
+        return False
+    parts = [int(x) for x in ip.split(".")]
+    return parts[0] == 127 or parts == [0, 0, 0, 0]
+
+
+def _is_link_local(ip: str) -> bool:
+    if not _looks_like_ip(ip):
+        return False
+    parts = [int(x) for x in ip.split(".")]
+    return parts[0] == 169 and parts[1] == 254
+
+
+def _my_lan_prefix() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        if ip and not _is_local_or_loop(ip):
+            parts = ip.split(".")
+            return ".".join(parts[:3]) if len(parts) == 4 else ""
+    except Exception:
+        pass
+    return ""
+
+
+def _get_host_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        if ip and not _is_local_or_loop(ip):
+            return ip
+    except Exception:
+        pass
+    return "0.0.0.0"
+
+
+async def _async_ping(ip: str):
+    try:
+        raw = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+        raw.settimeout(0.4)
+        payload = struct.pack("!BBHHHBBH4s",
+                              8, 0, 0,
+                              0x1234, 0, 0, 0, 0,
+                              socket.inet_aton(ip))
+        raw.sendto(payload, (ip, 0))
+        try:
+            raw.recvfrom(1024)
+            raw.close()
+            return (ip, 0)
+        except socket.timeout:
+            raw.close()
+            return (ip, 1)
+    except Exception:
+        return (ip, 1)
+
+
+async def _lan_scan() -> List[str]:
+    prefix = _my_lan_prefix()
+    candidates: List[str] = []
+    if not prefix:
+        return candidates
+
+    # 1) arp-scan (最快)
+    try:
+        r = subprocess.run(["arp-scan", "--localnet", "--brief", "--interface=auto"],
+                           capture_output=True, timeout=10, check=False)
+        if r.returncode == 0 and r.stdout:
+            for line in r.stdout.decode("utf-8", errors="ignore").splitlines():
+                for p in line.split():
+                    if _looks_like_ip(p):
+                        candidates.append(p)
+                        break
+            if candidates:
+                return candidates
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    # 2) nmap
+    try:
+        r = subprocess.run(["nmap", "-sn", f"{prefix}.0/24"],
+                           capture_output=True, timeout=25, check=False)
+        if r.returncode == 0 and r.stdout:
+            for line in r.stdout.decode("utf-8", errors="ignore").splitlines():
+                for token in line.split():
+                    if _looks_like_ip(token):
+                        candidates.append(token)
+                        break
+            if candidates:
+                return candidates
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    # 3) ip neigh
+    try:
+        r = subprocess.run(["ip", "neigh", "show"],
+                           capture_output=True, timeout=5, check=False)
+        if r.returncode == 0 and r.stdout:
+            for line in r.stdout.decode("utf-8", errors="ignore").splitlines():
+                for token in line.split():
+                    if _looks_like_ip(token):
+                        candidates.append(token)
+                        break
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    # 4) fallback: async ping 前 254 台
+    if not candidates:
+        pings = [asyncio.ensure_future(_async_ping(f"{prefix}.{i}"))
+                 for i in range(1, 255)]
+        results = await asyncio.gather(*pings, return_exceptions=True)
+        for ok in results:
+            if isinstance(ok, tuple) and len(ok) == 2 and ok[1] == 0:
+                candidates.append(ok[0])
+    return candidates
+
+
+async def _lan_scan_loop():
+    global _scan_task
+    log.info("LAN background scanner started (30s interval)")
+    while True:
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            return
+        try:
+            ips = await _lan_scan()
+        except Exception as e:
+            log.warning("LAN scan iteration failed: %s", e)
+            continue
+        now = time.time()
+        local_ip = _get_host_ip()
+        async with _scan_cache_lock:
+            for ip in ips:
+                ip = ip.strip()
+                if not ip or _is_local_or_loop(ip) or _is_link_local(ip):
+                    continue
+                if ip == local_ip:
+                    continue
+                e = _scan_cache.get(ip)
+                if e:
+                    e["ts"] = now
+                else:
+                    _scan_cache[ip] = {"ip": ip, "ts": now}
+
+
+async def _udp_scanner_loop():
+    global _udp_task
+    host_ip = _get_host_ip()
+    resp = json.dumps(
+        {"ip": host_ip, "port": 18830, "user": "envmon", "pass": "envmon"},
+        ensure_ascii=False,
+    ).encode("utf-8")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    except Exception:
+        pass
+    sock.setblocking(False)
+    try:
+        sock.bind(("0.0.0.0", UDP_DISC_PORT))
+    except OSError as e:
+        log.warning("UDP discovery bind 0.0.0.0:%d failed: %s — skip UDP discovery",
+                    UDP_DISC_PORT, e)
+        return
+    try:
+        mreq = socket.inet_aton(UDP_DISC_MCAST) + socket.inet_aton(host_ip)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+    except Exception as e:
+        log.warning("UDP multicast join failed: %s", e)
+    sel = selectors.DefaultSelector()
+    sel.register(sock, selectors.EVENT_READ)
+    log.info("UDP discovery listener started on 0.0.0.0:%d (host=%s)", UDP_DISC_PORT, host_ip)
+    try:
+        while True:
+            await asyncio.sleep(0.4)
+            events = sel.select(timeout=0)
+            for key, _ in events:
+                try:
+                    data, addr = sock.recvfrom(512)
+                except BlockingIOError:
+                    continue
+                except OSError:
+                    break
+                payload = data.decode("utf-8", errors="ignore").strip()
+                if not payload:
+                    continue
+                device_id = None
+                for seg in payload.split():
+                    if seg.startswith("id="):
+                        device_id = seg[3:].strip()
+                        break
+                if payload == "ENVMON?" or payload.startswith("ENVMON?"):
+                    try:
+                        sock.sendto(resp, addr)
+                    except OSError:
+                        pass
+                elif len(payload) == 4:
+                    try:
+                        sock.sendto(resp, addr)
+                    except OSError:
+                        pass
+                src_ip = addr[0]
+                async with _scan_cache_lock:
+                    entry = _scan_cache.get(src_ip)
+                    if entry:
+                        entry["ts"] = time.time()
+                        if device_id:
+                            entry["device_id"] = device_id
+                    else:
+                        _scan_cache[src_ip] = {"ip": src_ip, "ts": time.time(),
+                                               "device_id": device_id}
+    finally:
+        try:
+            sel.unregister(sock)
+            sel.close()
+            sock.close()
+        except Exception:
+            pass
+
+
+def _scan_cache_snapshot() -> dict:
+    conn = icu._get_conn()
+    rows = conn.execute(
+        "SELECT ip_addr FROM devices WHERE ip_addr IS NOT NULL AND ip_addr!=''"
+    ).fetchall()
+    registered_ips = {r[0] for r in rows if r[0]}
+    now = time.time()
+    stale_cut = now - 360
+    all_items = list(_scan_cache.values())
+    active = [
+        {"ip": e["ip"], "last_seen_ts": e.get("ts"), "device_id": e.get("device_id")}
+        for e in all_items
+        if e.get("ts", 0) > stale_cut
+    ]
+    unregistered = [x for x in active if x["ip"] not in registered_ips]
+    return {
+        "active_scanned": unregistered,
+        "total_scanned": len(active),
+    }
+
+
 # ================================================================ lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -438,12 +725,22 @@ async def lifespan(app: FastAPI):
     bridge.start()
     aggregator.start()
     start_backup_scheduler()
+    global _scan_task, _udp_task
+    _scan_task = asyncio.create_task(_lan_scan_loop())
+    _udp_task = asyncio.create_task(_udp_scanner_loop())
     log.info("EnvMon backend started")
     yield
     aggregator.stop()
     bridge.stop()
     if _backup_task:
         _backup_task.cancel()
+    for t in (_scan_task, _udp_task):
+        if t and not t.done():
+            t.cancel()
+            try:
+                await asyncio.wait_for(t, timeout=3)
+            except Exception:
+                pass
 
 
 app = FastAPI(title="EnvMon Backend", version="2.0.0", lifespan=lifespan)
@@ -726,6 +1023,29 @@ def devices_discover(refresh: bool = Query(False),
         filtered = internal_items
     elif network == "external":
         filtered = external_items
+    # refresh=true 或 refresh=1 时触发一次主动 LAN 扫描（异步，不阻塞）
+    scanned = bool(refresh) and network == "all"
+    if scanned:
+        async def _do_scan():
+            try:
+                ips = await _lan_scan()
+                now = time.time()
+                local_ip = _get_host_ip()
+                for ip in ips:
+                    ip = ip.strip()
+                    if not ip or _is_local_or_loop(ip) or _is_link_local(ip):
+                        continue
+                    if ip == local_ip:
+                        continue
+                    e = _scan_cache.get(ip)
+                    if e:
+                        e["ts"] = now
+                    else:
+                        _scan_cache[ip] = {"ip": ip, "ts": now}
+            except Exception as e:
+                log.warning("manual LAN scan failed: %s", e)
+        asyncio.ensure_future(_do_scan())
+    snap = _scan_cache_snapshot()
     return {"devices": filtered, "total": len(filtered),
             "network": network,
             "internal": len(internal_items),
@@ -733,7 +1053,10 @@ def devices_discover(refresh: bool = Query(False),
             "all": len(items),
             "registered": sum(1 for x in items if x["status"] == "registered"),
             "unregistered": sum(1 for x in items if x["status"] == "unregistered"),
-            "refreshed": refresh}
+            "refreshed": bool(refresh),
+            "scanned": bool(refresh),
+            "total_scanned": snap["total_scanned"],
+            "active_scanned": snap["active_scanned"]}
 
 
 @app.get("/api/patients/summary", dependencies=[Depends(require_user)])
@@ -1232,6 +1555,30 @@ def tts_status():
         "port": tts_mod.TTS_PORT,
         "voice": tts_mod.TTS_VOICE,
     }
+
+
+@app.get("/api/tts/speak")
+async def tts_speak_get(text: str = Query(..., min_length=1),
+                        voice: Optional[str] = None,
+                        device_id: Optional[str] = None):
+    """GET 变体：为 ESP 设备直连拉取 WAV。ESP32-S3 端用 URL 参数传文本。
+
+    例: /api/tts/speak?text=温度异常,voice=zh_CN-huayan-medium
+    """
+    try:
+        wav_data = await tts_mod.synthesize(text.strip(), voice)
+        return Response(
+            content=wav_data,
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": 'inline; filename="tts.wav"',
+                "Cache-Control": "no-store",
+            },
+        )
+    except ConnectionError as e:
+        raise HTTPException(503, f"TTS 服务不可用: {e}")
+    except Exception as e:
+        raise HTTPException(500, f"TTS 合成失败: {e}")
 
 
 @app.post("/api/tts/speak")

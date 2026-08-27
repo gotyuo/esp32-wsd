@@ -30,57 +30,6 @@ static uint32_t g_lastOled = 0;
 static uint32_t g_lastPub  = 0;
 static bool     g_mqttReady = false;
 
-// SSID 变化检测 + BOOT 键长按
-static char g_lastSsid[33] = "";
-static bool g_displayDirty = false;
-
-static String getCurSsid() {
-    if (g_net.inAPMode()) return "AP-CONFIG";
-    if (WiFi.status() == WL_CONNECTED) {
-        String s = WiFi.SSID();
-        if (s.length() > 0) return s;
-    }
-    if (g_cfg.wifi_ssid[0]) return String(g_cfg.wifi_ssid);
-    return "";
-}
-
-static void checkSsidChanged() {
-    String cur = getCurSsid();
-    if (cur != g_lastSsid) {
-        strncpy(g_lastSsid, cur.c_str(), sizeof(g_lastSsid) - 1);
-        g_lastSsid[sizeof(g_lastSsid) - 1] = '\0';
-        g_displayDirty = true;
-    }
-}
-
-static void forceRefreshOled() {
-    if (!g_oledOk) return;
-    g_lastOled = 0;
-}
-
-// BOOT 键长按检测: 返回 true 表示触发了 factory reset
-static void checkBootKey() {
-    pinMode(PIN_BOOT_KEY, INPUT_PULLUP);
-    uint32_t t0 = millis();
-    // 等待按键释放(如果开机时正按着)
-    while (digitalRead(PIN_BOOT_KEY) == LOW) {
-        if (millis() - t0 > 3000) {
-            // 长按 3s → factory reset
-            Serial.println(F("[BOOT] BOOT key held 3s → FACTORY RESET"));
-            if (g_oledOk) {
-                g_oled.clear();
-                g_oled.drawString(4, 20, "FACTORY RESET");
-                g_oled.drawString(4, 32, "Clearing config...");
-                g_oled.flush();
-            }
-            g_cfgStore.clear();
-            delay(500);
-            ESP.restart();
-        }
-        delay(50);
-    }
-}
-
 static void handleSerialCmd() {
     if (!Serial.available()) return;
     String cmd = Serial.readStringUntil('\n');
@@ -105,40 +54,35 @@ static void handleSerialCmd() {
 static void renderOled() {
     if (!g_oledOk) return;
     g_oled.clear();
-
-    // ---- 第一行: SSID + 信号条 ----
-    String ssid = getCurSsid();
-    if (ssid.isEmpty()) ssid = "---";
-    if (ssid.length() > 12) ssid = ssid.substring(0, 12);
-    g_oled.drawString(2, 0, "SSID:");
-    g_oled.drawString(32, 0, ssid.c_str());
-
+    g_oled.drawString(2, 0, "EnvMon v" FW_VERSION);
+    g_oled.drawString(2, 8, "ESP32-S3 OLED");
     int8_t rssi = g_net.wifiConnected() ? WiFi.RSSI() : 127;
     uint8_t bars = 0;
     if (rssi >= -50) bars = 4;
     else if (rssi >= -65) bars = 3;
     else if (rssi >= -78) bars = 2;
     else if (rssi >= -90) bars = 1;
-    g_oled.drawWifiBars(104, 0, bars);
+    g_oled.drawWifiBars(104, 1, bars);
 
-    // 分隔线
-    g_oled.drawLineH(2, 12, OLED_W - 4, 1);
+    g_oled.drawLineH(2, 17, OLED_W - 4, 1);
+    g_oled.drawString(2, 20, "Temp :");
+    g_oled.drawNumFP(58, 20, g_last.temp_c, 1);
+    g_oled.drawString(96, 20, "C");
+    g_oled.drawString(2, 29, "Hum  :");
+    g_oled.drawNumFP(58, 29, g_last.hum_pct, 1);
+    g_oled.drawString(96, 29, "%");
+    g_oled.drawString(2, 38, "Pres :");
+    g_oled.drawNum(58, 38, (int32_t)g_last.pres_hpa);
+    g_oled.drawString(96, 38, "hPa");
 
-    // ---- 温湿度气压 ----
-    g_oled.drawString(2, 14, "T:");
-    g_oled.drawNumFP(14, 14, g_last.temp_c, 1);
-    g_oled.drawString(46, 14, "C");
-
-    g_oled.drawString(2, 24, "H:");
-    g_oled.drawNumFP(14, 24, g_last.hum_pct, 1);
-    g_oled.drawString(46, 24, "%");
-
-    g_oled.drawString(2, 34, "P:");
-    g_oled.drawNum(14, 34, (int32_t)g_last.pres_hpa);
-    g_oled.drawString(48, 34, "hPa");
-
+    g_oled.drawLineH(2, 47, OLED_W - 4, 1);
+    const char *wifiTxt = g_net.wifiConnected() ? "WiFi OK" : "No WiFi";
+    const char *mqttTxt = g_mqttReady ? "MQTT OK" : "MQTT -";
+    g_oled.drawString(2, 50, wifiTxt);
+    g_oled.drawString(2, 58, mqttTxt);
+    g_oled.drawString(70, 58, "lvl:");
+    g_oled.drawNum(96, 58, (int32_t)g_alarm.level());
     g_oled.flush();
-    g_displayDirty = false;
 }
 
 void setup() {
@@ -148,9 +92,6 @@ void setup() {
     Serial.println(F("======================================"));
     Serial.println(F(" EnvMon ESP32-S3 (OLED) firmware " FW_VERSION));
     Serial.println(F("======================================"));
-
-    // BOOT 键长按 3s → factory reset (必须在加载配置前检测)
-    checkBootKey();
 
     g_cfgStore.begin();
     bool saved = g_cfgStore.load(g_cfg);
@@ -192,22 +133,18 @@ void setup() {
 void loop() {
     handleSerialCmd();
     g_net.loop();
-    checkSsidChanged();   // SSID 变化时 OLED 立即刷新
     uint32_t now = millis();
 
     // ---------- AP 配网模式 ----------
     if (g_net.inAPMode()) {
         if (now - g_lastRead >= 2000) { g_lastRead = now; g_sensors.read(g_last); }
         g_alarm.update(AL_CONFIG, false);
-        if (g_oledOk && (now - g_lastOled >= 500 || g_displayDirty)) {
-            g_lastOled = now;
+        if (g_oledOk) {
             g_oled.clear();
             g_oled.drawString(4, 14, "AP config mode");
-            g_oled.drawString(4, 26, g_net.apSSID().c_str());
-            g_oled.drawString(4, 38, "192.168.4.1");
-            g_oled.drawString(4, 48, "set WiFi+MQTT");
+            g_oled.drawString(4, 30, g_net.apSSID().c_str());
+            g_oled.drawString(4, 42, "connect via phone");
             g_oled.flush();
-            g_displayDirty = false;
         }
         delay(10);
         return;
