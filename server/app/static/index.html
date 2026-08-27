@@ -196,7 +196,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="badge" id="lastSeen">最后上报 -</span>
       <button class="secondary small" onclick="dashboardSetMode('single')">单床位</button>
       <button class="secondary small active" id="dbGridBtn" onclick="dashboardSetMode('grid')">多人网格</button>
-      <button class="secondary small" onclick="loadDashboardGrid(event)">刷新网格</button>
+      <button class="secondary small" onclick="loadDashboardGrid()">刷新网格</button>
     </div>
     <div id="view-dashboard-single">
     <div class="vitals">
@@ -326,7 +326,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <span class="badge" id="mBadge">-</span>
   <span class="badge" id="mTime">--</span>
   <div style="flex:1"></div>
-  <button class="secondary small" onclick="refreshMonitor(event)">刷新</button>
+  <button class="secondary small" onclick="refreshMonitor()">刷新</button>
   <button class="secondary small" onclick="showIoForm()">+ 出入量</button>
   <button class="secondary small" id="mAssessBtn" onclick="assessPatient()">🤖 AI 评估</button>
 </div>
@@ -498,10 +498,8 @@ function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"B
 
 function _refreshBtn(ev,fn){
   var b=(ev&&ev.currentTarget)||null;
-  if(!b)return;
-  if(b.disabled)return;               // 防重复点击(仅锁当前按钮,不锁全局)
-  var o=b.textContent;
-  b.disabled=true;b.textContent=" 刷新中...";
+  var o=b?b.textContent:"";
+  if(b){if(b.disabled)return; b.disabled=true;b.textContent=" 刷新中...";}
   var done=false;
   function finish(ok,msg){ if(done)return; done=true; b.disabled=false; b.textContent=o; if(!ok&&msg)toast(msg); }
   try{
@@ -515,7 +513,7 @@ function _refreshBtn(ev,fn){
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
   ["dashboard","monitor","patients","devices","sessions","alarms","hl7"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();}
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients"){loadPatients();}if(v==="devices"){loadDevices();_buildDiscover(DISC_NET);}if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -1298,7 +1296,7 @@ function _buildDiscover(net) {
         var totalScanned = d.total_scanned || 0;
         var activeScanned = d.active_scanned || [];
         var nl = { all: "全部设备", internal: "内网设备（同网段）", external: "外网设备（公网接入）" }[net] || net;
-        var cs = "内网 " + (d.internal || 0) + " 台，外网 " + (d.external || 0) + " 台，共 " + (d.all || 0) + " 台；局域网扫描 IP " + totalScanned + " 个，其中 " + activeScanned.length + " 个未注册。" + (scanned ? " [已刷新]" : "");
+        var cs = "已接入 " + (d.internal || 0) + " 台 + 外网 " + (d.external || 0) + " 台 = 共 " + (d.all || 0) + " 台；同网段扫描 IP " + totalScanned + " 个，其中 " + activeScanned.length + " 个未注册。" + (scanned ? " [已刷新]" : "");
 
         var root = document.createElement('div');
 
@@ -1358,10 +1356,8 @@ function _buildDiscover(net) {
                     ? '<span class="ok">● 已接入</span>'
                     : '<span class="bad">○ 未接入</span>';
                 var online = x.online ? ' <span class="ok">在线</span>' : ' <span class="bad">离线</span>';
-                // 已接入的行不给勾选框(已接入无需再勾选)
-                var checkTd = isReg
-                    ? '<td>-</td>'
-                    : '<td><input type="checkbox" class="disc-cb" value="' + esc(x.device_id) + '"></td>';
+                // 所有设备都给勾选框，便于批量操作
+                var checkTd = '<td><input type="checkbox" class="disc-cb" value="' + esc(x.device_id) + '"></td>';
                 var actHtml = isReg
                     ? '<span class="small">已接入</span>'
                     : '<button class="success small" data-reg="' + esc(x.device_id) + '">注册</button>';
@@ -1695,7 +1691,7 @@ function assessPatient(){
   }).catch(function(){
     $("mAssessBtn").textContent="🤖 AI 评估";
   });
-}
+}}
 </script>
 </body>
 </html>

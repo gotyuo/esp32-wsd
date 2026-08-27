@@ -1023,8 +1023,8 @@ def devices_discover(refresh: bool = Query(False),
         filtered = internal_items
     elif network == "external":
         filtered = external_items
-    # refresh=true 或 refresh=1 时触发一次主动 LAN 扫描（异步，不阻塞）
-    scanned = bool(refresh) and network == "all"
+    # refresh=true 时触发一次主动 LAN 扫描（异步，不阻塞；不限 network 过滤）
+    scanned = bool(refresh)
     if scanned:
         async def _do_scan():
             try:

@@ -24,31 +24,6 @@ static bool      g_oledOk = false;
 static TwoWire   oledWire(1);  // I2C1 实例（bus_num=1，与传感器 I2C0 完全独立）
 static AlarmDevice g_alarm;
 
-// I2C 总线扫描（找 OLED 真实地址 + 真实总线）
-static void scanI2C(TwoWire *w, const char *name) {
-    int found = 0;
-    Serial.printf("[I2C] scanning %s ...\n", name);
-    for (int addr = 1; addr < 128; addr++) {
-        w->beginTransmission((uint8_t)addr);
-        int err = w->endTransmission(true);
-        if (err == 0) {
-            Serial.printf("  0x%02X found\n", addr);
-            found++;
-        }
-    }
-    Serial.printf("  %s: %d device(s)\n", name, found);
-}
-
-// 尝试在指定总线上初始化 OLED，找到则返回 true
-static bool tryOledOn(TwoWire *w, const char *name) {
-    if (g_oled.begin(PIN_OLED_SCL, PIN_OLED_SDA, OLED_ADDR, w)) {
-        Serial.printf("[BOOT] OLED OK on %s\n", name);
-        return true;
-    }
-    Serial.printf("[BOOT] OLED not found on %s\n", name);
-    return false;
-}
-
 static EnvData  g_last;
 static uint32_t g_lastRead = 0;
 static uint32_t g_lastOled = 0;
@@ -124,22 +99,13 @@ void setup() {
     Serial.printf("[BOOT] config %s, device_id=%s\n",
                   saved ? "loaded" : "NOT found (first boot)", g_cfg.device_id);
 
-    // OLED: 自动在两条 I2C 总线上探测
-    Serial.println(F("[BOOT] OLED probe starting..."));
+    // OLED: I2C1 独立总线；缺屏不阻断启动
     if (g_oled.begin(PIN_OLED_SCL, PIN_OLED_SDA, OLED_ADDR, &oledWire)) {
         g_oledOk = true;
-        Serial.println(F("[BOOT] OLED 0.96\" OK (I2C1 = GPIO13/14)"));
-    } else if (g_oled.begin(PIN_OLED_SCL, PIN_OLED_SDA, OLED_ADDR, &Wire)) {
-        g_oledOk = true;
-        Serial.println(F("[BOOT] OLED 0.96\" OK (I2C0 = GPIO8/9 — 与传感器同总线)"));
+        Serial.println(F("[BOOT] OLED 0.96\" OK (I2C1)"));
     } else {
         g_oledOk = false;
-        Serial.println(F("[BOOT] OLED not found on either bus"));
-        // 诊断：扫描两条总线
-        oledWire.begin(PIN_OLED_SDA, PIN_OLED_SCL, 100000);
-        Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 100000);
-        scanI2C(&oledWire, "I2C1 (GPIO13/14)");
-        scanI2C(&Wire, "I2C0 (GPIO8/9)");
+        Serial.println(F("[BOOT] OLED not found (continue without screen)"));
     }
     if (g_oledOk) {
         g_oled.clear();
