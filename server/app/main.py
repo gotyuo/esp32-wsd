@@ -518,6 +518,12 @@ async def _async_ping(ip: str):
         return (ip, 1)
 
 
+async def _run_cmd(cmd, timeout=10):
+    """在子进程 executor 里跑命令，避免阻塞 uvicorn 单线程 event loop。"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: subprocess.run(cmd,
+        capture_output=True, timeout=timeout, check=False))
+
 async def _lan_scan() -> List[str]:
     prefix = _my_lan_prefix()
     candidates: List[str] = []
@@ -526,8 +532,7 @@ async def _lan_scan() -> List[str]:
 
     # 1) arp-scan (最快)
     try:
-        r = subprocess.run(["arp-scan", "--localnet", "--brief", "--interface=auto"],
-                           capture_output=True, timeout=10, check=False)
+        r = await _run_cmd(["arp-scan", "--localnet", "--brief", "--interface=auto"], timeout=5)
         if r.returncode == 0 and r.stdout:
             for line in r.stdout.decode("utf-8", errors="ignore").splitlines():
                 for p in line.split():
@@ -541,10 +546,9 @@ async def _lan_scan() -> List[str]:
     except Exception:
         pass
 
-    # 2) nmap
+    # 2) nmap (异步，超时收紧到 5s；扫描失败不阻塞任何请求)
     try:
-        r = subprocess.run(["nmap", "-sn", f"{prefix}.0/24"],
-                           capture_output=True, timeout=25, check=False)
+        r = await _run_cmd(["nmap", "-sn", "-T4", "--host-timeout", "3s", f"{prefix}.0/24"], timeout=8)
         if r.returncode == 0 and r.stdout:
             for line in r.stdout.decode("utf-8", errors="ignore").splitlines():
                 for token in line.split():
@@ -560,8 +564,7 @@ async def _lan_scan() -> List[str]:
 
     # 3) ip neigh
     try:
-        r = subprocess.run(["ip", "neigh", "show"],
-                           capture_output=True, timeout=5, check=False)
+        r = await _run_cmd(["ip", "neigh", "show"], timeout=3)
         if r.returncode == 0 and r.stdout:
             for line in r.stdout.decode("utf-8", errors="ignore").splitlines():
                 for token in line.split():
@@ -792,7 +795,11 @@ def login(body: LoginIn, request: Request):
     # 开发/测试用调试端点：GET ?reset_bucket=1 清空限流桶
     allowed, wait = _login_allowed(ip)
     if not allowed:
-        raise HTTPException(429, f"登录尝试过于频繁，请 {int(wait)} 秒后重试")
+        raise HTTPException(
+            status_code=429,
+            detail=f"登录尝试过于频繁，请 {int(wait)} 秒后重试",
+            headers={"Retry-After": str(int(wait))}
+        )
     user = db.get_user_by_name(body.username.strip())
     if not user or not verify_password(body.password, user["salt"], user["password_hash"]):
         raise HTTPException(401, "用户名或密码错误")
