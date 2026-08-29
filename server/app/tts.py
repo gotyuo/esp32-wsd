@@ -23,6 +23,7 @@ import io
 import json
 import logging
 import os
+import re
 import wave
 from typing import Optional
 
@@ -41,6 +42,13 @@ TTS_ENABLED = os.environ.get("TTS_ENABLED", "1") == "1"
 _TTS_CACHE_MAX = int(os.environ.get("TTS_CACHE_MAX", "32"))
 _tts_cache: "OrderedDict[tuple, bytes]" = OrderedDict()
 _tts_cache_lock = threading.Lock()
+
+# 报警语音文本的最大字符数。固件 TTS 缓冲 128KB ≈ 2.97 秒语音。
+# 实测（Piper zh_CN-huayan-medium，含标点停顿）同长度差异很大：
+#   19 字可低至 119852B 也可高达 132140B（超 128KB），方差来自不同字的时长。
+# 固定字符数无法精确控制体积，故取 18 字作为保守上限。不可再往上加。
+# 可通过 TTS_MAX_CHARS 环境变量调整（风险自负）。
+TTS_MAX_CHARS = int(os.environ.get("TTS_MAX_CHARS", "18"))
 
 _WYOMING_VERSION = "1.10.0"
 
@@ -263,16 +271,139 @@ def synthesize_sync(text: str, voice_id: Optional[str] = None) -> bytes:
         loop.close()
 
 
+_NUM_THRESHOLD_RE = re.compile(
+    r"(\S*?)(\s*-?\d+(?:\.\d+)?\s*)([^;\s\[\]]+)\s*\[(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\]"
+)
+
+
+def alarm_reason_for_speech(reason: str) -> str:
+    """把报警原因精简成适合语音播报的形式。
+
+    check_alarm 生成的原因是给人看的屏幕文本，带数值和阈值区间
+    （如「温度 38.5 超出 [5.0, 40.0]」），对语音播报完全冗余却占满
+    128KB 缓冲预算，导致最终读出来是「血氧低于阈」这类半截词。
+    语音里只保留「指标名 + 方向」，数值和阈值在屏幕上才看得清。
+
+    方向由数值与区间比较得出（而非靠「超出/低于」字面推断，因为「超出」
+    本身不含方向），这样「温度 38.5 超出 [5, 40]」能正确读作「温度过高」。
+
+    例：「温度 38.5 超出 [5, 40]」->「温度过高」
+        「湿度 5.0 低于 [20, 90]」->「湿度过低」
+        「温度 38.5 接近边界 [5, 40]」->「温度接近阈值」
+        「温度 38.5 超出 [5, 40]; 湿度 5.0 低于 [20, 90]」->「温度过高，湿度过低」
+    无法识别的原文按中文标点分段取前 4 段。
+    """
+    if not reason or not reason.strip():
+        return ""
+
+    parts_urgent, parts_warn = [], []
+    for seg in reason.split(";"):
+        seg = seg.strip()
+        if not seg:
+            continue
+        m = _NUM_THRESHOLD_RE.search(seg)
+        if not m:
+            continue
+        metric = m.group(1).strip()
+        word = m.group(3).strip()
+        try:
+            val = float(m.group(2))
+            lo = float(m.group(4))
+            hi = float(m.group(5))
+        except ValueError:
+            parts_urgent.append(f"{metric}异常")
+            continue
+
+        if "接近" in word:
+            # 未越界，仅接近阈值——放后面，避免挤掉真正的超界指标
+            parts_warn.append(f"{metric}接近阈值")
+        elif val > hi:
+            parts_urgent.append(f"{metric}过高")
+        elif val < lo:
+            parts_urgent.append(f"{metric}过低")
+        else:
+            parts_urgent.append(f"{metric}异常")
+
+    # 超界（紧急）在前、接近阈值（预警）在后：字符预算不足时裁掉的是预警项，
+    # 不会把真正越界的指标裁掉——ICU 场景下越界信息优先于临界提醒。
+    parts = parts_urgent + parts_warn
+
+    if not parts:
+        # 兜底：无结构化数值时按中文标点分段取前几段，避免丢内容
+        segs = [s for s in re.split(r"[，。；、,;]", reason) if s.strip()]
+        return "".join(s.strip() for s in segs[:4])
+    return "，".join(parts)
+
+
+def _device_label(device_id: str) -> str:
+    """取设备 ID 末位作为短播报标签，如 envmon-a1b2c3 -> 3号设备。
+
+    完整设备 ID 形如 envmon-a1b2c3（12 字符），直接读入语音会占满 128KB 缓冲
+    预算，导致报警原因被截断掉、播报无意义。取末 3 位数字既能区分设备，
+    又不浪费字符预算。ID 含字母或异常时回退为 设备1号。
+    """
+    tail = device_id[-3:] if len(device_id) >= 3 else device_id
+    if tail.isdigit():
+        return f"{tail}号设备"
+    return "设备1号"
+
+
+def _trim_middle(head: str, tail: str, middle: str,
+                 max_chars: int = TTS_MAX_CHARS) -> str:
+    """返回长度不超过 max_chars 的完整句子，句号由本函数统一追加。
+
+    head/tail 是固定框架（含行动指令等不可丢的信息），middle 是可变的报警原因。
+    预算不足时只裁 middle，框架优先保留——受固件 128KB 缓冲限制，长语音尾部
+    会被丢弃，所以关键信息必须在框架里而非末尾。
+
+    注意：句号只在本函数末尾追加一次，调用方不要再加，否则产生"。。"且
+    超出 max_chars 预算。
+    """
+    middle = middle.strip().rstrip("，。、；：")
+
+    def _build(m: str) -> str:
+        s = head + m + tail
+        # 避免与 tail 已有标点重复
+        return s.rstrip("。") + "。"
+
+    if len(_build(middle)) <= max_chars:
+        return _build(middle)
+
+    # 框架（含句号）已占用的空间，留给 middle 的预算
+    budget = max_chars - len(head) - len(tail.rstrip("。"))
+    if budget >= 1:
+        return _build(middle[:budget].rstrip("，。、；："))
+
+    # 极端情况：中间无预算，放弃 tail 把预算给 middle
+    budget = max_chars - len(head) - 1
+    if budget >= 1:
+        return head + middle[:budget].rstrip("，。、；：") + "。"
+    return head[: max_chars - 1] + "。"
+
+
 def build_alarm_text(device_id: str, level: int, reason: str,
                      patient_name: Optional[str] = None) -> str:
-    """根据报警信息构造语音播报文本。"""
+    """根据报警信息构造语音播报文本。
+
+    受固件 128KB TTS 缓冲限制（实测安全上限 19 字 / 2.86 秒），文案结构为
+    「身份 + 固定框架 + 可变原因」，预算不足时只裁原因。紧急级别把行动指令
+    放进固定框架（tail），保证即使原因被裁也不丢动作。
+    """
+    label = _device_label(device_id)
+    who = f"{patient_name}，" if patient_name else f"{label}，"
+
     if level == 0:
-        if patient_name:
-            return f"{patient_name}，各项指标已恢复正常。"
-        return f"设备{device_id}，报警已解除。"
-    elif level == 1:
-        prefix = f"{patient_name}，" if patient_name else f"设备{device_id}，"
-        return f"{prefix}请注意，{reason}。"
-    else:  # level == 2
-        prefix = f"{patient_name}，" if patient_name else f"设备{device_id}，"
-        return f"{prefix}紧急报警，{reason}。请立即处理。"
+        # 恢复提示无需具体原因，句子本身短
+        return f"{who}已恢复正常。"
+
+    # 原因精简：原始文本带数值阈值（「温度 38.5 超出 [5, 40]」）对语音冗余，
+    # 且会挤掉行动指令。精简成「温度过高」后再受字符预算约束。
+    reason = alarm_reason_for_speech(reason).strip() or "指标异常"
+
+    if level == 1:
+        return _trim_middle(f"{who}请注意，", "", reason)
+
+    # level == 2：紧急。"请处理"放框架末尾，原因预算不足时只裁原因。
+    # 用「请处理」而非「请立即处理」省 2 字符——实测同长度 19 字可高达 132KB
+    # 超限，紧急文案必须给体积留余量，动作指令的紧迫性由「紧急：」前缀承担。
+    return _trim_middle(f"{who}紧急：", "，请处理。", reason)
