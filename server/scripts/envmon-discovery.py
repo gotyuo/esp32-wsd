@@ -60,32 +60,52 @@ DISC_IFACE = os.environ.get("DISC_IFACE", "") or None  # eth0 / wlan0
 DISC_IP = os.environ.get("DISC_IP", "") or None
 
 
+def _iface_ipv4(iface: str) -> Optional[str]:
+    """用 ioctl SIOCGIFADDR 读取指定网卡的 IPv4 地址。失败返回 None。"""
+    try:
+        import fcntl
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            raw = fcntl.ioctl(
+                s.fileno(), 0x8915,  # SIOCGIFADDR
+                struct.pack("256s", iface[:15].encode()),
+            )
+            ip = socket.inet_ntoa(raw[20:24])
+            return ip if ip != "127.0.0.1" else None
+    except OSError:
+        return None
+
+
 def _lan_ip() -> str:
-    """探测本机多播接口的 IPv4 地址。"""
+    """探测要回复给设备的服务器地址。
+
+    优先级：
+      1. DISC_IP 环境变量显式指定
+      2. DISC_IFACE 指定的接口（用 ioctl SIOCGIFADDR 读该网卡 IPv4）
+      3. socket.connect(多播组) 探测默认多播路由接口
+      4. 常见接口名遍历兜底
+
+    注意：不要用 socket.connect() 作为唯一手段——宿主机上默认多播路由
+    常指向 docker0（172.x），设备无法访问，会导致设备连不上服务器。
+    """
     if DISC_IP:
         return DISC_IP
+
+    if DISC_IFACE:
+        ip = _iface_ipv4(DISC_IFACE)
+        if ip:
+            return ip
+
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect((MCAST_GROUP, DISC_PORT))
             return s.getsockname()[0]
     except Exception:
         pass
-    # fallback：遍历接口
-    try:
-        import fcntl
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            # eth0
-            for iface in ("eth0", "wlan0", "enp1s0", "ens33"):
-                try:
-                    ip = socket.inet_ntoa(
-                        fcntl.ioctl(s.fileno(), 0x8915, struct.pack("256s", iface[:15].encode()))[20:24]
-                    )
-                    if ip != "127.0.0.1":
-                        return ip
-                except OSError:
-                    continue
-    except Exception:
-        pass
+
+    for iface in ("eth0", "wlan0", "enp2s0", "enp1s0", "ens33", "wlp1s0"):
+        ip = _iface_ipv4(iface)
+        if ip:
+            return ip
     return "127.0.0.1"
 
 
@@ -107,7 +127,9 @@ class MulticastResponder:
         self.port = port
         self.ttl = ttl
         self._socket: Optional[socket.socket] = None
+        # 注意：Event 默认 unset，必须显式 set()，否则 while is_set() 立即退出
         self._alive = threading.Event()
+        self._alive.set()
 
     def _mksocket(self) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -119,11 +141,29 @@ class MulticastResponder:
         s.settimeout(2.0)
 
         if DISC_IFACE:
-            s.setsockopt(
-                socket.SOL_IP, socket.IP_MULTICAST_IF,
-                socket.inet_aton(socket.gethostbyname(DISC_IFACE)),
-            )
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, DISC_IFACE.encode("utf-8") + b"\0")
+            try:
+                # 网卡名不是主机名，gethostbyname 会失败；用 ioctl 取该网卡 IPv4
+                iface_ip = _iface_ipv4(DISC_IFACE)
+                if iface_ip:
+                    s.setsockopt(
+                        socket.SOL_IP, socket.IP_MULTICAST_IF,
+                        socket.inet_aton(iface_ip),
+                    )
+                else:
+                    log.warning("cannot resolve IP of %s", DISC_IFACE)
+            except OSError as e:
+                log.warning("IP_MULTICAST_IF %s failed: %s", DISC_IFACE, e)
+            # SO_BINDTODEVICE 需要 CAP_NET_RAW；缺该权限时降级为仅绑定接口地址
+            try:
+                s.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_BINDTODEVICE,
+                    DISC_IFACE.encode("utf-8") + b"\0",
+                )
+            except (OSError, AttributeError) as e:
+                log.warning(
+                    "SO_BINDTODEVICE %s denied (%s) — falling back to IP_MULTICAST_IF only",
+                    DISC_IFACE, e,
+                )
 
         mreq = socket.inet_aton(self.mcast) + socket.inet_aton("0.0.0.0")
         s.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP, mreq)

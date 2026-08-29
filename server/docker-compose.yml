@@ -17,8 +17,11 @@ services:
     volumes:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
+    environment:
+      - MQTT_USER=${MQTT_USER:-envmon}
+      - MQTT_PASS=${MQTT_PASS:-envmon}
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u $${MQTT_USER:-envmon} -P $${MQTT_PASS:-envmon-secret} -t '$$SYS/#' -C 1 -i healthcheck -W 3 || exit 1"]
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u $$MQTT_USER -P $$MQTT_PASS -t '$$SYS/#' -C 1 -i healthcheck -W 3 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -56,7 +59,7 @@ services:
       - MQTT_HOST=mosquitto
       - MQTT_PORT=1883
       - MQTT_USER=${MQTT_USER:-envmon}
-      - MQTT_PASS=${MQTT_PASS:-envmon-secret}
+      - MQTT_PASS=${MQTT_PASS:-envmon}
       - ADMIN_TOKEN=${ADMIN_TOKEN:-}
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASS=${ADMIN_PASS:-admin123}
@@ -90,10 +93,13 @@ services:
       - DISC_MCAST=239.255.1.1
       - DISC_PORT=12091
       - DISC_REQ=ENVMON?
-      - MQTT_PORT=18830
+      # 设备接入地址 = 宿主机对外 MQTT 端口（与 ports 映射一致）
+      - MQTT_PORT=${MQTT_PORT:-18830}
       - MQTT_USER=${MQTT_USER:-envmon}
-      - MQTT_PASS=${MQTT_PASS:-envmon-secret}
-      # DISC_IP: 留空则自动探测本机多播接口 IP；如需指定，填 <本机 LAN IP>
-      # DISC_IFACE: 留空则自动；多网卡环境可填 eth0 / wlan0
+      - MQTT_PASS=${MQTT_PASS:-envmon}
+      # 显式指定监听/发送的多播网卡，避免多网卡（含 Docker 网桥）环境下
+      # 默认多播路由选到 docker0 内部地址；回复给设备的 IP 也取该网卡地址。
+      # 如换机器/换网卡，在 .env 里改 DISC_IFACE=你的网卡名，或用 DISC_IP 强制回复 IP。
+      - DISC_IFACE=${DISC_IFACE:-enp2s0}
     depends_on:
       - mosquitto
