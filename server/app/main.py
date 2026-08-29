@@ -1234,17 +1234,26 @@ def tts_status():
     }
 
 
+@app.get("/api/tts/speak")
 @app.post("/api/tts/speak")
-async def tts_speak(body: dict):
+async def tts_speak(request: Request, body: dict = None):
     """文本转语音：调用 Piper 本地合成，返回 WAV 音频。
 
-    请求体: {"text": "要合成的中文文本", "voice": "可选模型ID"}
+    固件通过 GET + query 参数调用（`GET /api/tts/speak?text=...`），
+    前端/脚本用 POST + JSON body 调用（`{"text":"..."}`）。
+    两种形式都接受，否则固件端 HTTP 播放器会收到 405 拿不到 WAV。
     返回: audio/wav 二进制流
     """
-    text = body.get("text", "").strip()
+    text = ""
+    voice = None
+    if body:
+        text = str(body.get("text", "")).strip()
+        voice = body.get("voice")
+    else:
+        text = str(request.query_params.get("text", "")).strip()
+        voice = request.query_params.get("voice")
     if not text:
         raise HTTPException(400, "text 不能为空")
-    voice = body.get("voice")
     try:
         wav_data = await tts_mod.synthesize(text, voice)
         return Response(

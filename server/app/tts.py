@@ -26,12 +26,21 @@ import os
 import wave
 from typing import Optional
 
+import threading
+from collections import OrderedDict
+
 log = logging.getLogger("envmon.tts")
 
 TTS_HOST = os.environ.get("TTS_HOST", "piper")
 TTS_PORT = int(os.environ.get("TTS_PORT", "10200"))
 TTS_VOICE = os.environ.get("TTS_VOICE", "zh_CN-huayan-medium")
 TTS_ENABLED = os.environ.get("TTS_ENABLED", "1") == "1"
+
+# WAV 合成结果缓存：(text, voice) -> WAV bytes。
+# 报警持续越限时同一句会被反复请求，命中缓存省掉 Piper 合成开销。
+_TTS_CACHE_MAX = int(os.environ.get("TTS_CACHE_MAX", "32"))
+_tts_cache: "OrderedDict[tuple, bytes]" = OrderedDict()
+_tts_cache_lock = threading.Lock()
 
 _WYOMING_VERSION = "1.10.0"
 
@@ -195,6 +204,9 @@ def _pcm_to_wav(pcm_data: bytes, sample_rate: int = 22050,
 async def synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
     """将文本合成为语音，返回 WAV 字节流。
 
+    带进程内缓存：报警会周期重复下发同一文本（如持续越限），
+    反复合成同一句是浪费 CPU 和 Piper 吞吐，命中缓存直接返回。
+
     Args:
         text: 要合成的中文文本
         voice_id: 可选语音模型 ID（默认从环境变量读取）
@@ -214,7 +226,32 @@ async def synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
         text = text[:500]
         log.warning("文本过长，已截断至 500 字符")
 
-    return await _wyoming_synthesize(text, voice_id)
+    voice = voice_id or TTS_VOICE
+    key = (text, voice)
+
+    # 缓存命中：同一文本+语音直接返回，避免重复合成
+    _tts_cache_lock.acquire()
+    try:
+        if key in _tts_cache:
+            _tts_cache.move_to_end(key)
+            log.debug("TTS cache hit: %s", text[:30])
+            return _tts_cache[key]
+    finally:
+        _tts_cache_lock.release()
+
+    wav_data = await _wyoming_synthesize(text, voice)
+
+    _tts_cache_lock.acquire()
+    try:
+        _tts_cache[key] = wav_data
+        _tts_cache.move_to_end(key)
+        # 超过条数上限时逐出最久未用的
+        while len(_tts_cache) > _TTS_CACHE_MAX:
+            _tts_cache.popitem(last=False)
+    finally:
+        _tts_cache_lock.release()
+
+    return wav_data
 
 
 def synthesize_sync(text: str, voice_id: Optional[str] = None) -> bytes:

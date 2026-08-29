@@ -134,6 +134,8 @@ class MqttBridge:
             "report_interval": th["report_interval"],
             "alarm_enabled": bool(th["alarm_enabled"]),
             "alarm_sound": bool(th["alarm_sound"]),
+            # 设备 HTTP 拉取语音用的 Web 端口（与 MQTT 端口不同）
+            "web_port": int(os.environ.get("WEB_PORT", "12090")),
         }
         topic = f"envmon/{device_id}/config"
         res = self.client.publish(topic, json.dumps(payload), qos=1)
