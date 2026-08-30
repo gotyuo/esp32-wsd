@@ -21,6 +21,7 @@ struct DeviceConfig {
     // MQTT 服务器
     char     mqtt_host[MAX_HOST_LEN + 1];
     uint16_t mqtt_port;
+    uint16_t web_port;   // Web/TTS 服务器端口（设备 HTTP 拉语音用；0 表示用默认 12090）
     char     mqtt_user[MAX_USER_LEN + 1];
     char     mqtt_pass[MAX_PASS_LEN + 1];
     char     device_id[MAX_DEV_LEN + 1];

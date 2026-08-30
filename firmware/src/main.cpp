@@ -371,8 +371,11 @@ void loop() {
             Serial.printf("[TTS] %s (level=%d)\n", ttsText.c_str(), ttsLevel);
             g_ui.showTtsMessage(ttsText);
             // 尝试通过 HTTP 从服务器拉 WAV 语音
-            if (!ttsIsPlaying() && g_cfg.has_mqtt() && g_net.wifiConnected()) {
-                String url = String("http://") + g_cfg.mqtt_host + "/api/tts/speak?text=";
+            // 注意：必须用 web_port（Web 服务端口），不能用 mqtt_port（MQTT 端口），
+            // 两者不同（Web=12090, MQTT=18830），且 web_port 非 80 时必须显式拼上。
+            if (!ttsIsPlaying() && g_cfg.has_mqtt() && g_net.wifiConnected() &&
+                g_cfg.web_port != 0) {
+                String url = String("http://") + g_cfg.mqtt_host + ":" + String(g_cfg.web_port) + "/api/tts/speak?text=";
                 // UTF-8 字节级 URL 编码（中文等多字节字符每字节 %XX）
                 for (int i = 0; i < ttsText.length(); i++) {
                     unsigned char c = (unsigned char)ttsText[i];

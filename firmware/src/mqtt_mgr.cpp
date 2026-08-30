@@ -211,6 +211,8 @@ void MqttMgr::applyConfigPayload(const String &json) {
     if (jsonGetInt(json, "report_interval", iv) && iv >= 3) g_cfg.report_interval = iv;
     if (jsonGetBool(json, "alarm_enabled", b)) g_cfg.alarm_enabled = b;
     if (jsonGetBool(json, "alarm_sound", b))   g_cfg.alarm_sound   = b;
+    // Web 端口（设备 HTTP 拉语音用）；仅在服务器下发且值有效时更新
+    if (jsonGetInt(json, "web_port", iv) && iv >= 1 && iv <= 65535) g_cfg.web_port = (uint16_t)iv;
 
     g_cfgStore.save(g_cfg);   // 持久化，掉电保持
     _client.publish(_topicAck, "ok");
