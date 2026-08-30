@@ -605,14 +605,14 @@ function showPwd(){$("modalInner").innerHTML="<h2 style='font-size:14px;margin-b
   "<div class='kv'><label>原密码</label><input type='password' id='pOld'><label>新密码</label><input type='password' id='pNew' minlength='6'><label>确认</label><input type='password' id='pNew2'></div>"+
   "<div class='actions'><button onclick='doPwd()'>确认</button><button class='secondary' onclick='closeModal()'>取消</button></div><div id='pwdErr' style='color:var(--red);font-size:12px;margin-top:8px'></div>";$("modalBox").classList.remove("hidden");}
 function doPwd(){var o=$("pOld").value,n=$("pNew").value,n2=$("pNew2").value;if(n.length<6){$("pwdErr").textContent="新密码至少 6 位";return;}if(n!==n2){$("pwdErr").textContent="两次密码不一致";return;}
-  api("/api/me/password",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({old_password:o,new_password:n})}).then(function(){toast("密码已修改");closeModal();}).catch(function(){});}
+  api("/api/me/password",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({old_password:o,new_password:n})}).then(function(){toast("密码已修改");closeModal();}).catch(function(e){toast("修改失败: "+(e&&e.message||""),"alarm");});}
 
 function loadUsers(){api("/api/users").then(function(d){var u=d.users||[];if(u.length)$("mUsers").classList.remove("hidden");}).catch(function(){$("mUsers").classList.add("hidden");});}
 function showUsers(){api("/api/users").then(function(d){var u=d.users||[],rows=u.map(function(x){return "<tr><td>"+esc(x.username)+"</td><td>"+esc(x.display_name||"-")+"</td><td>"+(x.role==="admin"?"管理员":"观察者")+"</td><td>"+fmtTime(x.last_login)+"</td><td>"+(ME&&x.id===ME.id?"<span class='bad'>当前</span>":"<button class='danger small' onclick='delUser("+x.id+")'>删除</button>")+"</td></tr>";}).join("");
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>USER MANAGEMENT</h2><table><thead><tr><th>用户名</th><th>显示名</th><th>角色</th><th>最后登录</th><th>操作</th></tr></thead><tbody>"+rows+"</tbody></table><div style='margin-top:14px;border-top:1px solid var(--line);padding-top:12px'><div class='kv'><label>用户名</label><input id='uName' placeholder='字母数字_-.'><label>显示名</label><input id='uDisp' placeholder='可选'><label>密码</label><input id='uPass' type='password' placeholder='至少6位'><label>角色</label><select id='uRole'><option value='viewer'>观察者</option><option value='admin'>管理员</option></select></div><div class='actions'><button onclick='addUser()'>创建</button><button class='secondary' onclick='closeModal()'>关闭</button></div></div>";
   $("modalBox").classList.remove("hidden");}).catch(function(){});}
-function addUser(){var body={username:$("uName").value.trim(),display_name:$("uDisp").value.trim(),password:$("uPass").value,role:$("uRole").value};if(!body.username||body.password.length<6){alert("用户名必填，密码至少6位");return;}api("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){toast("用户已创建");showUsers();}).catch(function(){});}
-function delUser(id){if(!confirm("确定删除该用户？"))return;api("/api/users/"+id,{method:"DELETE"}).then(function(){toast("用户已删除");showUsers();}).catch(function(){});}
+function addUser(){var body={username:$("uName").value.trim(),display_name:$("uDisp").value.trim(),password:$("uPass").value,role:$("uRole").value};if(!body.username||body.password.length<6){alert("用户名必填，密码至少6位");return;}api("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){toast("用户已创建");showUsers();}).catch(function(e){toast("创建失败: "+(e&&e.message||""),"alarm");});}
+function delUser(id){if(!confirm("确定删除该用户？"))return;api("/api/users/"+id,{method:"DELETE"}).then(function(){toast("用户已删除");showUsers();}).catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});}
 
 function loadDevices(pick,ev){_refreshBtn(ev,function(){return api("/api/devices").then(function(d){var devs=d.devices||[];DEVICES=devs;
   var sel=$("devSel");sel.innerHTML=devs.map(function(x){return "<option value=\""+esc(x.id)+"\">"+esc(x.name||x.id)+"</option>";}).join("");
@@ -686,7 +686,7 @@ function loadAll(ev){
   });
 }
 function saveTh(ev){ev.preventDefault();var body={device_id:$("fDev").value||"*",temp_min:+$("fTmin").value,temp_max:+$("fTmax").value,hum_min:+$("fHmin").value,hum_max:+$("fHmax").value,pres_min:+$("fPmin").value,pres_max:+$("fPmax").value,report_interval:+$("fIv").value,alarm_enabled:$("fEn").checked,alarm_sound:$("fSnd").checked};
-  api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";setTimeout(function(){$("saveMsg").textContent="";},5000);}).catch(function(){});}
+  api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";setTimeout(function(){$("saveMsg").textContent="";},5000);}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});}
 
 // ====== 设备网格 ======
 function renderDeviceGrid(devs){var g=$("devGrid");if(!devs.length){g.innerHTML='<div class="empty">暂无设备 · 点击右侧"注册设备"手动添加，或等待终端自动上线</div>';return;}g.innerHTML=devs.map(function(x){
@@ -714,8 +714,10 @@ function editName(id){var cur=DEVICES.find(function(x){return x.id===id});var ol
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>RENAME DEVICE</h2>"+
     "<div class='kv'><label>设备 ID</label><div style='color:var(--blue);font-weight:600;font-family:Consolas,monospace'>"+esc(id)+"</div><label>名称</label><input id='dRename' value='"+esc(old)+"' placeholder='留空则用 ID 显示'></div>"+
     "<div class='actions'><button onclick='doRename(\""+esc(id)+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";$("modalBox").classList.remove("hidden");}
-function doRename(id){var n=$("dRename").value.trim();var url=encodeURIComponent(id)+"?name="+encodeURIComponent(n);
-  var r=new XMLHttpRequest();r.open("PUT","/api/devices/"+url);r.setRequestHeader("Authorization","Bearer "+TOKEN);r.onload=function(){if(r.status===200){toast("已重命名");closeModal();loadDevices();}else{alert("重命名失败");}};r.send();}
+function doRename(id){var n=$("dRename").value.trim();
+  // 后端 rename_device 用 Query(name) 取参（非 JSON body），故必须放 query string。
+  var r=api("/api/devices/"+encodeURIComponent(id)+"?name="+encodeURIComponent(n),{method:"PUT"});
+  r.then(function(){toast("已重命名");closeModal();loadDevices();}).catch(function(e){toast("重命名失败: "+(e&&e.message||""),"alarm");});}
 function delDev(id){if(!confirm("删除设备 "+id+"？将清除其全部历史数据！"))return;api("/api/devices/"+encodeURIComponent(id),{method:"DELETE"}).then(function(){toast("设备已删除");if(DEV===id)DEV=null;loadDevices();}).catch(function(){});}
 function viewDevice(id){api("/api/devices/"+encodeURIComponent(id)).then(function(d){var dev=d.device,lt=d.latest,th=d.thresholds;
   var alarmTxt=lt?(lt.alarm_level>=2?"<span class='bad'>LV2 报警</span>":lt.alarm_level==1?"<span class='warn'>LV1 预警</span>":"<span class='ok'>正常</span>"):'';
@@ -755,7 +757,7 @@ function showDeviceConfig(id){api("/api/thresholds?device="+encodeURIComponent(i
   $("modalBox").classList.remove("hidden");
 }).catch(function(){});}
 function saveDeviceTh(id){var body={device_id:id,temp_min:+$("mTmin").value,temp_max:+$("mTmax").value,hum_min:+$("mHmin").value,hum_max:+$("mHmax").value,pres_min:+$("mPmin").value,pres_max:+$("mPmax").value,report_interval:+$("mIv").value,alarm_enabled:$("mEn").checked,alarm_sound:$("mSnd").checked};
-  api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";toast("配置已保存");}).catch(function(){});}
+  api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";toast("配置已保存");}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});}
 function showDeviceAlarm(id){api("/api/alarms?limit=20").then(function(d){var a=(d.alarms||[]).filter(function(x){return x.device_id===id});
   var rows=a.length?a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+st+"</td></tr>";}).join(""):'<tr><td colspan="4" class="empty">暂无报警</td></tr>';
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>ALARM LOG · "+esc(id)+"</h2><table><thead><tr><th>时间</th><th>级别</th><th>原因</th><th>状态</th></tr></thead><tbody>"+rows+"</tbody></table><div class='actions'><button class='secondary' onclick='closeModal()'>关闭</button></div>";$("modalBox").classList.remove("hidden");
@@ -1306,7 +1308,7 @@ function submitIo(pid){
   if(body.amount_ml<=0 && body.amount_g<=0){alert("量必须 >0");return;}
   api("/api/patients/"+pid+"/io",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
     toast("出入量已录入");closeModal();loadIo();assessPatient();
-  }).catch(function(){});
+  }).catch(function(e){toast("录入失败: "+(e&&e.message||""),"alarm");});
 }
 
 // WS 消息：新体征到达时刷新 monitor（如果当前在 monitor view）
@@ -1375,7 +1377,7 @@ function saveSettings(){
     ["ai.prompt",$("sAIPrompt").value],
   ];
   var promises=keys.map(function(kv){return api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({key:kv[0],value:kv[1]})});});
-  Promise.all(promises).then(function(){toast("AI 设置已保存");closeModal();loadSettingsForMenu();}).catch(function(){});
+  Promise.all(promises).then(function(){toast("AI 设置已保存");closeModal();loadSettingsForMenu();}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
 }
 
 // ==================== 设备接入（内网 / 外网 双扫描） ====================
