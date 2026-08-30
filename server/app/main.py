@@ -269,7 +269,11 @@ def handle_telemetry(device_id: str, payload: dict):
     # 自动登记设备（含固件版本 + 最近上报时间），无需手工注册
     # Issue 1: 提取设备 IP 地址 — 优先从 payload.ip 取，其次从 payload.ip_addr
     ip_addr = payload.get("ip") or payload.get("ip_addr")
+    # 遥测到达 = 设备此刻确实活着：登记元数据 + 显式置在线 + 刷新 last_seen。
+    # upsert_device 本身不再碰 online/last_seen（见 db.upsert_device 说明），
+    # 所以这里必须显式调用。
     db.upsert_device(device_id, fw_version=fw, ip_addr=ip_addr)
+    db.set_device_online(device_id, True)
     if ts_in:
         db.set_device_seen(device_id, ts_in)
     else:
@@ -337,15 +341,25 @@ def _insert_vital_from_payload(patient_id: int, device_id: str, payload: dict) -
 
 
 def handle_status(device_id: str, online: bool):
-    """MQTT 连接状态(LWT 遗嘱 / 设备主动上报)。
-    设备上线时固件会发布保留的 "online"，断线时 broker 代发 "offline"，
-    因此这里必须同步刷新 last_seen——否则上线动作只改 online 标记、
-    last_seen 停在旧值，后续任何依赖 last_seen 的判断都会误判为离线。
+    """MQTT 连接状态（LWT 遗嘱 / 设备主动上报的 online）。
+
+    这里【只】改 online 标记，绝不刷新 last_seen。
+    last_seen 语义 = 最近一次【真实遥测】到达的时刻（由 handle_telemetry 维护）。
+    若在此刷新 last_seen，因 envmon/{id}/status 是【保留消息】，MQTT bridge 每次
+    重连都会收到 broker 重新投递的保留消息，于是会把所有设备的 last_seen 刷成
+    重连时刻 —— 从未上报数据的设备也会看起来"刚上报过"，新鲜度判断被彻底污染
+    （实测：重连后 7 台设备 last_seen 全被刷成同一时刻，probe 误判 5 台在线）。
+
+    另外，retained "online" 本身也不能全信：它是设备【最后存活时刻】留下的快照，
+    设备静默掉线（WiFi 丢失/断电）时 LWT 不触发，broker 会一直保留 "online"，
+    bridge 每次重连都会重新收到它并把设备标回在线。因此这里要求「声明 online」
+    必须被最近 90 秒内的真实遥测佐证，否则按离线处理。
     """
-    db.upsert_device(device_id)
+    db.ensure_device(device_id)
+    # 声明在线需佐证；声明离线无条件接受（断线就是断线）。
+    if online and not _is_recent(_last_seen_of(device_id), TELEMETRY_FRESH_S):
+        online = False
     db.set_device_online(device_id, online)
-    if online:
-        db.set_device_seen(device_id, None)
     hub.broadcast_threadsafe({"type": "status", "device_id": device_id, "online": online})
 
 
@@ -355,7 +369,10 @@ def handle_vitals(device_id: str, payload: dict):
     # Issue 1: 同时更新设备 IP（vitals 载荷也可能带 ip）
     ip_addr = payload.get("ip") or payload.get("ip_addr")
     fw = payload.get("fw")
+    # 生命体征也是真实数据：设备此刻活着，需显式置在线并刷新 last_seen。
     db.upsert_device(device_id, fw_version=fw, ip_addr=ip_addr)
+    db.set_device_online(device_id, True)
+    db.set_device_seen(device_id, None)
     conn = _get_conn()
     rows = conn.execute(
         "SELECT p.id AS patient_id, p.pid AS pid, pd.role FROM patient_devices pd "
@@ -681,11 +698,29 @@ def delete_device(device_id: str, _: Dict = Depends(require_admin)):
 #   2) config→ack 也不可靠：ESP32 固件回 config/ack，但 ESP8266 固件的
 #      applyConfigPayload 只打串口日志、根本没有 ack 主题，实测零回执。
 #
-# 改用 broker 侧的权威信号：设备每次连接 MQTT 都会发布一条【保留】的
-#   envmon/{id}/status = "online"（retain 标志非 0），断线时 broker 代发 "offline"。
-# 保留消息在 broker 上长期驻留，因此逐台订阅一次该主题取到的就是它此刻的最终状态。
-# 这不需要任何固件应答，即时、权威，也不会漏掉正在重连循环的设备。
+# 改用 broker 侧的信号 + 遥测新鲜度交叉校验：设备每次连接 MQTT 都会发布一条
+# 【保留】的 envmon/{id}/status = "online"，断线时 broker 代发 "offline"。
+# 保留消息本身不可全信 —— 设备静默掉线（WiFi 丢失/断电）时 LWT 不触发，
+# broker 会一直保留 "online"。因此 probe 额外要求遥测在最近 90 秒内，
+# 两者同时满足才判在线。
 PROBE_TIMEOUT_S = 3.0
+
+# 遥测「新鲜度」窗口：设备最近上报距现在不超过该秒数，才认为它真正活着。
+# 取 90 秒，与 aggregator.OFFLINE_TIMEOUT_S 保持一致（见 aggregator.py）。
+TELEMETRY_FRESH_S = 90.0
+
+
+def _last_seen_of(device_id: str) -> Optional[str]:
+    """取设备的最近一次实际数据时间。
+
+    优先用 telemetry 表的最新一帧（真实数据），缺失时退回 devices.last_seen。
+    两者都没有返回 None，_is_recent(None, ...) 会按「不新鲜」处理。
+    """
+    last = db.latest_telemetry(device_id)
+    if last and last.get("ts"):
+        return str(last["ts"])
+    row = db.query("SELECT last_seen FROM devices WHERE id=?", (device_id,))
+    return str(row[0]["last_seen"]) if row and row[0]["last_seen"] else None
 
 
 def _is_recent(ts: Optional[str], seconds: float) -> bool:
@@ -794,17 +829,32 @@ def probe_devices(body: dict = None):
     status_map = _scan_retained_status(ids)
 
     online: Set[str] = set()
+    # 关键：broker 上的 status 保留消息是【设备最后存活时刻】留下的快照。
+    # 设备静默掉线（WiFi 丢失/断电）时 LWT 不触发，broker 会一直保留 "online"。
+    # 因此 "online" 只是必要条件，还必须被最近的实际遥测佐证；
+    # 否则已死设备会被误判为在线。实测：esp32-demo-001 的 last_seen 已过去数小时，
+    # broker 却仍保留 online，probe 会误报它在线。
     for i in ids:
-        if status_map.get(i) == "online":
+        if status_map.get(i) == "online" and _is_recent(_last_seen_of(i), TELEMETRY_FRESH_S):
             online.add(i)
     # 兜底：某些固件不发 status 保留消息（或 broker 遗嘱未触发），
     # 但只要最近两分钟内还在上报遥测，就视为在线。
     for i in ids:
         if i in online:
             continue
-        last = db.latest_telemetry(i)
-        if last and _is_recent(last.get("ts"), 120):
+        if _is_recent(_last_seen_of(i), TELEMETRY_FRESH_S):
             online.add(i)
+
+    # 把新鲜度判定结果同步回 devices.online，让设备列表页与 probe 结果一致。
+    # 之前 online 只由 LWT 维护，而保留的 "online" 消息在 bridge 重连时会重新
+    # 投递，导致已死设备在列表页一直显示在线。现在列表页以「最近是否有真实
+    # 遥测」为准，与本页 probe 结论保持同一套逻辑。
+    for d in devs:
+        if d["id"] not in ids:
+            continue
+        want_online = 1 if d["id"] in online else 0
+        if d.get("online") != want_online:
+            db.set_device_online(d["id"], want_online == 1)
 
     groups: Dict[str, list] = {"online": [], "offline": []}
     for d in devs:
@@ -1296,11 +1346,14 @@ async def ingest(request: Request):
     if not device_id:
         raise HTTPException(400, "缺少 device_id")
 
-    # 设备不存在时自动注册
-    db.upsert_device(device_id)
+    # 设备不存在时自动登记（只保证记录存在，不碰 online/last_seen）
+    db.ensure_device(device_id)
 
     level, reason = check_alarm(device_id, temp, hum, pres)
     db.insert_telemetry(device_id, temp, hum, pres, rssi, level, None)
+    # 数据写入后同步刷新在线与最近上报时间（与 handle_telemetry 一致）
+    db.set_device_online(device_id, True)
+    db.set_device_seen(device_id, None)
     record_alarm_transition(device_id, level, reason, temp, hum, pres)
     hub.broadcast_threadsafe({
         "type": "telemetry", "device_id": device_id,

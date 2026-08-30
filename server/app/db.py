@@ -225,25 +225,48 @@ def execute(sql: str, params: tuple = ()) -> int:
 
 # ---------------------------------------------------------------- devices
 def upsert_device(device_id: str, fw_version: Optional[str] = None, ip_addr: Optional[str] = None) -> None:
-    now = utcnow()
+    """登记/更新设备的固件版本与 IP（仅元数据）。
+
+    【重要】不触碰 last_seen，也不改变 online。
+    last_seen 的唯一写入者是 handle_telemetry 里的 set_device_seen —— 它代表
+    「最近一次真实遥测」时刻。若本函数刷新 last_seen，因 envmon/{id}/status 是
+    保留消息，bridge 每次重连都会重新投递而反复调用本函数，把所有设备的
+    last_seen 刷成重连时刻，新鲜度判断即被彻底污染（实测误判 5 台设备在线）。
+    """
     with _lock:
         conn = get_conn()
         conn.execute(
             """
-            INSERT INTO devices (id, fw_version, ip_addr, first_seen, last_seen, online)
-            VALUES (?, ?, ?, ?, ?, 1)
+            INSERT INTO devices (id, fw_version, ip_addr, first_seen, online)
+            VALUES (?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
-                last_seen = excluded.last_seen,
-                online = 1,
                 fw_version = COALESCE(excluded.fw_version, devices.fw_version),
-                ip_addr = COALESCE(excluded.ip_addr, devices.ip_addr)
+                ip_addr    = COALESCE(excluded.ip_addr, devices.ip_addr)
             """,
-            (device_id, fw_version, ip_addr, now, now),
+            (device_id, fw_version, ip_addr, utcnow()),
         )
         conn.commit()
 
 
-def set_device_seen(device_id: str, ts: str) -> None:
+def ensure_device(device_id: str) -> None:
+    """确保设备记录存在（设备先上线、数据后到的场景）。
+
+    只 INSERT，冲突时【什么都不更新】——不碰 last_seen，也不改 online。
+    这是 status 消息的正确做法：它只说明设备曾连接过，不代表它此刻有数据。
+    """
+    with _lock:
+        conn = get_conn()
+        conn.execute(
+            """
+            INSERT INTO devices (id, first_seen, online) VALUES (?, ?, 0)
+            ON CONFLICT(id) DO NOTHING
+            """,
+            (device_id, utcnow()),
+        )
+        conn.commit()
+
+
+def set_device_seen(device_id: str, ts: Optional[str]) -> None:
     """仅更新 last_seen 时间戳，不改变 online 状态。
     ts=None 时以当前时间。用于已登录线设备的周期性"最近上报"刷新。"""
     execute("UPDATE devices SET last_seen=? WHERE id=?", (ts or utcnow(), device_id))
