@@ -521,8 +521,16 @@ function _refreshBtn(ev,fn){
   if(b&&b.disabled)return;             // 防重复点击(仅锁当前按钮,不锁全局)
   var o=b?b.textContent:"";
   if(b){b.disabled=true;b.textContent=" 刷新中...";}
-  var done=false;
-  function finish(ok,msg){ if(done)return; done=true; if(b){b.disabled=false;b.textContent=o;} if(!ok&&msg)toast(msg); }
+  // 修复要点：fn() 往往没有 return 其内部的 api().then(...)，此时 p 为 undefined，
+  // 下面走 else 分支会「同步立即」finish(true)，按钮"刷新中..."存活不到 1ms，
+  // 用户看着就是「点了没反应」。故加最小显示时长 MIN_MS：快请求也先显示 400ms。
+  var done=false, shown=false, MIN_MS=400;
+  function finish(ok,msg){
+    if(done)return; done=true;
+    if(!ok&&msg){ shown=true; toast(msg); if(b){b.disabled=false;b.textContent=o;} return; } // 失败立即恢复
+    if(!shown){ setTimeout(function(){ if(done){ shown=true; if(b){b.disabled=false;b.textContent=o;} } },MIN_MS); }
+    else if(b){ b.disabled=false; b.textContent=o; }
+  }
   try{
     var p=fn();
     if(p&&typeof p.then==='function'){ p.then(function(){finish(true);}).catch(function(e){finish(false,e&&e.message?e.message:"刷新失败，请检查网络与登录状态");}); }
