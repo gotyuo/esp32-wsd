@@ -799,25 +799,34 @@ if(TOKEN){api("/api/me").then(function(u){ME=u;SOUND=u.sound_alarm!==0;enterApp(
 
 // ==================== 患者管理 ====================
 function loadPatients(ev){_refreshBtn(ev,function(){
-  api("/api/patients").then(function(d){
+  // 用 /api/patients/summary：它比 /api/patients 多带 devices[]（含 online）和
+  // online_device_count。原先这里调 /api/patients，该端点不返回 online 字段，
+  // 导致下面 (p.online===0) 恒为 false、所有患者卡片永远显示绿点（假指标）。
+  api("/api/patients/summary").then(function(d){
     var ps=d.patients||[];
     if(!ps.length){$("pGrid").innerHTML='<div class="empty">暂无患者，点击「+ 新建患者」创建</div>';return;}
     $("pGrid").innerHTML=ps.map(function(p){
-      var alarmIcon = (p.online===0)?'🔴':'🟢';
+      // 在线状态来自关联设备：有设备且全部在线=绿，部分在线=黄，无设备或全离线=灰
+      var devs=p.devices||[], onlineCnt=p.online_device_count||0;
+      var alarmIcon = (devs.length&&onlineCnt===devs.length)?'🟢':(onlineCnt>0?'🟡':'⚪');
+      var devTag = devs.length
+        ? devs.map(function(x){return '<span class="small" style="color:'+(x.online?'var(--green)':'var(--sub)')+'">'+(x.online?'● ':'○ ')+esc(x.device_id)+'</span>';}).join(' · ')
+        : '<span class="small">未关联设备</span>';
       return '<div class="devcard" onclick="showPatientDetail(\''+esc(p.pid)+'\')">'
         +'<div class="k">'
           +'<div class="name">'+alarmIcon+' '+esc(p.pid)+' <span class="small">'+esc(p.name||"")+'</span></div>'
           +'<div class="grid">'
             +'<span>床号 <b>'+esc(p.bed_no||"-")+'</b></span>'
-            +'<span>年龄 <b>'+(p.age!=null?p.age:'-')+'</b> 岁</span>'
+            +'<span>年龄 <b>'+(p.age!=null?p.age:'-')+' 岁</b></span>'
             +'<span>主管 <b>'+esc(p.doctor||"-")+'</b></span>'
           +'</div>'
           +'<div class="sub">诊断: '+esc(p.diagnosis||"-")+'</div>'
           +'<div class="sub">入院: '+fmtTime(p.admit_ts)+' · 更新: '+fmtTime(p.updated_at)+'</div>'
           +'<div class="tag">'+esc(p.gender||"")+' · '+esc(p.phone||"-")+'</div>'
+          +'<div class="tag" style="margin-top:4px">'+devTag+'</div>'
         +'</div>'
-        +'<div class="v">'+
-          '<button class="secondary small" onclick="event.stopPropagation();linkDev(\''+esc(p.pid)+'\')">🔗 关联设备</button>'
+        +'<div class="v">'
+          +'<button class="secondary small" onclick="event.stopPropagation();linkDev(\''+esc(p.pid)+'\')">🔗 关联设备</button>'
           +'<button class="secondary small" onclick="event.stopPropagation();delPatient(\''+esc(p.pid)+'\')">删除</button>'
         +'</div>';
     }).join("");
