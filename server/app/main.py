@@ -20,6 +20,7 @@ import logging
 import os
 import secrets
 import time
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
@@ -30,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .aggregator import Aggregator
-from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn, RegisterDeviceIn, SettingsUpdateIn
+from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn, RegisterDeviceIn, SettingsUpdateIn, UpdateDeviceIn
 from . import icu
 from .models import PatientCreate, PatientUpdate, LinkDeviceIn, VitalIn, OrderIn, LabResultIn
 from .mqtt_bridge import MqttBridge
@@ -41,6 +42,8 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("envmon.main")
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+# 与 mqtt_bridge 保持一致的 broker 连接参数（探测在线状态时用）
+from .mqtt_bridge import MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASS  # noqa: E402
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")   # 兼容旧版：HTTP 头 X-Admin-Token
 SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "168"))  # 7 天
 
@@ -334,8 +337,15 @@ def _insert_vital_from_payload(patient_id: int, device_id: str, payload: dict) -
 
 
 def handle_status(device_id: str, online: bool):
+    """MQTT 连接状态(LWT 遗嘱 / 设备主动上报)。
+    设备上线时固件会发布保留的 "online"，断线时 broker 代发 "offline"，
+    因此这里必须同步刷新 last_seen——否则上线动作只改 online 标记、
+    last_seen 停在旧值，后续任何依赖 last_seen 的判断都会误判为离线。
+    """
     db.upsert_device(device_id)
     db.set_device_online(device_id, online)
+    if online:
+        db.set_device_seen(device_id, None)
     hub.broadcast_threadsafe({"type": "status", "device_id": device_id, "online": online})
 
 
@@ -588,14 +598,33 @@ def health(q: Optional[str] = Query(default=None)):
 
 @app.get("/api/devices")
 def devices():
-    return {"devices": db.list_devices()}
+    """设备列表 + 每台设备的最新一帧遥测。
+    latest 供设备卡片直接显示 SP.T/HUM/PRESS/SIG，避免退化成"无历史数据"。
+    """
+    return {"devices": [dict(d, latest=db.latest_telemetry(d["id"]))
+                        for d in db.list_devices()]}
 
 
 @app.post("/api/devices", dependencies=[Depends(require_admin)])
 def register_device(body: RegisterDeviceIn):
-    db.register_device(body.device_id, body.name)
+    """注册设备。ip_addr 可选：外网设备可登记接入地址（域名/IP:端口）。"""
+    db.register_device(body.device_id, body.name or None, body.ip_addr or None)
     return {"ok": True}
 
+
+@app.patch("/api/devices/{device_id}", dependencies=[Depends(require_admin)])
+def update_device(device_id: str, body: UpdateDeviceIn):
+    """更新设备名称和/或 IP 地址，用于人工修正「设备名 ↔ IP」对应关系。
+
+    用 exclude_unset 区分「没传该字段」与「显式传 null（清空）」，
+    否则用户想清空名称/IP 时会因为没有字段可改而误报 404。
+    """
+    data = body.model_dump(exclude_unset=True) if hasattr(body, "model_dump") else body.dict(exclude_unset=True)
+    if not data:
+        return {"ok": True}
+    if not db.update_device_fields(device_id, data):
+        raise HTTPException(status_code=404, detail="device not found")
+    return {"ok": True}
 
 @app.post("/api/devices/batch-register", dependencies=[Depends(require_admin)])
 def batch_register_devices(body: dict):
@@ -644,6 +673,155 @@ def delete_device(device_id: str, _: Dict = Depends(require_admin)):
     return {"ok": True}
 
 
+# ================================================================ 设备主动探测
+# 为什么不能用 UDP 广播或 config/ack 做扫描：
+#   1) 局域网设备没有可被服务器主动探测的 UDP 广播。ENVMON? 只在设备"发现模式"
+#      （刚出厂/未配网）的短窗口内发送，已配好网络的设备不会广播，
+#      所以 envmon-discovery 那套只能用来配网，扫不到已联网设备。
+#   2) config→ack 也不可靠：ESP32 固件回 config/ack，但 ESP8266 固件的
+#      applyConfigPayload 只打串口日志、根本没有 ack 主题，实测零回执。
+#
+# 改用 broker 侧的权威信号：设备每次连接 MQTT 都会发布一条【保留】的
+#   envmon/{id}/status = "online"（retain 标志非 0），断线时 broker 代发 "offline"。
+# 保留消息在 broker 上长期驻留，因此逐台订阅一次该主题取到的就是它此刻的最终状态。
+# 这不需要任何固件应答，即时、权威，也不会漏掉正在重连循环的设备。
+PROBE_TIMEOUT_S = 3.0
+
+
+def _is_recent(ts: Optional[str], seconds: float) -> bool:
+    """ts 是否距今不超过 seconds 秒。解析失败一律按"不新近"处理。"""
+    if not ts:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).total_seconds() <= seconds
+    except (ValueError, TypeError):
+        return False
+
+
+def _scan_retained_status(device_ids: List[str], timeout_s: float = PROBE_TIMEOUT_S) -> Dict[str, str]:
+    """一次性读取 broker 上所有设备的 status 保留值，返回 {device_id: 'online'|'offline'}。
+    缺键 = broker 上没有该设备的保留状态（从未连过 MQTT）。
+
+    两个必须遵守的坑（都在 paho-mqtt 1.6.1 上实测过）：
+      1) 必须用【阻塞式 connect】，不能用 connect_async。connect_async 之后立刻
+         subscribe，SUBSCRIBE 在网络连接完成前就发出去了，SUBACK 收不到——
+         实测 6 台设备一条保留消息都收不到，扫描静默返回空结果。
+         阻塞 connect 等到 CONNACK 再订阅则 6/6 全收到，零丢失。
+      2) 不能用 wait_for_publish() 等 SUBACK——paho-mqtt 1.6.1 的 Client 上
+         根本没有这个方法（AttributeError）。改用 on_subscribe 回调 + Event。
+         注意 subscribe() 的返回值不可靠（实测是 1 而非 0），订阅是否生效
+         只能以 SUBACK 为准。
+    """
+    import paho.mqtt.client as mqtt
+
+    out: Dict[str, str] = {}
+    if not device_ids or not bridge.connected:
+        return out
+
+    def _cb(_c, _u, msg):
+        parts = msg.topic.split("/")
+        # envmon/{device_id}/status
+        if len(parts) == 3 and parts[0] == "envmon":
+            try:
+                out[parts[1]] = msg.payload.decode("utf-8", "ignore").strip().lower()
+                last_recv[0] = time.time()
+            except Exception:  # noqa: BLE001
+                pass
+
+    subs_ok = False
+    for _attempt in range(2):
+        client_id = f"probe-{int(time.time()*1000)}-{secrets.randbits(16):x}"
+        c = mqtt.Client(client_id=client_id, clean_session=True)
+        # 注意：不能设置遗嘱。探测客户端的 LWT 会发布 envmon/{id}/status=offline，
+        # 污染 broker 上的保留状态，把真正在线的设备标成离线。
+        if MQTT_USER:
+            c.username_pw_set(MQTT_USER, MQTT_PASS)
+        c.on_message = _cb
+        suback = threading.Event()
+        c.on_subscribe = lambda _c, _u, _mid, _gr: suback.set()
+
+        last_recv = [time.time()]
+        try:
+            c.connect(MQTT_HOST, MQTT_PORT, keepalive=15)   # 阻塞到 CONNACK
+            c.loop_start()
+            c.subscribe("envmon/+/status", qos=1)
+            if suback.wait(timeout_s):                       # 等 SUBACK 确认订阅生效
+                subs_ok = True
+                # 保留消息由 broker 在 SUBACK 后重发。从未连过的设备该主题没有
+                # 保留消息，所以不能"等齐所有设备"，改为：一段时间收不到新消息即收完。
+                deadline = time.time() + 1.5
+                while time.time() < deadline:
+                    if time.time() - last_recv[0] > 0.4:
+                        break
+                    time.sleep(0.1)
+        except Exception:  # noqa: BLE001
+            log.exception("retained status scan failed")
+        finally:
+            try:
+                c.loop_stop()   # loop_start 起的网络线程在此退出
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                c.disconnect()   # 正常断开，不触发 LWT
+            except Exception:  # noqa: BLE001
+                pass
+        if subs_ok:
+            break
+
+    if not subs_ok:
+        log.warning("retained status scan: SUBACK never received, treating all as offline")
+    return out
+
+
+@app.post("/api/devices/probe", dependencies=[Depends(require_user)])
+def probe_devices(body: dict = None):
+    """主动扫描设备在线状态：读取 broker 上每台设备的 status 保留消息。
+    body 可带 {"device_ids": [...]}；缺省扫描全部设备。
+    无保留消息（从未连过）= 离线；最近仍在上报遥测的作为在线兜底。
+    返回 online/offline 两组 + 每台设备的 probe 标记。"""
+    devs = db.list_devices()
+    body = body or {}
+    want = body.get("device_ids")
+    if not isinstance(want, list) or not want:
+        ids = [d["id"] for d in devs]
+    else:
+        ids = [str(x) for x in want]
+
+    started = time.time()
+    status_map = _scan_retained_status(ids)
+
+    online: Set[str] = set()
+    for i in ids:
+        if status_map.get(i) == "online":
+            online.add(i)
+    # 兜底：某些固件不发 status 保留消息（或 broker 遗嘱未触发），
+    # 但只要最近两分钟内还在上报遥测，就视为在线。
+    for i in ids:
+        if i in online:
+            continue
+        last = db.latest_telemetry(i)
+        if last and _is_recent(last.get("ts"), 120):
+            online.add(i)
+
+    groups: Dict[str, list] = {"online": [], "offline": []}
+    for d in devs:
+        if d["id"] not in ids:
+            continue
+        rec = dict(d)
+        rec["latest"] = db.latest_telemetry(d["id"])
+        rec["probe"] = d["id"] in online
+        groups["online" if d["id"] in online else "offline"].append(rec)
+    return {"ok": True, "mqtt_connected": bridge.connected,
+            "probed": len(ids),
+            "elapsed_s": round(time.time() - started, 2),
+            "online": groups["online"], "offline": groups["offline"],
+            "online_count": len(groups["online"]),
+            "offline_count": len(groups["offline"])}
+
+
 # ================================================================ 设备网络接入
 def _network_type(ip: str | None) -> str:
     """根据设备上报 IP 归类为内网/外网。RFC1918 私有地址 = internal，其余 = external。"""
@@ -685,50 +863,55 @@ def devices_discover(refresh: bool = Query(False),
     if not network:
         network = "all"
     _ = refresh
-    recent = db.query(
-        "SELECT t.device_id, t.ts, t.temp_c, t.hum_pct, t.pres_hpa, t.rssi, "
-        "t.alarm_level, t.free_heap FROM telemetry t "
-        "INNER JOIN (SELECT device_id, MAX(ts) AS mx FROM telemetry GROUP BY device_id) m "
-        "ON t.device_id=m.device_id AND t.ts=m.mx "
-        "ORDER BY t.ts DESC LIMIT 200"
-    )
-    devices = db.list_devices()
-    known = {d["id"]: d for d in devices}
+
+    # 数据源是 devices 表（设备清单），不是 telemetry 表。
+    # 旧实现 INNER JOIN telemetry —— 而 telemetry 按 RAW_RETENTION_DAYS 清理，
+    # 一旦清空，本端点就返回空列表，表现为「重新扫描没有任何反应」。
+    devs = db.list_devices()
+    db_ids = {d["id"] for d in devs}
+    # devices 表里没有、但 telemetry 里出现过的（未接入设备），也列出来供注册。
+    # db_ids 保持不变，只放设备表里真实存在的 ID，用于区分 registered / unregistered。
+    extra_ids = [r["device_id"] for r in db.query(
+        "SELECT DISTINCT device_id FROM telemetry")]
+    for eid in extra_ids:
+        if eid not in db_ids:
+            devs.append({"id": eid, "name": None, "fw_version": None,
+                         "ip_addr": None, "online": 0,
+                         "first_seen": None, "last_seen": None})
+
+    # online 状态直接取 devices 表的 online 字段（由 LWT 实时维护），
+    # 不在这里做主动探测 —— 探测是阻塞的，会让「重新扫描」和切 tab 每次多等约 1 秒。
+    # 需要真实状态时用设备管理页的「🔍 刷新状态」，或 POST /api/devices/probe。
     items = []
-    for r in recent:
-        r = dict(r)
-        device_id = r["device_id"]
-        d = known.get(device_id)
-        if d:
-            items.append({
-                "device_id": device_id,
-                "name": d.get("name"),
-                "fw": d.get("fw_version"),
-                "ip": d.get("ip_addr"),
-                "last_seen": r.get("ts"),
-                "online": bool(d.get("online")),
-                "registered_at": d.get("first_seen"),
-                "status": "registered",
-                "rssi": r.get("rssi"),
-                "network": _network_type(d.get("ip_addr")),
-            })
-        else:
-            items.append({
-                "device_id": device_id,
-                "name": None,
-                "fw": None,
-                "ip": None,
-                "last_seen": r.get("ts"),
-                "online": False,
-                "registered_at": None,
-                "status": "unregistered",
-                "rssi": r.get("rssi"),
-                "network": _network_type(d.get("ip_addr") if d else r.get("ip")),
-            })
-    # 网络分类过滤（前端按 内网/外网 分别扫描）
+    for d in devs:
+        did = d["id"]
+        lat = db.latest_telemetry(did)
+        ip = d.get("ip_addr")
+        live = bool(d.get("online")) or (lat and _is_recent(lat.get("ts"), 120))
+        items.append({
+            "device_id": did,
+            "name": d.get("name"),
+            "fw": d.get("fw_version"),
+            "ip": ip,
+            "last_seen": d.get("last_seen"),
+            "online": live,
+            "registered_at": d.get("first_seen"),
+            "status": "registered",
+            "rssi": lat.get("rssi") if lat else None,
+            "network": _network_type(ip),
+        })
+    # 上面追加的 telemetry-only 设备其实没接入过，改回 unregistered 供勾选注册。
+    for x in items:
+        if x["device_id"] not in {d["id"] for d in db.list_devices()}:
+            x["status"] = "unregistered"
+
+    # 网络分类过滤（前端按 内网/外网 分别扫描）。
+    # network == "unknown"（未上报 IP）归入内网：这台 MQTT broker 上接入的设备
+    # 本来就是局域网发现要找的那批，IP 缺失不能据此把它们从内网列表里丢掉。
+    # 旧实现只保留 internal / external 两种，unknown 在两个 tab 里同时消失。
+    internal_items = [x for x in items if x["network"] in ("internal", "unknown")]
+    external_items = [x for x in items if x["network"] == "external"]
     filtered = items
-    internal_items = [x for x in items if x.get("network") == "internal"]
-    external_items = [x for x in items if x.get("network") == "external"]
     if network == "internal":
         filtered = internal_items
     elif network == "external":

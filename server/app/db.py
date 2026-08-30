@@ -224,7 +224,7 @@ def execute(sql: str, params: tuple = ()) -> int:
 
 
 # ---------------------------------------------------------------- devices
-def upsert_device(device_id: str, fw_version: str = None, ip_addr: str = None) -> None:
+def upsert_device(device_id: str, fw_version: Optional[str] = None, ip_addr: Optional[str] = None) -> None:
     now = utcnow()
     with _lock:
         conn = get_conn()
@@ -258,10 +258,38 @@ def list_devices() -> List[Dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def register_device(device_id: str, name: str = None) -> None:
-    """手动注册设备（首次未上线时可预先创建）。"""
-    execute("INSERT OR IGNORE INTO devices (id, name, first_seen, online) VALUES (?,?,DATETIME('now'),0)",
-            (device_id, name))
+def register_device(device_id: str, name: Optional[str] = None, ip_addr: Optional[str] = None) -> None:
+    """手动注册设备（首次未上线时可预先创建）。
+
+    ip_addr 用于人工登记外网设备的接入地址（内网设备的 IP 由遥测上报自动填充）。
+    """
+    execute(
+        "INSERT OR IGNORE INTO devices (id, name, ip_addr, first_seen, online) "
+        "VALUES (?,?,?,DATETIME('now'),0)",
+        (device_id, name, ip_addr),
+    )
+
+
+def update_device_fields(device_id: str, fields: dict) -> bool:
+    """按「实际提供的字段」更新设备，字段值为 None 表示清空。
+
+    fields 由 API 层传入（通常是 UpdateDeviceIn.model_dump(exclude_unset=True)），
+    因此 {\"name\": None} 表示「把名称清空」，{} 表示「什么都没提供」。
+    """
+    cols, params = [], []
+    if "name" in fields:
+        cols.append("name = ?")
+        params.append(fields["name"] or None)
+    if "ip_addr" in fields:
+        cols.append("ip_addr = ?")
+        params.append(fields["ip_addr"] or None)
+    if not cols:
+        return False
+    params.append(device_id)
+    affected = execute(
+        f"UPDATE devices SET {', '.join(cols)} WHERE id = ?", tuple(params)
+    )
+    return bool(affected)
 
 
 def device_detail(device_id: str) -> Optional[Dict[str, Any]]:

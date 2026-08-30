@@ -45,6 +45,15 @@ class ThresholdsOut(BaseModel):
 class RegisterDeviceIn(BaseModel):
     device_id: str = Field(..., min_length=1, max_length=32)
     name: str = Field(default="", max_length=64)
+    # 可选：人工登记 IP / 接入地址。内网设备通常留空（由遥测上报自动填充），
+    # 外网设备用它登记可直连的地址（如 ddns 域名或公网 IP:端口）。
+    ip_addr: str = Field(default="", max_length=128)
+
+
+class UpdateDeviceIn(BaseModel):
+    """更新设备名称和/或 IP 地址。两个字段均可选，传哪个改哪个。"""
+    name: Optional[str] = Field(default=None, max_length=64)
+    ip_addr: Optional[str] = Field(default=None, max_length=128)
 
 
 # ================================================================ 认证
