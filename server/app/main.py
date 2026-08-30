@@ -673,10 +673,17 @@ def _network_type(ip: str | None) -> str:
 # ================================================================ 设备接入 / discovery
 @app.get("/api/discover/devices", dependencies=[Depends(require_user)])
 def devices_discover(refresh: bool = Query(False),
-                     network: str = Query("all", pattern="^(all|internal|external)$")):
+                     # 注意 pattern 是 ^($|...) 而非 ^(...)：必须放行空串。
+                     # 前端历史代码传 network=（空串），若 pattern 不含 ^$，
+                     # FastAPI 的 Query 校验在进入函数体之前就抛 422，
+                     # 整个发现页会打不开。下方函数体再把空串归一为 "all"。
+                     network: str = Query("all", pattern="^($|all|internal|external)$")):
     """设备接入：基于 telemetry 上报记录去重，与 devices 表比对。
     network=all|internal|external：按 RFC1918 私有地址分类，支持只扫描内网/外网设备。
+    未传或传空串时等价于 all。
     """
+    if not network:
+        network = "all"
     _ = refresh
     recent = db.query(
         "SELECT t.device_id, t.ts, t.temp_c, t.hum_pct, t.pres_hpa, t.rssi, "

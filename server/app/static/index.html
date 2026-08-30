@@ -340,8 +340,9 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 </div>
 <div class="m-bottom">
   <div class="m-panel">
-    <h4>💊 运行中用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button></h4>
+    <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">📜 历史</button></h4>
     <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
+    <div id="ordHist" class="hidden" style="margin-top:6px;max-height:220px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
   <div class="m-panel">
     <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showAddIo()">+ 添加出入量</button></h4>
@@ -488,6 +489,25 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
 <script>
 "use strict";
 var TOKEN=localStorage.getItem("envmon_token")||"";
+
+// 全局兜底：页面共约 27 处 .catch(function(){}) 空捕获，任何一处失败都被静默吞掉，
+// 表现为"点了没反应"（按钮复位、内容没变、也没有报错）。这里补一层最后防线：
+// 未被 .catch 捕获的 Promise 拒绝一律打点，保证问题可观测、不再无声。
+// 用 800ms 窗口按消息去重，避免多个刷新按钮同时失败刷屏。
+// 注意：不处理 window.error——脚本语法错误浏览器自身会报，重复 toast 反而误导。
+(function(){
+  var _last={msg:"",t:0};
+  function _note(msg){
+    var now=Date.now();
+    if(msg===_last.msg && now-_last.t<800)return;
+    _last={msg:msg,t:now};
+    try{console.warn("[EnvMon] 未捕获错误:",msg);}catch(e){}
+    try{if(typeof toast==="function")toast("操作失败: "+String(msg).slice(0,80),"alarm");}catch(e){}
+  }
+  window.addEventListener("unhandledrejection",function(e){
+    _note(e.reason && (e.reason.message||e.reason) || "网络或服务异常");
+  });
+})();
 var ME=null, DEV=null, CURRENT_VIEW="dashboard", RANGE=24, HIST=[], ws=null, SOUND=true, DEVICES=[];
 var DASHBOARD_MODE="grid", AI_ASSESS=false, AI_SETTINGS={};
 function $(id){return document.getElementById(id)}
@@ -633,7 +653,30 @@ function loadTh(){api("/api/thresholds?device="+(DEV?encodeURIComponent(DEV):"*"
     $("sHum").textContent="正常区间 "+fmt(t.hum_min)+" ~ "+fmt(t.hum_max)+" %";
     $("sPres").textContent="正常区间 "+fmt(t.pres_min)+" ~ "+fmt(t.pres_max)+" hPa";
   }).catch(function(){});}
-function loadAlarms(ev){_refreshBtn(ev,function(){api("/api/alarms?limit=50").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+fmt(x.temp_c)+"℃ "+fmt(x.hum_pct)+"% "+fmt(x.pres_hpa)+"hPa</td><td>"+st+"</td></tr>";}).join("");}).catch(function(){});});}function loadAll(ev){_refreshBtn(ev,function(){loadDevices();});}
+function loadAlarms(ev){_refreshBtn(ev,function(){api("/api/alarms?limit=50").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+fmt(x.temp_c)+"℃ "+fmt(x.hum_pct)+"% "+fmt(x.pres_hpa)+"hPa</td><td>"+st+"</td></tr>";}).join("");}).catch(function(){});});}// 上端「刷新」：按当前视图刷新整个页面（不是所有视图都刷全部）。
+// 原先 loadAll 无论当前在哪个视图都只调 loadDevices()（只刷新设备下拉框），
+// 表现为"点了没反应"——页面内容完全不变。区域内的「刷新」按钮仍只刷本区域，
+// 两级刷新各司其职。
+//
+// 注意：这里故意不传 ev、直接调用各 loadXxx() 的无参形式。原因是各 loadXxx 内部
+// 已经会再包一层 _refreshBtn；若把 ev 透传下去，内层会拿到同一个按钮并再次
+// disabled/改文字，与外层 finish 抢状态（外层 finish 设 done=true 后内层仍会
+// 覆写按钮文案）。外层已负责锁按钮+还原，内层直接执行数据加载即可。
+function loadAll(ev){
+  _refreshBtn(ev,function(){
+    switch(CURRENT_VIEW){
+      case "monitor":  refreshMonitor();            return;
+      case "patients": loadPatients();              return;
+      case "devices":  loadDevices();               return;
+      case "sessions": loadMonitorSessionsView();  return;
+      case "alarms":   loadAlarms();                return;
+      case "hl7":      loadHl7View();               return;
+      case "dashboard":
+      default:
+        loadReal(); loadDashboardGrid();
+    }
+  });
+}
 function saveTh(ev){ev.preventDefault();var body={device_id:$("fDev").value||"*",temp_min:+$("fTmin").value,temp_max:+$("fTmax").value,hum_min:+$("fHmin").value,hum_max:+$("fHmax").value,pres_min:+$("fPmin").value,pres_max:+$("fPmax").value,report_interval:+$("fIv").value,alarm_enabled:$("fEn").checked,alarm_sound:$("fSnd").checked};
   api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";setTimeout(function(){$("saveMsg").textContent="";},5000);}).catch(function(){});}
 
@@ -907,11 +950,6 @@ function showPatientDetail(pid){
   }).catch(function(){});
 }
 
-function stopOrder(pid, oid){
-  api("/api/patients/"+pid+"/orders/"+oid+"/stop",{method:"POST"}).then(function(){
-    toast("医嘱已停");showPatientDetail(pid);});
-}
-
 function triggerBackup(){
   api("/api/backup",{method:"POST"}).then(function(d){
     toast("备份完成: "+d.path+" ("+Math.round(d.size/1024)+"KB)");
@@ -937,6 +975,8 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
   $("mTime").textContent="患者 "+pid;
   // 加载患者体征
   api("/api/patients/"+pid+"/vitals?hours=6").then(function(d){
+    // 后端 patient_vitals 按 ts ASC（升序）返回：points[0] 是最旧、末尾是最新。
+    // 因此"最新一条"必须取末尾下标，不能改成 [0]（否则会取到最旧值）。
     MONITOR_VITALS=d.points||[];
     var latest=MONITOR_VITALS.length?MONITOR_VITALS[MONITOR_VITALS.length-1]:null;
     var cards=document.querySelectorAll("#mVitals .m-card");
@@ -1112,16 +1152,69 @@ function showAddIo(){
 function loadOrders(ev){_refreshBtn(ev,function(){
   var pid=MONITOR_PID;if(!pid)return;
   api("/api/patients/"+pid+"/orders").then(function(d){
-    var ord=(d.orders||[]).filter(function(o){return o.status==="active";}).slice(0,10);
-    if(!ord.length){$("mOrders").innerHTML='<div class="empty" style="font-size:12px">无运行中医嘱</div>';return;}
-    $("mOrders").innerHTML=ord.map(function(o){
-      var pump=o.rate_mlph!=null?" <span class='badge' style='font-size:10px'>泵速 "+o.rate_mlph.toFixed(1)+" mL/h</span>":"";
-      return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line)'>"
-        +"<b>"+esc(o.drug_name||"-")+"</b> "+esc(o.dosage||"")+esc(o.route||"")+pump
-        +"<div class='small'>开 "+fmtTime(o.start_ts)+pump?"":""+"</div></div>";
-    }).join("");
-  }).catch(function(){});
+    // 后端按 start_ts DESC 返回全部医嘱（含已停），据此分出运行中与历史两段。
+    var all=d.orders||[];
+    var ord=all.filter(function(o){return o.status==="active";}).slice(0,10);
+    if(!ord.length){$("mOrders").innerHTML='<div class="empty" style="font-size:12px">无运行中医嘱</div>';}
+    else{
+      $("mOrders").innerHTML=ord.map(function(o){
+        var pump=o.rate_mlph!=null?" <span class='badge' style='font-size:10px'>泵速 "+o.rate_mlph.toFixed(1)+" mL/h</span>":"";
+        // 原写法 "...开 "+fmtTime(o.start_ts)+pump?":":"" 会把三元当作整个 map
+        // 回调的返回值，导致整行 HTML 被丢弃、面板只渲染出一个个冒号。这里去掉
+        // pump 条件显示（泵速已在上一行 badge 显示，重复无意义）。
+        return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line)'>"
+          +"<b>"+esc(o.drug_name||"-")+"</b> "+esc(o.dosage||"")+esc(o.route||"")+pump
+          +" <span class='small'>开 "+fmtTime(o.start_ts)+"</span>"
+          // 删除=停医嘱（软停：置 status=stopped + end_ts，保留历史记录）。
+          // 观察者角色无 admin 权限时后端返回 403，前端按只读处理。
+          +(ME&&ME.role==="admin"
+            ?" <button class='danger small' onclick='stopOrder(\""+esc(pid)+"\", "+o.id+")'>停</button>"
+            :"<span class='small' style='color:var(--green)'>运行中</span>")
+          +"</div>";
+      }).join("");
+    }
+    renderOrderHistory(all);
+  }).catch(function(e){toast("医嘱加载失败: "+(e&&e.message||""),"alarm");});
 });}
+// 历史给药：已停医嘱的流水（含停医嘱时间），只读，无删除按钮。
+function renderOrderHistory(all){
+  var hist=(all||[]).filter(function(o){return o.status!=="active";}).slice(0,30);
+  var box=$("ordHist");if(!box)return;
+  if(!hist.length){box.innerHTML='<div class="empty" style="font-size:11px">暂无历史给药记录</div>';return;}
+  box.innerHTML="<div style='font-size:10px;color:var(--sub);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px'>历史给药 ("+hist.length+")</div>"
+    +hist.map(function(o){
+      return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line);opacity:.75'>"
+        +"<span class='small'>"+fmtTime(o.start_ts)+"</span> "
+        +"<b>"+esc(o.drug_name||"-")+"</b> "+esc(o.dosage||"")+esc(o.route||"")
+        +(o.rate_mlph!=null?" <span class='small'>(泵速 "+o.rate_mlph.toFixed(1)+")</span>":"")
+        +"<span class='small'> → 停 "+fmtTime(o.end_ts)+"</span>"
+        +(o.operator?" <span class='small'>("+esc(o.operator)+")</span>":"")
+        +"</div>";
+    }).join("");
+}
+function toggleOrderHistory(){
+  var box=$("ordHist"),btn=$("ordHistBtn");if(!box)return;
+  var show=box.classList.contains("hidden");
+  box.classList.toggle("hidden",!show);
+  if(btn)btn.textContent=show?"关闭历史":"📜 历史";
+  // 首次展开时若未加载则现取一次，保证数据是新的
+  if(show&&!MONITOR_PID)return;
+  if(show)loadOrders();
+}
+// 停医嘱：软停（后端置 status=stopped + end_ts），数据保留可查历史。
+// 同时兼容两个调用来源——监护视图内刷新 mOrders，患者详情页内刷新该详情。
+function stopOrder(pid, oid){
+  if(!confirm("停止该医嘱？\n（将标记为已停并保留在历史记录中）"))return;
+  api("/api/patients/"+pid+"/orders/"+oid+"/stop",{method:"POST"}).then(function(d){
+    if(d&&d.ok)toast("医嘱已停");
+    else toast("该医嘱已不在运行中","alarm");
+    if(CURRENT_VIEW==="monitor")loadOrders();
+    else if(typeof showPatientDetail==="function")showPatientDetail(pid);
+  }).catch(function(e){
+    // 观察者角色无 admin 权限（403）时按钮本就不应渲染，这里是兜底
+    toast("停医嘱失败: "+(e&&e.message||""),"alarm");
+  });
+}
 function loadIo(ev){_refreshBtn(ev,function(){
   var pid=MONITOR_PID;if(!pid)return;
   Promise.all([
