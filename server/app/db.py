@@ -111,6 +111,32 @@ def _pre_migrate(conn: sqlite3.Connection) -> None:
 
 
 def _post_migrate(conn: sqlite3.Connection) -> None:
+    # v2.3: 一次性清理 devices.last_seen 被污染的历史值。
+    # 污染签名很明确：【多台设备共享同一个 last_seen 时间戳】。
+    # 正常情况每台设备各自上报，last_seen 互不相同；只有被【同一次写入】污染过
+    # 才会出现多行同值 —— 实测一次 MQTT 重连把 7 台设备的 last_seen 全刷成
+    # 2026-08-30T22:33:46Z，其中 5 台从没有过任何遥测。
+    # 这类值对在线判定毫无意义，只会制造假象：
+    #   假时间偏早 → 在线设备显示离线；假时间偏新 → 死设备显示在线。
+    # 处理方式：把这些行的 last_seen 清空为 NULL、online 归零，回退到
+    # 「从未收到数据」这个如实状态；下一帧真实遥测到达时会自动恢复。
+    # 只清「被多行共享」的时间戳，各设备自己的真实上报时间不受影响。
+    # 统一截到【秒】再分组：历史数据里有带毫秒的时间戳（utcnow_ms），
+    # 有不带毫秒的（设备上报 ts），归一化后同一时刻才能被识别出来。
+    polluted = [r[0] for r in conn.execute(
+        "SELECT SUBSTR(last_seen, 1, 19) FROM devices "
+        "WHERE last_seen IS NOT NULL "
+        "GROUP BY SUBSTR(last_seen, 1, 19) HAVING COUNT(*) > 1").fetchall()]
+    if polluted:
+        q = ",".join("?" for _ in polluted)
+        n = conn.execute(
+            f"UPDATE devices SET last_seen=NULL, online=0 "
+            f"WHERE SUBSTR(last_seen, 1, 19) IN ({q})",
+            tuple(polluted),
+        ).rowcount
+        _log.info("migration v2.3: cleared %d polluted device last_seen values (%s)",
+                  n, ", ".join(polluted))
+
     # Issue 5: 监护记录表 — 患者在某设备上的监护时间段。
     conn.execute(
         "CREATE TABLE IF NOT EXISTS monitor_sessions ("
@@ -266,10 +292,18 @@ def ensure_device(device_id: str) -> None:
         conn.commit()
 
 
-def set_device_seen(device_id: str, ts: Optional[str]) -> None:
-    """仅更新 last_seen 时间戳，不改变 online 状态。
-    ts=None 时以当前时间。用于已登录线设备的周期性"最近上报"刷新。"""
-    execute("UPDATE devices SET last_seen=? WHERE id=?", (ts or utcnow(), device_id))
+def set_device_seen(device_id: str, ts: Optional[str] = None) -> None:
+    """记录设备「最近一次真实上报」时刻 —— 一律以【服务器接收时刻】为准。
+
+    忽略设备自带的 ts：ESP 时钟无法可靠同步（实测 8266-v3 设备时钟比服务器
+    慢约 2 小时），若采信设备时间戳，在线判定会出现两类相反的错误——
+
+      设备时钟偏慢 → last_seen 永久落后 → 活设备被误判离线；
+      设备时钟偏快 → last_seen 领先当前时间 → 死设备被误判在线（永不超时）。
+
+    ts 参数保留仅为向后兼容，不再使用。
+    """
+    execute("UPDATE devices SET last_seen=? WHERE id=?", (utcnow(), device_id))
 
 
 def set_device_online(device_id: str, online: bool) -> None:

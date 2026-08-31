@@ -104,6 +104,9 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .devcard .latest span{color:var(--sub)} .devcard .latest b{color:var(--txt);font-weight:600}
 .devcard .actions{margin-top:10px;display:flex;gap:5px;flex-wrap:wrap}
 .devcard .name{font-size:11px;color:var(--sub);margin-left:6px;font-weight:400}
+/* 设备卡片头部：左侧设备 ID/名称，右侧状态徽标 + 单台刷新按钮（按钮用 margin-left:auto 靠右） */
+.devcard .head .id{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.devcard .head .refresh{display:inline-flex;align-items:center;gap:4px;margin-left:auto}
 /* 设备管理：在线 / 离线 分组 */
 .devgroup{margin-bottom:18px}
 .devgroup:last-child{margin-bottom:0}
@@ -632,13 +635,46 @@ function _devCard(x,onlineFlag){
   var latest=x.latest||null;
   var vals=(latest?'<span>SP.T '+fmt(latest.temp_c)+'℃</span><span>HUM '+fmt(latest.hum_pct)+'%</span><span>PRESS '+fmt(latest.pres_hpa,1)+'hPa</span><span>SIG '+(latest.rssi==null?"--":latest.rssi)+'dBm</span>':'<span class="empty" style="text-align:left">无历史数据</span>');
   var alarmState=(latest&&latest.alarm_level>=2?"alarm":latest&&latest.alarm_level==1?"warn":"");
-  return "<div class='devcard "+alarmState+"'><div class='head'><span class='id'>"+esc(x.id)+nameRow+"</span>"+icon+"</div>"+
+  // 状态徽标放在 id 之后（随内容流），单独刷新按钮靠右：
+  // 「刷新」只重新判定这一台的在线状态，不动其它设备，也不重排在线/离线分组。
+  var did=esc(x.id);
+  return "<div class='devcard "+alarmState+"' id='devcard-"+did+"'><div class='head'><span class='id'>"+did+nameRow+"</span><span id='devst-"+did+"'>"+icon+"</span><span class='refresh'><button class='secondary small' title='只刷新这一台设备的在线状态' onclick='refreshOneDevice(\""+did+"\",event)'>⟳ 刷新</button></span></div>"+
     "<div class='meta'><div class='k'>固件</div><div class='v'>"+esc(x.fw_version||"-")+"</div>"+
     "<div class='k'>IP</div><div class='v'>"+esc(x.ip_addr||"-")+"</div>"+
     "<div class='k'>首次上线</div><div class='v'>"+fmtTime(x.first_seen)+"</div>"+
-    "<div class='k'>最后上报</div><div class='v'>"+fmtTime(x.last_seen)+"</div></div>"+
+    "<div class='k'>最后上报</div><div class='v' id='devseen-"+did+"'>"+fmtTime(x.last_seen)+"</div></div>"+
     "<div class='latest'>"+vals+"</div>"+
-    "<div class='actions'><button class='secondary small' onclick='viewDevice(\""+esc(x.id)+"\")'>详情</button><button class='secondary small' onclick='editName(\""+esc(x.id)+"\")'>编辑</button><button class='success small' onclick='showDeviceConfig(\""+esc(x.id)+"\")'>配置</button><button class='danger small' onclick='delDev(\""+esc(x.id)+"\")'>删除</button></div></div>";
+    "<div class='actions'><button class='secondary small' onclick='viewDevice(\""+did+"\")'>详情</button><button class='secondary small' onclick='editName(\""+did+"\")'>编辑</button><button class='success small' onclick='showDeviceConfig(\""+did+"\")'>配置</button><button class='danger small' onclick='delDev(\""+did+"\")'>删除</button></div></div>";
+}
+// 单台设备刷新：只判定这一台的在线状态并回写徽标，不重排分组。
+// 用独立的 loading 标记（而非 _refreshBtn），因为这里要自己重绘徽标与「最后上报」，
+// 而且点的是卡片内的按钮，不能影响顶部那批全局按钮。
+var _DEVREFRESH_BUSY={};
+function refreshOneDevice(id,ev){
+  var key=id;
+  if(_DEVREFRESH_BUSY[key])return;
+  _DEVREFRESH_BUSY[key]=true;
+  var btn=ev&&ev.currentTarget?ev.currentTarget:null;
+  var orig=btn?btn.textContent:"";
+  if(btn){btn.disabled=true;btn.textContent="⟳ …";}
+  var stEl=$("devst-"+esc(id)), seenEl=$("devseen-"+esc(id));
+  api("/api/devices/"+encodeURIComponent(id)+"/probe",{method:"POST"}).then(function(d){
+    var on=!!d.online, rec=d.device||{};
+    if(stEl){stEl.innerHTML=on?"<span class=\"ok\">● 在线</span>":"<span class=\"bad\">○ 离线</span>";}
+    if(seenEl){seenEl.textContent=fmtTime(rec.last_seen);}
+    // 同步进内存列表，让顶部「N 台 · 在线 N 台」与其它页面视图口径一致。
+    DEVICES.forEach(function(x){if(x.id===id){x.online=on?1:0;if(rec.last_seen!=null)x.last_seen=rec.last_seen;}});
+    var cnt=$("devCount");
+    if(cnt&&DEVICES.length){
+      cnt.textContent=DEVICES.length+" 台 · 在线 "+DEVICES.filter(function(x){return x.online;}).length+" 台";
+    }
+    toast((on?"● 在线":"○ 离线")+" "+id+(d.mqtt_connected?"":"（MQTT 未连接，仅按遥测新鲜度判定）"));
+  }).catch(function(e){
+    toast("刷新失败: "+(e&&e.message?e.message:"请检查网络与登录状态"),"alarm");
+  }).finally(function(){
+    _DEVREFRESH_BUSY[key]=false;
+    if(btn){btn.disabled=false;btn.textContent=orig;}
+  });
 }
 // 设备管理按 在线 / 离线 分两组显示。
 // src: {online:[...], offline:[...]}（主动探测结果）或纯数组（刷新，按 LWT online 字段）。
@@ -1496,6 +1532,15 @@ function _buildDiscover(net) {
         stamp.textContent = '上次扫描 ' + new Date().toLocaleTimeString();
         root.appendChild(stamp);
 
+        // 勾选框语义说明：注册与删除共用这一组勾选，默认不选任何项。
+        // 不写清楚用户会以为勾选是「待注册」，然后一点批量删除就把在线设备删了。
+        var selHint = document.createElement('div');
+        selHint.style.cssText = 'font-size:11px;color:var(--orange);margin-bottom:10px'
+            + 'background:rgba(255,171,0,.08);border:1px solid rgba(255,171,0,.35);'
+            + 'padding:7px 10px;border-radius:5px';
+        selHint.innerHTML = '☑ 勾选 = 待【批量删除】（默认不选）。注册设备请用「批量注册未接入」，该操作幂等、不影响已接入设备。';
+        root.appendChild(selHint);
+
         // 外网接入入口
         if (net === 'external' || net === 'all') {
             var extHint = document.createElement('div');
@@ -1528,10 +1573,12 @@ function _buildDiscover(net) {
                     ? '<span class="ok">● 已接入</span>'
                     : '<span class="bad">○ 未接入</span>';
                 var online = x.online ? ' <span class="ok">在线</span>' : ' <span class="bad">离线</span>';
-                // 所有设备都给勾选框（已接入也可取消接入）
-                var checkTd = '<td><input type="checkbox" class="disc-cb" value="' + esc(x.device_id) + '"' + (isReg ? ' checked' : '') + '></td>';
+                // 所有设备都给勾选框（注册与删除共用同一组勾选）。
+                // 默认不勾选任何一项 —— 勾选框的语义是「待批量删除」，
+                // 默认勾选会把在线设备也变成删除候选，很容易误删。
+                var checkTd = '<td><input type="checkbox" class="disc-cb" value="' + esc(x.device_id) + '"></td>';
                 var actHtml = isReg
-                    ? '<span class="small">已接入</span>'
+                    ? '<button class="danger small" data-del="' + esc(x.device_id) + '">删除</button>'
                     : '<button class="success small" data-reg="' + esc(x.device_id) + '">注册</button>';
                 tr.innerHTML = checkTd
                     + '<td>' + esc(x.device_id) + '</td>'
@@ -1545,14 +1592,22 @@ function _buildDiscover(net) {
                     var did = regBtn.getAttribute('data-reg');
                     regBtn.onclick = function(){ registerDiscovered(did); };
                 }
+                var delBtn = tr.querySelector('[data-del]');
+                if (delBtn) {
+                    var delId = delBtn.getAttribute('data-del');
+                    delBtn.onclick = function(){ deleteDeviceOne(delId); };
+                }
                 tb.appendChild(tr);
             });
             tbl.appendChild(tb);
             root.appendChild(tbl);
             // 全选/反选
+            // 勾选框默认【不选】：选中项 = 待批量删除的对象，避免打开弹窗就
+            // 误伤一批设备。要批量注册请直接点「批量注册未接入」。
             var checkAll = root.querySelector('#discCheckAll');
             var cbs = root.querySelectorAll('.disc-cb');
             checkAll.checked = false;
+            checkAll.title = '全选 / 取消全选';
             checkAll.onchange = function(){ cbs.forEach(function(cb){cb.checked=checkAll.checked;}); };
             cbs.forEach(function(cb){
                 cb.onchange = function(){
@@ -1568,9 +1623,23 @@ function _buildDiscover(net) {
         act.className = 'actions';
         var regSelBtn = document.createElement('button');
         regSelBtn.className = 'success small';
-        regSelBtn.textContent = '批量注册已勾选';
-        regSelBtn.onclick = function(){ batchRegisterSelected(); };
+        regSelBtn.textContent = '批量注册未接入';
+        // 注册是幂等且无害的（db.register_device 对已存在 ID 是 INSERT OR IGNORE），
+        // 所以不必依赖勾选框，直接取当前网络下全部「未接入」设备，最省事也最不易漏。
+        // 勾选框专用于批量删除（危险操作，必须先明确勾出要删哪些）。
+        regSelBtn.onclick = function(){
+            var ids = devs.filter(function(x){ return x.status !== 'registered'; })
+                          .map(function(x){ return x.device_id; });
+            if (!ids.length) { toast('当前网络下没有未接入的设备'); return; }
+            if (!confirm('确定注册 ' + ids.length + ' 台未接入设备？\n\n' + ids.join('、'))) return;
+            _batchRegister(ids);
+        };
         act.appendChild(regSelBtn);
+        var delSelBtn = document.createElement('button');
+        delSelBtn.className = 'danger small';
+        delSelBtn.textContent = '批量删除已勾选';
+        delSelBtn.onclick = function(){ batchDeleteSelected(); };
+        act.appendChild(delSelBtn);
         var rescanBtn = document.createElement('button');
         rescanBtn.textContent = '重新扫描';
         rescanBtn.onclick = function(){ _buildDiscover(DISC_NET); };
@@ -1586,10 +1655,8 @@ function _buildDiscover(net) {
         mi.appendChild(root);
     }).catch(function() { toast("扫描失败，请检查网络与登录状态"); });
 }
-function batchRegisterSelected() {
-    var cbs = document.querySelectorAll('.disc-cb:checked');
-    if (!cbs.length) { toast('请先勾选要接入的设备'); return; }
-    var ids = Array.prototype.map.call(cbs, function(cb){ return cb.value; });
+function _batchRegister(ids) {
+    if (!ids.length) { toast('没有可注册的设备'); return; }
     api("/api/devices/batch-register", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -1630,6 +1697,32 @@ function registerDiscovered(id) {
     api("/api/devices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device_id: id, name: "" }) }).then(function() {
         toast("已注册设备 " + id); loadDevices(); _buildDiscover(DISC_NET);
     }).catch(function() { toast("注册失败"); });
+}
+// 删除设备（单台 / 批量共用同一个后端接口，批量删除是注册的反操作）。
+// 删除会连带清掉该设备的全部遥测、报警、阈值等关联数据，所以必须二次确认。
+function deleteDeviceOne(id) {
+    if (!confirm("确定删除设备 " + id + "？\n\n将同时删除该设备的全部历史遥测、报警与阈值配置，此操作不可恢复。")) return;
+    _batchDelete([id]);
+}
+function batchDeleteSelected() {
+    var cbs = document.querySelectorAll('.disc-cb:checked');
+    if (!cbs.length) { toast('请先勾选要删除的设备'); return; }
+    var ids = Array.prototype.map.call(cbs, function(cb){ return cb.value; });
+    if (!confirm("确定批量删除 " + ids.length + " 台设备？\n\n" + ids.join("、") + "\n\n将同时删除这些设备的全部历史遥测、报警与阈值配置，此操作不可恢复。")) return;
+    _batchDelete(ids);
+}
+function _batchDelete(ids) {
+    api("/api/devices/batch-delete", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({device_ids: ids})
+    }).then(function(d){
+        var msg = '已删除 ' + d.deleted + ' / ' + d.total + ' 台';
+        if (d.missing) msg += '（' + d.missing + ' 台本就不存在）';
+        if (d.errors) msg += '，' + d.errors + ' 台删除失败';
+        toast(msg, d.deleted > 0 ? undefined : 'alarm');
+        loadDevices(); _buildDiscover(DISC_NET);
+    }).catch(function(e){ toast('批量删除失败: '+(e&&e.message?e.message:'')); });
 }
 
 // ==================== HL7 / 非ESP设备接入 ====================
