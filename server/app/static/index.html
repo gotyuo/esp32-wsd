@@ -1088,7 +1088,7 @@ function showPatientDetail(pid){
         +devs.map(function(d){
             return "<span class='tag'>"+esc(d.device_name||d.device_id)+" "+(d.online?"🟢":"🔴")
               +(d.fw_version?" <span class='small'>"+esc(d.fw_version)+"</span>":"")
-              +"<button class='danger small' style='margin-left:6px;padding:1px 6px' onclick='event.stopPropagation();unlinkDev(""+esc(p.pid)+"", ""+esc(d.device_id)+"")'>解绑</button>"
+              +"<button class='danger small' style='margin-left:6px;padding:1px 6px' onclick='event.stopPropagation();unlinkDev(\""+esc(p.pid)+"\",\""+esc(d.device_id)+"\")'>解绑</button>"
               +"</span>";
           }).join("")||"<span class='empty'>未关联</span>"
       +"</div>"
