@@ -21,7 +21,7 @@
 static SensorHub g_sensors;
 static Ssd1306   g_oled;
 static bool      g_oledOk = false;
-static TwoWire   oledWire(1);  // I2C1 实例（bus_num=1，与传感器 I2C0 完全独立）
+TwoWire          oledWire(1);  // I2C1 实例（bus_num=1，与传感器 I2C0 完全独立）
 static AlarmDevice g_alarm;
 
 static EnvData  g_last;
