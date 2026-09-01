@@ -10,6 +10,8 @@ static AHT20   aht;
 static BMP280  bmp;
 static MAX30102 max30;
 static AD8232  ecg;
+// MAX30102 走独立 I2C1，与 AHT20/BMP280 不共用引脚
+static TwoWire maxWire(1);
 
 bool SensorHub::begin() {
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 400000UL);
@@ -21,7 +23,9 @@ bool SensorHub::begin() {
     if (bmp.begin(&Wire)) { _bmp_ok = true; Serial.println(F("[SENSOR] BMP280 OK")); }
     else { Serial.println(F("[SENSOR] BMP280 not found!")); }
 
-    if (max30.begin(&Wire)) { _max_ok = true; Serial.println(F("[SENSOR] MAX30102 OK")); }
+    maxWire.begin(PIN_MAX30102_SDA, PIN_MAX30102_SCL, 400000UL);
+    delay(50);
+    if (max30.begin(&maxWire)) { _max_ok = true; Serial.println(F("[SENSOR] MAX30102 OK (I2C1)")); }
 
     #if defined(PIN_VITAL_ECG)
         if (ecg.begin(PIN_VITAL_ECG)) _ecg_ok = true;
