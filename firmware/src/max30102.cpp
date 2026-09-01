@@ -29,14 +29,23 @@ static const uint8_t DATA_START = 0x07;               // 数据组首 dataIndex
 static const uint8_t B_SPO2_AEN  = 0x20, B_SPO2_AEN2 = 0x10;
 static const uint8_t B_SPO2_SR50 = 0x07;              // SPO2 采样率 50Hz
 
+// --- ESP8266 单总线时分复用：切到目标引脚 ---
+void MAX30102::_ensureBus() {
+    if (_sda >= 0 && _scl >= 0 && _wire) {
+        _wire->begin(_sda, _scl);
+    }
+}
+
 // --- 1 字节 reg 写(控制寄存器用) ---
 bool MAX30102::writeReg(uint8_t addr, uint8_t val) {
+    _ensureBus();
     uint8_t p[2] = {addr, val};
     _wire->beginTransmission(MAX30102_ADDR);
     _wire->write(p, 2);
     return _wire->endTransmission() == 0;
 }
 bool MAX30102::readReg(uint8_t addr, uint8_t &val) {
+    _ensureBus();
     _wire->beginTransmission(MAX30102_ADDR);
     _wire->write(addr);
     if (_wire->endTransmission(false) != 0) return false;
@@ -47,6 +56,7 @@ bool MAX30102::readReg(uint8_t addr, uint8_t &val) {
 
 // --- 读一组 6 字节(1 个采样点)：2 字节头 [0x07][dataIndex] ---
 uint32_t MAX30102::read32(uint8_t dataIndex) {
+    _ensureBus();
     uint8_t head[2] = {REG_FIFOPH, dataIndex};
     uint8_t p[6];
     _wire->beginTransmission(MAX30102_ADDR);
@@ -64,6 +74,7 @@ uint32_t MAX30102::read32(uint8_t dataIndex) {
 //   p0=REG_FIFOTAIL(0x11), p1=(tail&0x3F)|0x80, p2/p3/p4=0x00
 //   校验: ch0=0xFF-(p0+p1+p2+p3+p4)低字节, ch1=0xFF-(p0+p1+p2+p3+p4+ch0)高字节
 bool MAX30102::writeTail(uint8_t tail) {
+    _ensureBus();
     uint8_t p[6];
     p[0] = REG_FIFOTAIL;
     p[1] = (tail & 0x3F) | 0x80;   // 清除位
@@ -79,6 +90,7 @@ bool MAX30102::writeTail(uint8_t tail) {
 
 bool MAX30102::begin(TwoWire *wire) {
     _wire = wire;
+    _ensureBus();
     _wire->beginTransmission(MAX30102_ADDR);
     if (_wire->endTransmission() != 0) { Serial.println(F("[MAX30102] not found!")); return false; }
     delay(20);
