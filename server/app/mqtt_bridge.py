@@ -93,7 +93,11 @@ class MqttBridge:
             elif kind == "status":
                 online = msg.payload.decode("utf-8", "ignore").strip().lower() == "online"
                 if self.on_status:
-                    self.on_status(device_id, online)
+                    # 透传 MQTT RETAIN 标志：True = broker 重投的保留消息快照
+                    # （bridge 重连后重投，只代表设备最后一次存活时刻）；
+                    # False = 设备此刻刚发布的 fresh 消息（含 LWT 遗嘱）。
+                    # handle_status 据此区分「设备刚连上」与「历史快照」。
+                    self.on_status(device_id, online, retained=bool(msg.retain))
             elif kind == "config/req":
                 self.push_config(device_id)
             elif kind == "config/ack":
