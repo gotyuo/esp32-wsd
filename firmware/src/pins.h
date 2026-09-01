@@ -14,6 +14,11 @@
 #define PIN_I2C_SDA 8
 #define PIN_I2C_SCL 9
 
+// ---------- I2C1: MAX30102 (血氧/脉率) ----------
+// 独立 I2C 总线，与 AHT20/BMP280 不共用引脚
+#define PIN_MAX30102_SDA 22
+#define PIN_MAX30102_SCL 23
+
 // ---------- SPI: GC9109 0.96" 160x80 IPS TFT ----------
 // 屏引脚: VCC->3V3, GND->GND
 //         SCK->GPIO12, MOSI->GPIO11, RST->GPIO6, DC->GPIO7, CS->GPIO10, BLK->GPIO5
