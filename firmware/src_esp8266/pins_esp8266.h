@@ -24,6 +24,11 @@
 #define PIN_I2C_SDA 13       // D7 = GPIO13
 #define PIN_I2C_SCL 12       // D6 = GPIO12
 
+// ---------- MAX30102 (血氧/脉率) ----------
+// 独立引脚，与 AHT20/BMP280 不共用；ESP8266 单总线时分复用
+#define PIN_MAX30102_SDA 4   // D2 = GPIO4
+#define PIN_MAX30102_SCL 5   // D1 = GPIO5
+
 // ---------- 麦克风 ----------
 // 驻极体咪头接 A0（ESP8266 唯一 ADC 引脚，0-1V 范围）
 #define PIN_MIC A0
