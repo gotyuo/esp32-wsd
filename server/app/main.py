@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .aggregator import Aggregator
-from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn, RegisterDeviceIn, SettingsUpdateIn, UpdateDeviceIn
+from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn, RegisterDeviceIn, SettingsUpdateIn, UpdateDeviceIn, DoctorCreateIn, DoctorUpdateIn, MessageSendIn
 from . import icu
 from .models import PatientCreate, PatientUpdate, LinkDeviceIn, VitalIn, OrderIn, LabResultIn
 from .mqtt_bridge import MqttBridge
@@ -1690,7 +1690,10 @@ def link_device(pid: str, device_id: str, role: str = Query("primary", pattern=r
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
-    icu.link_device(p["id"], device_id, role)
+    try:
+        icu.link_device(p["id"], device_id, role)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
     return {"ok": True}
 
 
@@ -1700,7 +1703,15 @@ def unlink_device(pid: str, device_id: str):
     if not p:
         raise HTTPException(404, "患者不存在")
     ok = icu.unlink_device(p["id"], device_id)
-    return {"ok": ok}
+    if not ok:
+        raise HTTPException(404, "未找到该患者-设备绑定")
+    return {"ok": True}
+
+
+@app.get("/api/devices/{device_id}/binding", dependencies=[Depends(require_user)])
+def device_binding(device_id: str):
+    b = icu.device_current_binding(device_id)
+    return {"device_id": device_id, "bound": b is not None, "binding": b}
 
 
 @app.get("/api/patients/{pid}/devices", dependencies=[Depends(require_user)])
@@ -1987,3 +1998,113 @@ def trigger_backup():
 @app.get("/api/backup", dependencies=[Depends(require_admin)])
 def list_backups(limit: int = Query(20, ge=1, le=100)):
     return {"backups": icu.list_backups(limit)}
+
+
+# ================================================================ ICU 重症监护路由组
+# ---------- 医生档案 ----------
+@app.get("/api/doctors", dependencies=[Depends(require_user)])
+def list_doctors(limit: int = Query(200, ge=1, le=1000)):
+    return {"doctors": db.doctor_list(limit)}
+
+
+@app.post("/api/doctors", dependencies=[Depends(require_admin)])
+def create_doctor(body: DoctorCreateIn):
+    did = db.doctor_create(
+        body.name, body.title, body.department, body.contact, body.note,
+    )
+    return {"ok": True, "doctor_id": did, "name": body.name}
+
+
+@app.get("/api/doctors/{did}", dependencies=[Depends(require_user)])
+def get_doctor(did: int):
+    d = db.doctor_by_id(did)
+    if not d:
+        raise HTTPException(404, "医生不存在")
+    return d
+
+
+@app.put("/api/doctors/{did}", dependencies=[Depends(require_admin)])
+def update_doctor(did: int, body: DoctorUpdateIn):
+    d = db.doctor_by_id(did)
+    if not d:
+        raise HTTPException(404, "医生不存在")
+    db.doctor_update(did, **body.model_dump(exclude_unset=True))
+    return {"ok": True}
+
+
+@app.delete("/api/doctors/{did}", dependencies=[Depends(require_admin)])
+def delete_doctor(did: int):
+    d = db.doctor_by_id(did)
+    if not d:
+        raise HTTPException(404, "医生不存在")
+    ok = db.doctor_delete(did)
+    return {"ok": ok}
+
+
+# ---------- 文字消息（独立通道 + TTS 双模式） ----------
+@app.post("/api/messages/send", dependencies=[Depends(require_admin)])
+def send_message(body: MessageSendIn):
+    """向设备下发文字消息。
+
+    - tts=True: 复用 TTS 语音通道（envmon/{device_id}/tts），设备即刻放音。
+    - tts=False: 推送 envmon/{device_id}/message 独立文字主题并落库（**固件未实现，
+      设备暂无法接收文字，仅保证记录留底，供固件补齐后生效**）。
+    """
+    import paho.mqtt.client as mqtt
+    did = body.device_id
+    if not db.query("SELECT id FROM devices WHERE id=?", (did,)):
+        raise HTTPException(404, "设备不存在")
+    text = body.text
+    delivered = 0
+    delivered_at = None
+    if body.tts:
+        # 走语音通道
+        if not bridge.client or not bridge.connected:
+            raise HTTPException(503, "MQTT 未连接")
+        payload = json.dumps({"text": text, "level": body.level, "device_id": did},
+                             ensure_ascii=False)
+        res = bridge.client.publish(f"envmon/{did}/tts", payload, qos=1)
+        if res.rc == mqtt.MQTT_ERR_SUCCESS:
+            delivered = 1
+            delivered_at = db.utcnow()
+    else:
+        # 独立文字 topic（尽力推送；失败也落库）
+        try:
+            if bridge.client and bridge.connected:
+                payload = json.dumps({"text": text, "device_id": did},
+                                     ensure_ascii=False)
+                res = bridge.client.publish(f"envmon/{did}/message", payload, qos=1)
+                if res.rc == mqtt.MQTT_ERR_SUCCESS:
+                    delivered = 1
+                    delivered_at = db.utcnow()
+        except Exception:
+            delivered = 0
+    mid = db.add_message(did, text, sender="system",
+                         delivered=delivered, delivered_at=delivered_at)
+    return {
+        "ok": True,
+        "message_id": mid,
+        "device_id": did,
+        "text": text,
+        "tts": body.tts,
+        "topic": f"envmon/{did}/tts" if body.tts else f"envmon/{did}/message",
+        "delivered": bool(delivered),
+        "firmware_note": "" if body.tts else "固件未实现文字接收，本次仅落库+尽力推送；补齐固件后设备方可接收",
+    }
+
+
+@app.get("/api/messages", dependencies=[Depends(require_user)])
+def list_messages(device_id: str = Query("", max_length=64),
+                  limit: int = Query(200, ge=1, le=1000)):
+    return {"messages": db.message_list(device_id, limit)}
+
+
+@app.get("/api/messages/stat", dependencies=[Depends(require_user)])
+def message_stat():
+    return {"stat": db.message_stat()}
+
+
+@app.delete("/api/messages", dependencies=[Depends(require_admin)])
+def clear_messages():
+    n = db.message_clear()
+    return {"ok": True, "cleared": n}

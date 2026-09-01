@@ -114,16 +114,41 @@ def patient_delete(patient_id: int):
 
 
 # ---------- 患者-设备关联 ----------
+def device_current_binding(device_id: str) -> Optional[Dict]:
+    """设备当前绑定（patient_devices 现存）。返回患者信息或 None。"""
+    try:
+        rows = fetchall(
+            "SELECT pd.patient_id, p.pid, p.name, p.bed_no, pd.role "
+            "FROM patient_devices pd JOIN patients p ON p.id=pd.patient_id "
+            "WHERE pd.device_id=?", (device_id,),
+        )
+    except Exception:
+        return None
+    if not rows:
+        return None
+    r = rows[0]
+    return {"patient_id": r["patient_id"], "pid": r["pid"], "name": r["name"],
+            "bed_no": r.get("bed_no"), "role": r.get("role")}
+
+
 def link_device(patient_id: int, device_id: str, role: str = "primary"):
-    # 记录历史：如果该设备已分配给别的患者，先归档旧分配，避免覆盖丢失。
+    """设备同时段只绑一患者。设备已被其他患者绑定时抛出 ValueError。"""
+    cur = device_current_binding(device_id)
+    if cur and cur["patient_id"] != patient_id:
+        who = cur.get("name") or cur.get("pid") or ("#" + str(cur["patient_id"]))
+        raise ValueError("设备 " + device_id + " 已被患者 " + who + " 绑定，请先解绑")
+    if cur and cur["patient_id"] == patient_id:
+        _archive_history(device_id, patient_id)
     _archive_history(device_id, patient_id)
-    run("INSERT OR REPLACE INTO patient_devices (patient_id,device_id,role,linked_at) "
+    run("INSERT INTO patient_devices (patient_id,device_id,role,linked_at) "
         "VALUES (?,?,?,?)", (patient_id, device_id, role, _now()))
 
 
 def unlink_device(patient_id: int, device_id: str) -> bool:
+    """解绑设备。归档本次分配保留时间线；监护记录按 patient_id 留存，解绑不影响历史查询。"""
     _archive_history(device_id, patient_id)
-    cur = run("DELETE FROM patient_devices WHERE patient_id=? AND device_id=?", (patient_id, device_id))
+    cur = run("DELETE FROM patient_devices WHERE patient_id=? AND device_id=?",
+              (patient_id, device_id))
     return cur > 0
 
 

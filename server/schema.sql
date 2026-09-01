@@ -275,3 +275,39 @@ CREATE TABLE IF NOT EXISTS backup_log (
     sha256      TEXT NOT NULL,
     created_at  TEXT NOT NULL
 );
+
+-- ============================================================
+-- 医生管理：医生档案（独立于 users 应用账户；医生是医护对象，
+-- 不一定有系统登录账号）。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS doctors (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,           -- 医生姓名
+    title           TEXT DEFAULT NULL,       -- 职称：主任医师/主治医师/住院医师/...
+    department      TEXT DEFAULT NULL,       -- 科室
+    department_id   TEXT DEFAULT NULL,       -- 工号/执业编号
+    phone           TEXT DEFAULT NULL,       -- 联系电话
+    note            TEXT DEFAULT NULL,       -- 备注
+    created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_doctors_name ON doctors(name);
+
+-- ============================================================
+-- 文字消息：向设备下发的文字指令记录。
+-- topic 约定 envmon/{device_id}/message（与 envmon/{device_id}/tts 语音通道独立）。
+-- 注意：当前固件尚未实现 message 主题的消费，因此本表是【通道+发送记录】，
+-- 文字到达设备需等固件补齐（见 /api/message/dispatch/{device_id} 的说明）。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS messages (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id       TEXT NOT NULL,           -- 目标设备
+    sender          TEXT DEFAULT NULL,       -- 发送人（登录用户）
+    text            TEXT NOT NULL,           -- 文字内容
+    delivered       INTEGER NOT NULL DEFAULT 0,  -- 1=MQTT 推送成功
+    delivered_at    TEXT DEFAULT NULL,       -- 推送成功时刻
+    created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_device ON messages(device_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);

@@ -188,6 +188,33 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
         except Exception as e:
             _log.warning("device_patient_history backfill skipped: %s", e)
 
+    # v2.4: 医生档案 + 文字消息记录。定义见 schema.sql；旧库重启时在此
+    # 补建，IF NOT EXISTS 保证幂等，已存在则跳过。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS doctors ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "name TEXT NOT NULL, "
+        "title TEXT DEFAULT NULL, "
+        "department TEXT DEFAULT NULL, "
+        "department_id TEXT DEFAULT NULL, "
+        "phone TEXT DEFAULT NULL, "
+        "note TEXT DEFAULT NULL, "
+        "created_at TEXT NOT NULL)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_doctors_name ON doctors(name)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS messages ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "device_id TEXT NOT NULL, "
+        "sender TEXT DEFAULT NULL, "
+        "text TEXT NOT NULL, "
+        "delivered INTEGER NOT NULL DEFAULT 0, "
+        "delivered_at TEXT DEFAULT NULL, "
+        "created_at TEXT NOT NULL)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_device ON messages(device_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)")
+
 
 def query(sql: str, params: tuple = ()) -> List[sqlite3.Row]:
     with _lock:
@@ -365,14 +392,17 @@ def rename_device(device_id: str, new_name: str) -> None:
 
 
 def delete_device(device_id: str) -> None:
-    """删除设备及其全部关联数据。"""
+    """软删设备：仅从 devices 表移除，不删除 vitals / telemetry_1m / alarms /
+    patient_devices / device_patient_history。
+
+    监护记录按患者（vitals.patient_id）+ 来源设备（vitals.source_device）独立
+    留存，即便设备删除也必须可查——这是核心诉求，硬删 telemetry/vitals 会违反
+    此约束。删除患者-设备绑定行由调用方通过 unlink_device 显式处理，本函数
+    不级联删 vitals。
+    """
     with _lock:
         conn = get_conn()
         conn.execute("DELETE FROM devices WHERE id=?", (device_id,))
-        conn.execute("DELETE FROM telemetry WHERE device_id=?", (device_id,))
-        conn.execute("DELETE FROM telemetry_1m WHERE device_id=?", (device_id,))
-        conn.execute("DELETE FROM alarms WHERE device_id=?", (device_id,))
-        conn.execute("DELETE FROM thresholds WHERE device_id=?", (device_id,))
         conn.commit()
 
 
@@ -626,3 +656,134 @@ def ota_delete(image_id: int) -> bool:
     """删除指定固件版本。"""
     execute("DELETE FROM ota_images WHERE id=?", (image_id,))
     return True
+
+
+# ---------------------------------------------------------------- doctors
+def list_doctors() -> List[Dict[str, Any]]:
+    rows = query("SELECT * FROM doctors ORDER BY id")
+    return [dict(r) for r in rows]
+
+
+def add_doctor(name: str, title: Optional[str] = None, department: Optional[str] = None,
+               department_id: Optional[str] = None, phone: Optional[str] = None,
+               contact: Optional[str] = None, note: Optional[str] = None) -> int:
+    """登记一名医生。phone 与 contact 是同一字段（联系电话/联系方式）的别名。"""
+    now = utcnow()
+    if contact is not None:
+        phone = contact  # 兼容 contact 别名
+    cur = execute(
+        "INSERT INTO doctors(name,title,department,department_id,phone,note,created_at) VALUES(?,?,?,?,?,?,?)",
+        (name, title, department, department_id, phone, note, now),
+    )
+    return int(cur)
+
+
+def update_doctor(doctor_id: int, fields: dict) -> bool:
+    """按字段更新医生档案。允许 contact 作为 phone 的别名。"""
+    if not fields:
+        return False
+    if "contact" in fields:
+        fields["phone"] = fields.pop("contact")
+    allowed = ("title", "department", "department_id", "phone", "note", "name")
+    cols, params = [], []
+    for k, v in fields.items():
+        if k in allowed:
+            cols.append(f"{k} = ?")
+            params.append(v or None)
+    if not cols:
+        return False
+    params.append(doctor_id)
+    return bool(execute(f"UPDATE doctors SET {', '.join(cols)} WHERE id = ?", tuple(params)))
+
+
+def delete_doctor(doctor_id: int) -> bool:
+    return bool(execute("DELETE FROM doctors WHERE id=?", (doctor_id,)))
+
+
+# ---------------------------------------------------------------- messages
+def list_messages(device_id: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+    if device_id:
+        rows = query("SELECT * FROM messages WHERE device_id=? ORDER BY id DESC LIMIT ?",
+                     (device_id, limit))
+    else:
+        rows = query("SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,))
+    return [dict(r) for r in rows]
+
+
+def add_message(device_id: str, text: str, sender: Optional[str] = None,
+                delivered: int = 0, delivered_at: Optional[str] = None) -> int:
+    now = utcnow()
+    cur = execute(
+        "INSERT INTO messages(device_id,sender,text,delivered,delivered_at,created_at) VALUES(?,?,?,?,?,?)",
+        (device_id, sender, text, delivered, delivered_at, now),
+    )
+    return int(cur)
+
+
+def mark_message_delivered(message_id: int) -> None:
+    execute("UPDATE messages SET delivered=1, delivered_at=? WHERE id=?", (utcnow(), message_id))
+
+
+def message_stat() -> dict:
+    """消息统计：总数 / 已送达 / 未送达 / 按设备分布。"""
+    rows = query(
+        "SELECT "
+        "COUNT(*) AS total, "
+        "SUM(CASE WHEN delivered=1 THEN 1 ELSE 0 END) AS delivered, "
+        "SUM(CASE WHEN delivered=0 THEN 1 ELSE 0 END) AS pending "
+        "FROM messages"
+    )
+    s = dict(rows[0])
+    s["by_device"] = [
+        {"device_id": r["device_id"], "n": r["n"]}
+        for r in query(
+            "SELECT device_id, COUNT(*) AS n FROM messages "
+            "GROUP BY device_id ORDER BY n DESC, device_id"
+        )
+    ]
+    return s
+
+
+def message_clear() -> int:
+    """清空历史消息记录，返回删除行数。"""
+    cur = execute("DELETE FROM messages")
+    return int(cur)
+
+
+# ---------------------------------------------------------------- 路由别名
+# main.py 的 doctors/messages 路由使用的函数名（doctor_list / doctor_by_id /
+# message_list 等），在此统一入口；下面各自调用本文件的实际实现，避免两套命名漂移。
+def doctor_list(limit: int = 200) -> List[Dict[str, Any]]:
+    rows = query("SELECT * FROM doctors ORDER BY id LIMIT ?", (limit,))
+    return [dict(r) for r in rows]
+
+
+def doctor_create(name: str, title: Optional[str] = None,
+                  department: Optional[str] = None, contact: Optional[str] = None,
+                  note: Optional[str] = None) -> int:
+    """登记医生。contact = 联系电话（别名）；department_id 未提供。"""
+    now = utcnow()
+    cur = execute(
+        "INSERT INTO doctors(name,title,department,department_id,phone,note,created_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (name, title, department, None, contact, note, now),
+    )
+    return int(cur)
+
+
+def doctor_by_id(doctor_id: int) -> Optional[Dict[str, Any]]:
+    rows = query("SELECT * FROM doctors WHERE id=?", (doctor_id,))
+    return dict(rows[0]) if rows else None
+
+
+def doctor_update(doctor_id: int, **fields: Any) -> bool:
+    return update_doctor(doctor_id, fields)
+
+
+def doctor_delete(doctor_id: int) -> bool:
+    return delete_doctor(doctor_id)
+
+
+def message_list(device_id: str = "", limit: int = 100) -> List[Dict[str, Any]]:
+    """按设备过滤取消息。device_id 为空字符串视为不筛选（路由默认传 ''）。"""
+    return list_messages(device_id=device_id or None, limit=limit)

@@ -171,3 +171,28 @@ class LabResultIn(BaseModel):
 class SettingsUpdateIn(BaseModel):
     key: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     value: str = Field("", max_length=4096)
+
+
+# ================================================================ 医生档案
+class DoctorCreateIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    title: str = Field("", max_length=64)
+    department: str = Field("", max_length=64)
+    contact: str = Field("", max_length=64)
+    note: str = Field("", max_length=4096)
+
+
+class DoctorUpdateIn(BaseModel):
+    name: Optional[str] = Field(None, max_length=64)
+    title: Optional[str] = Field(None, max_length=64)
+    department: Optional[str] = Field(None, max_length=64)
+    contact: Optional[str] = Field(None, max_length=64)
+    note: Optional[str] = Field(None, max_length=4096)
+
+
+# ================================================================ 文字消息
+class MessageSendIn(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=64)
+    text: str = Field(..., min_length=1, max_length=4096)
+    level: int = Field(0, ge=0, le=3)
+    tts: bool = Field(False, description="True=走 TTS 语音通道（envmon/{id}/tts）；False=独立文字 topic（固件未实现，仅供记录）")
