@@ -10,6 +10,8 @@ static AHT20   aht;
 static BMP280  bmp;
 static MAX30102 max30;
 static AD8232  ecg;
+// OLED 已用 I2C1 (GPIO14/13)，MAX30102 与之共用（地址不同不冲突）
+extern TwoWire oledWire;
 
 bool SensorHub::begin() {
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 400000UL);
@@ -21,7 +23,7 @@ bool SensorHub::begin() {
     if (bmp.begin(&Wire)) { _bmp_ok = true; Serial.println(F("[SENSOR] BMP280 OK")); }
     else { Serial.println(F("[SENSOR] BMP280 not found!")); }
 
-    if (max30.begin(&Wire)) { _max_ok = true; Serial.println(F("[SENSOR] MAX30102 OK")); }
+    if (max30.begin(&oledWire)) { _max_ok = true; Serial.println(F("[SENSOR] MAX30102 OK (I2C1 shared with OLED)")); }
 
     #if defined(PIN_VITAL_ECG)
         if (ecg.begin(PIN_VITAL_ECG)) _ecg_ok = true;
