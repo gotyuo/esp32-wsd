@@ -7,12 +7,13 @@
 | 主控 | ESP-12F (ESP8266) | 1 | 4MB Flash, 80MHz |
 | 温湿度 | AHT20 | 1 | I2C 0x38 |
 | 气压 | BMP280 | 1 | I2C 0x76 |
+| 血氧/脉率 | MAX30102 | 1 | I2C 0x57 |
 | LED | 共阴 RGB LED | 1 | 仅用 R/G 两色 |
 | 蜂鸣器 | 无源蜂鸣器 | 1 | PWM 驱动 |
 | 电阻 | 220Ω ×2 | 2 | LED 限流 |
 | USB 转串口 | CH340/CP2102 | 1 | 3.3V 电平 |
 
-> ESP8266 无屏幕、无体征 ADC（只有单通道 A0），是纯环境监测终端。
+> ESP8266 无屏幕、无体征 ADC（只有单通道 A0），但支持 MAX30102 血氧/脉率。
 
 ## 二、接线表
 
@@ -37,18 +38,30 @@ EN       ←─── 通过 10kΩ 电阻接 3V3（或按住 RESET 键）
 3. 松开 FLASH 键
 4. 执行 `pio run -e esp8266 -t upload --upload-port /dev/ttyUSB0`
 
-### 2. 传感器接线（I2C 总线）
+### 2. 传感器接线（两组独立 I2C）
+
+> ESP8266 只有一个硬件 I2C（Wire），通过时分复用实现两组独立引脚。
+> AHT20/BMP280 与 MAX30102 **不共用 SDA/SCL**。
 
 ```
 AHT20 / BMP280       ESP-12F
 ─────────────       ───────
 VCC          ────→  3V3
 GND          ────→  GND
+SDA          ────→  D7 (GPIO13)
+SCL          ────→  D6 (GPIO12)
+
+MAX30102             ESP-12F
+────────             ───────
+VCC          ────→  3V3
+GND          ────→  GND
 SDA          ────→  D2 (GPIO4)
 SCL          ────→  D1 (GPIO5)
+INT          ────→  不接（轮询模式）
 ```
 
-> AHT20 和 BMP280 并联在同一 I2C 总线上。
+> AHT20 和 BMP280 并联在同一 I2C 总线（D7/D6）。
+> MAX30102 单独走另一组引脚（D2/D1），与 AHT20/BMP280 完全独立。
 
 ### 3. 报警输出接线
 
@@ -84,13 +97,13 @@ G 阳极        ───→  220Ω ──→ D7 (GPIO13)
 | ESP-12F 引脚 | GPIO | 功能 | 接设备 |
 |:---:|:---:|:---|:---|
 | D0 | GPIO16 | （不可用，不能中断/PWM） | - |
-| D1 | GPIO5  | I2C SCL | AHT20/BMP280 SCL |
-| D2 | GPIO4  | I2C SDA | AHT20/BMP280 SDA |
+| D1 | GPIO5  | I2C SCL | MAX30102 SCL |
+| D2 | GPIO4  | I2C SDA | MAX30102 SDA |
 | D3 | GPIO0  | Boot strap（烧录用） | FLASH 键 |
 | D4 | GPIO2  | Boot strap（TX1） | 不接 |
 | D5 | GPIO14 | PWM 输出 | 蜂鸣器 + |
-| D6 | GPIO12 | 数字输出 | LED R |
-| D7 | GPIO13 | 数字输出 | LED G |
+| D6 | GPIO12 | I2C SCL | AHT20/BMP280 SCL |
+| D7 | GPIO13 | I2C SDA | AHT20/BMP280 SDA |
 | D8 | GPIO15 | Boot strap | 下拉 10kΩ |
 | A0 | ADC0   | 模拟输入 | 麦克风（可选） |
 
