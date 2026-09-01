@@ -18,10 +18,13 @@
 #define PIN_I2C_SDA 8
 #define PIN_I2C_SCL 9
 
-// ---------- I2C1: 0.96" OLED 屏幕 (4 孔 SSD1306/SSD1315) ----------
+// ---------- I2C1: 0.96" OLED 屏幕 (4 孔 SSD1306/SSD1315) + MAX30102 ----------
 // 与传感器 I2C0 完全独立的第二路 I2C
+// OLED 地址 0x3C，MAX30102 地址 0x57，两者并联不冲突
 #define PIN_OLED_SDA 14     // OLED SDA -> GPIO14
 #define PIN_OLED_SCL 13     // OLED SCL -> GPIO13
+#define PIN_MAX30102_SDA 14 // 与 OLED 共用 I2C1
+#define PIN_MAX30102_SCL 13
 
 // ---------- 麦克风 + 喇叭 ----------
 #define PIN_MIC 4           // ADC1_CH3
