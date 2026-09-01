@@ -32,6 +32,12 @@
 #define PIN_I2C_SDA  12     // D6 = GPIO12
 #define PIN_I2C_SCL  13     // D7 = GPIO13
 
+// ---------- MAX30102 (血氧/脉率) ----------
+// 注意：TFT 变体的 7 个可用 GPIO 已全部被占用
+//   (GPIO16,5,2,4,14=TFT / GPIO12,13=传感器 I2C)，
+//   没有空闲引脚接 MAX30102，故本变体不支持血氧/脉率。
+// 如需血氧/脉率请使用 src_esp8266 (OLED-less) 或 ESP32 变体。
+
 // ---------- 麦克风 ----------
 #define PIN_MIC A0
 
