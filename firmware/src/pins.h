@@ -21,13 +21,20 @@
 
 // ---------- SPI: GC9109 0.96" 160x80 IPS TFT ----------
 // 屏引脚: VCC->3V3, GND->GND
-//         SCK->GPIO12, MOSI->GPIO11, RST->GPIO6, DC->GPIO7, CS->GPIO10, BLK->GPIO5
+//         SCK->GPIO12, MOSI->GPIO11, RST->GPIO14, DC->GPIO13, CS->GPIO10, BLK->GPIO5
+// ※ GPIO6/7 已预留给 I2C OLED（与 TFT 共存的外接屏），TFT 的 DC/RST
+//    从原 GPIO7/6 挪到 GPIO13/14，避免冲突。
 #define PIN_TFT_CS   10
-#define PIN_TFT_DC   7
-#define PIN_TFT_RST  6
+#define PIN_TFT_DC   13
+#define PIN_TFT_RST  14
 #define PIN_TFT_MOSI 11
 #define PIN_TFT_SCK  12
 #define PIN_TFT_BL   5    // 背光
+
+// ---------- I2C OLED（可选外接屏，与 TFT 共存） ----------
+// 0.96" SSD1306/SSD1315, 地址 0x3C
+// 用户硬件: OLED 占用 GPIO6/7（按实际接线确定 SDA/SCL 方向）
+// （主版固件默认 UI 走 TFT；OLED 仅预留引脚，如需固件驱动需另行添加）
 
 // ---------- 麦克风 + 喇叭 ----------
 // 裸驻极体咪头: 正极->GPIO4, 负极->GND
