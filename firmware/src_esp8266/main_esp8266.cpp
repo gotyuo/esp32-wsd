@@ -249,6 +249,7 @@ void loop() {
     if (now - g_lastRead >= 2000) {
         g_lastRead = now;
         g_sensors.read(g_last);
+        g_sensors.readVitals(g_last);
     }
     AlarmLevel lvl = g_alarm.evaluate(g_last, g_cfg);
     g_alarm.update(lvl, g_cfg.alarm_sound);
