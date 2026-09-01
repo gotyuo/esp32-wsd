@@ -16,10 +16,11 @@
 
 // ---------- SPI: GC9109 0.96" 160x80 IPS TFT ----------
 // 屏引脚: VCC->3V3, GND->GND
-//         SCK->GPIO12, MOSI->GPIO11, RST->GPIO6, DC->GPIO7, CS->GPIO10, BLK->GPIO5
+//         SCK->GPIO12, MOSI->GPIO11, RST->GPIO14, DC->GPIO13, CS->GPIO10, BLK->GPIO5
+// ※ 与主版 src/pins.h 保持一致（GPIO6/7 预留给外接 OLED）
 #define PIN_TFT_CS   10
-#define PIN_TFT_DC   7
-#define PIN_TFT_RST  6
+#define PIN_TFT_DC   13
+#define PIN_TFT_RST  14
 #define PIN_TFT_MOSI 11
 #define PIN_TFT_SCK  12
 #define PIN_TFT_BL   5    // 背光
