@@ -339,28 +339,26 @@ def _insert_vital_from_payload(patient_id: int, device_id: str, payload: dict) -
     return ts
 
 
-def handle_status(device_id: str, online: bool):
+def handle_status(device_id: str, online: bool, retained: bool = False):
     """MQTT 连接状态（LWT 遗嘱 / 设备主动上报的 online）。
 
-    这里【只】改 online 标记，绝不刷新 last_seen。
-    last_seen 语义 = 最近一次【真实遥测】到达服务器的时刻（由 handle_telemetry 维护）。
-    若在此刷新 last_seen，因 envmon/{id}/status 是【保留消息】，MQTT bridge 每次
-    重连都会收到 broker 重新投递的保留消息，于是会把所有设备的 last_seen 刷成
-    重连时刻 —— 从未上报数据的设备也会看起来"刚上报过"，新鲜度判断被彻底污染
-    （实测：重连后 7 台设备 last_seen 全被刷成同一时刻，probe 误判 5 台在线）。
+    retained 参数区分 status 消息的两种到达路径（由 mqtt_bridge 透传 RETAIN 标志）：
 
-    另外，retained "online" 本身也不能全信：它是设备【最后存活时刻】留下的快照，
-    设备静默掉线（WiFi 丢失/断电）时 LWT 不触发，broker 会一直保留 "online"，
-    bridge 每次重连都会重新收到它并把设备标回在线。因此这里要求「声明 online」
-    必须被最近 90 秒内的真实遥测佐证，否则按离线处理。
+      - retained=False（fresh，设备此刻刚发布 / LWT 遗嘱）：
+        设备刚连上 MQTT 或刚掉线是【确定事实】，直接采信置 online，不要求遥测佐证。
+        这是「设备重连却显示离线」的修复：旧实现一律要求 90s 内有遥测，
+        设备 WiFi 抖动重连（或上报间隔稍长）时会被误判离线。
 
-    佐证失败时【显式】把 online 写成 False（不是跳过写入）：聚合线程的离线回收
-    只扫 online=1 的行，broker 每次重连都会把 retained "online" 重新投递回来，
-    若此处不显式写 False，这台死设备的保留消息会在重连周期里反复把它复活，
-    设备管理页长期显示在线。
+      - retained=True（broker 重投的保留消息快照）：
+        只代表设备【最后一次存活时刻】。设备静默掉线（WiFi 丢失/断电）时 LWT
+        不触发，broker 会一直保留 "online"，bridge 每次重连都会重新收到它。
+        因此快照必须被最近 90 秒内的真实遥测佐证，否则按离线处理 ——
+        防死设备在每次 bridge 重连后被反复复活（旧 bug：7 台设备全被标在线）。
+
+    last_seen 只由 handle_telemetry 维护（真实遥测到达时刻），此处绝不触碰。
     """
     db.ensure_device(device_id)
-    if online and not _is_dev_recent(device_id):
+    if online and retained and not _is_dev_recent(device_id):
         online = False
     db.set_device_online(device_id, online)
     hub.broadcast_threadsafe({"type": "status", "device_id": device_id, "online": online})
