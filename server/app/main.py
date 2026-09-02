@@ -293,9 +293,12 @@ def _trigger_ai_alarm_analysis(device_id: str, level: int, reason: str,
             pname = patient_row["name"] if patient_row else None
             doctor_row = None
             if pid:
-                doc_name_raw = (conn.execute(
+                doc_name_row = conn.execute(
                     "SELECT doctor FROM patients WHERE id=?", (pid,),
-                ).fetchone() or {}).get("doctor")
+                ).fetchone()
+                doc_name_raw = None
+                if doc_name_row:
+                    doc_name_raw = dict(doc_name_row).get("doctor")
                 if doc_name_raw:
                     doctor_row = conn.execute(
                         "SELECT id, name FROM doctors WHERE name=? LIMIT 1",
@@ -308,17 +311,18 @@ def _trigger_ai_alarm_analysis(device_id: str, level: int, reason: str,
             recent = []
             if pid:
                 rows = conn.execute(
-                    "SELECT ts, t AS t, h AS h, p AS p, hr AS hr, sp_o2, sbp, dbp "
+                    "SELECT ts, temp_c, hum_pct, pres_hpa, pr_hr, sp_o2, sbp, dbp "
                     "FROM vitals WHERE patient_id=? "
                     "AND ts >= datetime(?, '-30 minutes') "
                     "ORDER BY ts DESC LIMIT 30",
                     (pid, db.utcnow()),
                 ).fetchall()
                 for r in rows:
+                    rd = dict(r)
                     recent.append({
-                        "ts": r.get("ts"), "t": r.get("t"), "h": r.get("h"),
-                        "p": r.get("p"), "hr": r.get("hr"), "sp_o2": r.get("sp_o2"),
-                        "sbp": r.get("sbp"), "dbp": r.get("dbp"),
+                        "ts": rd.get("ts"), "t": rd.get("temp_c"), "h": rd.get("hum_pct"),
+                        "p": rd.get("pres_hpa"), "hr": rd.get("pr_hr"), "sp_o2": rd.get("sp_o2"),
+                        "sbp": rd.get("sbp"), "dbp": rd.get("dbp"),
                     })
 
             # 组装分析 prompt

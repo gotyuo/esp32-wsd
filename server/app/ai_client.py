@@ -224,6 +224,11 @@ def test_connection(settings: Any) -> Tuple[str, str, Optional[Dict[str, Any]]]:
     if not base_url:
         return "", "无法解析 base_url", None
     msgs = [{"role": "user", "content": "你好，请回复 OK"}]
-    # 覆盖 system_prompt 为空（测试只关心连通性，不让默认 prompt 干扰）
-    cfg["system_prompt"] = ""
-    return call_model(cfg, msgs, timeout_s=15)
+    # 注意：不能直接把 cfg 传给 call_model——call_model 会再次 _read_settings，
+    # 但 cfg 的 key 已是 "enabled" 而非 "ai.enabled"，会导致误判未启用。
+    # 用一个代理 dict，把 key 反转为 ai.* 让 _read_settings 第二次取值正常。
+    proxy = {"ai.enabled": cfg["enabled"], "ai.provider": cfg["provider"],
+             "ai.base_url": cfg["base_url"], "ai.model": cfg["model"],
+             "ai.api_key": cfg["api_key"], "ai.timeout": cfg["timeout"],
+             "ai.max_tokens": cfg["max_tokens"], "ai.system_prompt": ""}
+    return call_model(proxy, msgs, timeout_s=15)
