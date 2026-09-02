@@ -22,6 +22,8 @@ import secrets
 import time
 import threading
 from contextlib import asynccontextmanager
+from urllib.parse import quote as _urllib_quote
+from urllib.error import URLError as _URLError
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
@@ -31,7 +33,12 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .aggregator import Aggregator
-from .models import IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn, RegisterDeviceIn, SettingsUpdateIn, UpdateDeviceIn, DoctorCreateIn, DoctorUpdateIn, MessageSendIn
+from .models import (
+    IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn,
+    RegisterDeviceIn, SettingsUpdateIn, UpdateDeviceIn, DoctorCreateIn,
+    DoctorUpdateIn, MessageSendIn,
+)
+from pydantic import BaseModel, Field
 from . import icu
 from .models import PatientCreate, PatientUpdate, LinkDeviceIn, VitalIn, OrderIn, LabResultIn
 from .mqtt_bridge import MqttBridge
@@ -206,6 +213,8 @@ def record_alarm_transition(device_id: str, level: int, reason: str, temp, hum, 
             log.warning("ALARM [%s] lv%d %s", device_id, level, reason)
             # TTS 语音播报：报警触发时自动合成语音并下发到设备
             _trigger_tts_alarm(device_id, level, reason)
+            # AI 分析 + 企微推送（后台线程，不阻塞报警链路）
+            _trigger_ai_alarm_analysis(device_id, level, reason, temp, hum, pres)
     else:
         if open_alarm:
             db.clear_open_alarms(device_id)
@@ -251,6 +260,144 @@ def _trigger_tts_alarm(device_id: str, level: int, reason: str):
         log.info("TTS dispatched to %s: %s", device_id, text)
     except Exception as e:  # noqa: BLE001
         log.error("TTS alarm dispatch failed for %s: %s", device_id, e)
+
+
+def _trigger_ai_alarm_analysis(device_id: str, level: int, reason: str,
+                               temp, hum, pres) -> None:
+    """后台线程：调 LLM 分析报警 + 结果落库 + 企微推送给主管医生。
+
+    不阻塞主报警链路：任何异常都只记日志、不落库失败。若 ai.enabled 未开
+    或 ai.model 未配，直接返回。
+    """
+    def _run():
+        try:
+            from . import ai_client
+            enabled = icu.get_setting_raw("ai.enabled") or ""
+            model = icu.get_setting_raw("ai.model") or ""
+            provider = icu.get_setting_raw("ai.provider") or ""
+            if enabled not in ("1", "true", "True", "yes"):
+                log.info("AI alarm analysis skipped: ai.enabled not on")
+                return
+            if not model.strip():
+                log.info("AI alarm analysis skipped: ai.model empty")
+                return
+
+            # 查设备关联的患者 & 主管医生
+            conn = icu._get_conn()
+            patient_row = conn.execute(
+                "SELECT p.id, p.name FROM patient_devices pd "
+                "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=? "
+                "ORDER BY pd.linked_at DESC LIMIT 1", (device_id,),
+            ).fetchone()
+            pid = patient_row["id"] if patient_row else None
+            pname = patient_row["name"] if patient_row else None
+            doctor_row = None
+            if pid:
+                doc_name_raw = (conn.execute(
+                    "SELECT doctor FROM patients WHERE id=?", (pid,),
+                ).fetchone() or {}).get("doctor")
+                if doc_name_raw:
+                    doctor_row = conn.execute(
+                        "SELECT id, name FROM doctors WHERE name=? LIMIT 1",
+                        (doc_name_raw,),
+                    ).fetchone()
+            did = doctor_row["id"] if doctor_row else None
+            dname = doctor_row["name"] if doctor_row else None
+
+            # 拿近 30 分钟 vitals 作为上下文
+            recent = []
+            if pid:
+                rows = conn.execute(
+                    "SELECT ts, t AS t, h AS h, p AS p, hr AS hr, sp_o2, sbp, dbp "
+                    "FROM vitals WHERE patient_id=? "
+                    "AND ts >= datetime(?, '-30 minutes') "
+                    "ORDER BY ts DESC LIMIT 30",
+                    (pid, db.utcnow()),
+                ).fetchall()
+                for r in rows:
+                    recent.append({
+                        "ts": r.get("ts"), "t": r.get("t"), "h": r.get("h"),
+                        "p": r.get("p"), "hr": r.get("hr"), "sp_o2": r.get("sp_o2"),
+                        "sbp": r.get("sbp"), "dbp": r.get("dbp"),
+                    })
+
+            # 组装分析 prompt
+            prompt = _build_alarm_prompt(device_id, pid, pname, dname,
+                                         level, reason, temp, hum, pres, recent)
+            try:
+                content, err, usage = ai_client.call_model(icu.list_settings_raw(), [
+                    {"role": "user", "content": prompt},
+                ], timeout_s=25)
+            except Exception as e:  # noqa: BLE001
+                content, err = "", "LLM 调用异常: " + str(e)
+            usage_text = None
+            if usage:
+                try:
+                    usage_text = json.dumps(usage, ensure_ascii=False)
+                except Exception:
+                    usage_text = str(usage)
+
+            # 落库
+            db.insert_ai_analysis(
+                device_id=device_id, patient_id=str(pid) if pid else None,
+                patient_name=pname, doctor_id=did, doctor_name=dname,
+                level=level, reason=reason,
+                model=model.strip(), provider=provider.strip(),
+                prompt_len=len(prompt),
+                analysis=content or "",
+                usage_text=usage_text,
+                weixin_sent=0, weixin_err=err or None,
+            )
+
+            # 企微推送：分析成功 且 有主管医生 且 企微已配
+            if content and did:
+                wx_sent, wx_err = _send_wechat_reminder(
+                    content, str(pid) if pid else device_id, dname, device_id)
+                if wx_sent:
+                    conn.execute(
+                        "UPDATE alarm_ai_analyses SET weixin_sent=1, "
+                        "weixin_err=NULL WHERE rowid=(SELECT id FROM alarm_ai_analyses "
+                        "ORDER BY id DESC LIMIT 1)",
+                    )
+                    conn.commit()
+                    log.info("AI analysis pushed to doctor %s for %s", dname, device_id)
+            elif content and not did:
+                log.info("AI analysis ready but no doctor assigned for device %s", device_id)
+
+            if err:
+                log.warning("AI alarm analysis failed [%s]: %s", device_id, err)
+            else:
+                log.info("AI alarm analysis done [%s]: %s chars", device_id, len(content))
+        except Exception as e:  # noqa: BLE001
+            log.error("AI alarm analysis crashed for %s: %s", device_id, e)
+
+    threading.Thread(target=_run, daemon=True, name="ai-alarm").start()
+
+
+def _build_alarm_prompt(device_id, pid, pname, dname, level, reason,
+                        temp, hum, pres, recent) -> str:
+    now = db.utcnow()
+    vit_lines = []
+    for v in recent[-15:]:
+        vit_lines.append(
+            "ts={} t={}℃ h={}%RH p={}hPa hr={}bpm spO2={}% "
+            "sbp={}dbp={}mmHg".format(
+                v.get("ts", "-"), v.get("t", "-"), v.get("h", "-"), v.get("p", "-"),
+                v.get("hr", "-"), v.get("sp_o2", "-"), v.get("sbp", "-"), v.get("dbp", "-"),
+            )
+        )
+    hist = "\n".join(vit_lines) if vit_lines else "（近30分钟无 vitals 数据）"
+    patient_line = "患者：{}（id={}）".format(pname or "未知", pid or "-")
+    doc_line = "主管医生：{}".format(dname or "未分配")
+    prompt = (
+        "你是 ICU 重症监护助理。患者：{}；{}；\n"
+        "设备：{} 在 {} 触发 {}（1=预警/2=报警），原因：{}\n"
+        "当前环境：温度 {}℃  湿度 {}%RH  气压 {}hPa\n"
+        "近期 vitals：\n{}\n"
+        "请简要输出：【诊断倾向】【风险等级】【处置建议】三段，每段一两句话，中文，无客套话。"
+    ).format(patient_line, doc_line, device_id, now, level, reason,
+             temp, hum, pres, hist)
+    return prompt
 
 
 # ================================================================ MQTT 处理器
@@ -623,6 +770,70 @@ def devices():
                         for d in db.list_devices()]}
 
 
+# 以下为通配路由 /api/devices/{device_id} 的"固定子路径"——必须在其之前定义，
+# 否则 FastAPI 会把字符串 "access-state" 当作 device_id 参数抢走。
+SCAN_WINDOW_MINUTES = 5  # 快照保留窗口（分钟），窗口外自动清理
+
+
+@app.get("/api/devices/access-state", dependencies=[Depends(require_user)])
+def list_device_access(window_minutes: int = Query(SCAN_WINDOW_MINUTES, ge=1, le=120)):
+    """读取保留窗口内的设备接入快照（内网/外网/未知，与 devices 表对比得新增/在线/离线）。"""
+    snapshots = db.list_scan_snapshots(window_minutes)
+    configured = {d["id"]: d for d in db.list_devices()}
+    groups: Dict[str, list] = {"lan": [], "wan": [], "unknown": []}
+    for s in snapshots:
+        cfg = configured.get(s["device_id"])
+        groups[s["access_type"]].append({
+            "device_id": s["device_id"],
+            "name": s.get("name") or (cfg and cfg.get("name")),
+            "ip_addr": s.get("ip_addr") or (cfg and cfg.get("ip_addr")),
+            "access_type": s["access_type"],
+            "online": bool(s["online"]),
+            "fw_version": s.get("fw_version"),
+            "first_seen": s.get("first_seen"),
+            "scanned_at": s["scanned_at"],
+            "configured": bool(cfg),
+        })
+    return {
+        "window_minutes": window_minutes,
+        "lan": groups["lan"], "wan": groups["wan"], "unknown": groups["unknown"],
+        "new": [x for x in groups["lan"]+groups["wan"]+groups["unknown"] if not x["configured"]],
+        "online": [x for x in groups["lan"]+groups["wan"]+groups["unknown"] if x["configured"] and x["online"]],
+        "offline": [x for x in groups["lan"]+groups["wan"]+groups["unknown"] if x["configured"] and not x["online"]],
+    }
+
+
+@app.post("/api/devices/access-save", dependencies=[Depends(require_user)])
+def accept_new_devices(body: dict):
+    """批量把快照里"新增"的设备保存到 devices 表。body: {"device_ids":["a","b"]}。"""
+    ids = body.get("device_ids", [])
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="device_ids 不能为空")
+    snapshots = {s["device_id"]: s for s in db.list_scan_snapshots(SCAN_WINDOW_MINUTES)}
+    existing = {d["id"] for d in db.list_devices()}
+    added, skipped = 0, 0
+    for did in ids:
+        did = str(did).strip()
+        if not did or did in existing:
+            skipped += 1
+            continue
+        s = snapshots.get(did)
+        if not s:
+            skipped += 1
+            continue
+        db.ensure_device(did)
+        db.update_device_fields(did, {"name": s.get("name") or did, "ip_addr": s.get("ip_addr")})
+        existing.add(did)
+        added += 1
+    return {"ok": True, "added": added, "skipped": skipped, "total": len(ids)}
+
+
+@app.post("/api/devices/access-clear", dependencies=[Depends(require_admin)])
+def clear_device_access():
+    n = db.clear_scan_snapshots()
+    return {"ok": True, "cleared": n}
+
+
 @app.post("/api/devices", dependencies=[Depends(require_admin)])
 def register_device(body: RegisterDeviceIn):
     """注册设备。ip_addr 可选：外网设备可登记接入地址（域名/IP:端口）。"""
@@ -885,6 +1096,15 @@ def probe_devices(body: dict = None):
         rec["latest"] = db.latest_telemetry(d["id"])
         rec["probe"] = d["id"] in online
         groups["online" if d["id"] in online else "offline"].append(rec)
+        # 写入设备接入快照（内网/外网根据 IP 自动分类），窗口外自动过期
+        db.upsert_scan_snapshot(
+            device_id=d["id"],
+            name=d.get("name"),
+            ip_addr=d.get("ip_addr"),
+            online=d["id"] in online,
+            fw_version=d.get("fw_version"),
+            first_seen=d.get("first_seen"),
+        )
     return {"ok": True, "mqtt_connected": bridge.connected,
             "probed": len(ids),
             "elapsed_s": round(time.time() - started, 2),
@@ -915,11 +1135,18 @@ def probe_one_device(device_id: str):
     rec["latest"] = db.latest_telemetry(device_id)
     rec["last_seen"] = db.query(
         "SELECT last_seen FROM devices WHERE id=?", (device_id,))[0]["last_seen"]
+    # 单台刷新也写入快照
+    db.upsert_scan_snapshot(
+        device_id=device_id,
+        name=rec.get("name"),
+        ip_addr=rec.get("ip_addr"),
+        online=want_online,
+        fw_version=rec.get("fw_version"),
+        first_seen=rec.get("first_seen"),
+    )
     return {"ok": True, "mqtt_connected": bridge.connected,
             "elapsed_s": round(time.time() - started, 2),
             "online": want_online, "device": rec}
-
-
 @app.post("/api/devices/batch-delete", dependencies=[Depends(require_admin)])
 def batch_delete_devices(body: dict):
     """批量删除设备（局域网发现页勾选后）。body: {"device_ids": ["a","b"]}
@@ -1097,11 +1324,192 @@ def get_setting_route(key: str):
 def list_settings():
     """列出当前配置值（原始字符串，admin）。"""
     raw = icu.list_settings_raw()
-    keys = ["ai.enabled", "ai.provider", "ai.base_url", "ai.model", "ai.api_key", "ai.prompt"]
-    rows = db.query("SELECT key, updated_at FROM app_settings WHERE key IN (?,?,?,?,?,?)", tuple(keys))
+    keys = ["ai.enabled", "ai.provider", "ai.base_url", "ai.model", "ai.api_key", "ai.prompt",
+            "wechat.corp_id", "wechat.agent_id", "wechat.secret", "wechat.webhook_url", "wechat.enabled"]
+    rows = db.query("SELECT key, updated_at FROM app_settings WHERE key IN (?,?,?,?,?,?,?,?,?,?,?)", tuple(keys))
     updated = {dict(r)["key"]: dict(r).get("updated_at") for r in rows}
     out = [{"key": k, "value": raw.get(k, ""), "updated_at": updated.get(k)} for k in keys]
     return {"settings": out}
+
+
+@app.post("/api/settings", dependencies=[Depends(require_admin)])
+def set_settings(body: Dict[str, Any]):
+    """批量写入配置。支持 wechat.* 键：企业微信 corp_id/agent_id/secret 或 webhook_url。"""
+    for k, v in (body or {}).items():
+        if k and not str(k).startswith("_"):
+            icu.set_setting(str(k), str(v) if v is not None else "")
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- 提醒（语音/文字 + 企微）
+WECHAT_WECHAT = "app_settings:wechat."
+
+
+@app.post("/api/reminders/send", dependencies=[Depends(require_user)])
+def send_reminder(body: Dict[str, Any]):
+    """医生向患者发提醒。可同时：① 推送到患者绑定设备（语音播报 + 屏幕显示）
+    ② 通过企业微信 webhook 或 应用消息 通知医生自己。
+
+    body: {
+      "patient_id": "P001",
+      "doctor_id": 1,         # 可选
+      "doctor_name": "张三",   # 可选
+      "device_id": "esp-xxx", # 可选；省略则用患者第一台已绑设备
+      "text": "下午 3 点复查血常规",
+      "tts": true,            # 语音播报文字内容
+      "wechat": true          # 企业微信推送
+    }
+    """
+    pid = str(body.get("patient_id", "")).strip()
+    if not pid:
+        raise HTTPException(400, "patient_id 必填")
+    text = str(body.get("text", "")).strip()
+    if not text:
+        raise HTTPException(400, "text 必填")
+    did = str(body.get("device_id", "") or "").strip() or None
+    doctor_id = body.get("doctor_id")
+    doctor_name = str(body.get("doctor_name", "") or "").strip() or None
+    do_tts = bool(body.get("tts", True))
+    do_wechat = bool(body.get("wechat", False))
+
+    # 无 device_id 则取患者第一台已绑设备
+    if not did:
+        bound = db.query(
+            "SELECT device_id FROM patient_devices WHERE patient_id=(SELECT id FROM patients WHERE pid=?) LIMIT 1",
+            (pid,),
+        )
+        if bound:
+            did = bound[0]["device_id"]
+
+    sent_dev = 0
+    sent_wx = 0
+    tts_ok = True
+    wx_err = ""
+    if do_tts and did:
+        try:
+            resp = _dispatch_reminder_to_device(did, text, pid)
+            if resp and resp.get("ok"):
+                sent_dev = 1
+            else:
+                tts_ok = False
+        except Exception as e:  # noqa: BLE001
+            tts_ok = False
+        # 无论 TTS 是否成功，都推送到设备屏幕 topic（供患者端屏幕显示）
+        _broadcast_reminder_text(did, text)
+    if do_wechat:
+        sent_wx, wx_err = _send_wechat_reminder(text, pid, doctor_name, did)
+
+    mid = db.remind_patient(
+        patient_id=pid, device_id=did, doctor_id=doctor_id,
+        doctor_name=doctor_name, text=text,
+        sent_to_device=sent_dev, sent_to_wechat=sent_wx,
+    )
+    return {
+        "ok": True, "reminder_id": mid,
+        "patient_id": pid, "device_id": did,
+        "tts": sent_dev == 1, "tts_error": None if tts_ok else "设备未连接或推送失败",
+        "wechat": sent_wx == 1, "wechat_error": wx_err or None,
+    }
+
+
+@app.get("/api/reminders", dependencies=[Depends(require_user)])
+def list_reminders(patient_id: str = Query("", max_length=32),
+                   limit: int = Query(100, ge=1, le=500)):
+    return {"reminders": db.remind_list(patient_id, limit)}
+
+
+def _dispatch_reminder_to_device(device_id: str, text: str, patient_id: str):
+    """通过 TTS dispatch 让设备语音播报文字，同时推送文字到设备屏幕 topic。"""
+    import urllib.request, urllib.error as ue
+    url = "http://127.0.0.1:12090/api/tts/dispatch/" + _urllib_quote(device_id, safe="")
+    try:
+        resp = urllib.request.urlopen(
+            urllib.request.Request(
+                url,
+                data=json.dumps({"text": text, "for": "reminder"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            ),
+            timeout=15,
+        )
+        body = json.loads(resp.read().decode("utf-8") or "{}")
+        return body
+    except (ue.URLError, ValueError) as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _broadcast_reminder_text(device_id: str, text: str) -> None:
+    """推送文字到 envmon/{id}/reminder 主题——供患者端屏幕显示。
+    不阻塞提醒下发（桥接未连接时静默跳过）。
+    """
+    try:
+        if bridge.client and bridge.connected:
+            bridge.client.publish(
+                "envmon/" + device_id + "/reminder",
+                json.dumps({"text": text}, ensure_ascii=False),
+                qos=1,
+            )
+    except Exception:
+        pass
+
+
+def _send_wechat_reminder(text: str, patient_id: str,
+                          doctor_name: Optional[str], device_id: Optional[str]) -> tuple:
+    """通过企业微信 webhook（或应用消息）发送提醒。
+
+    两种模式（任选其一配置）：
+      ① webhook_url: 群机器人 webhook，最简单。
+      ② corp_id + agent_id + secret: 企业应用消息（可指定接收人的 userid）。
+
+    返回 (sent:int, err:str)。
+    """
+    import urllib.request, urllib.error as ue
+    enabled = icu.get_setting_raw("wechat.enabled") or ""
+    if enabled not in ("1", "true", "True"):
+        return 0, "企业微信未启用（wechat.enabled=0）"
+    webhook = icu.get_setting_raw("wechat.webhook_url") or ""
+    corp = icu.get_setting_raw("wechat.corp_id") or ""
+    agent = icu.get_setting_raw("wechat.agent_id") or ""
+    secret = icu.get_setting_raw("wechat.secret") or ""
+
+    title = "[健康提醒]" + (doctor_name or "医生") + " 给 " + patient_id + ((". 设备 " + device_id) if device_id else "")
+    content = title + "\n" + text
+
+    try:
+        if webhook and webhook.startswith("http"):
+            payload = json.dumps({
+                "msgtype": "text",
+                "text": {"content": content},
+            }, ensure_ascii=False).encode("utf-8")
+            resp = urllib.request.urlopen(urllib.request.Request(webhook, data=payload,
+                                                                headers={"Content-Type": "application/json"}),
+                                         timeout=10)
+            body = json.loads(resp.read().decode("utf-8") or "{}")
+            if body.get("errcode", 0) != 0:
+                return 0, "webhook errcode=" + str(body.get("errcode"))
+            return 1, ""
+        if corp and agent and secret:
+            token_url = ("https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=" + corp +
+                         "&corpsecret=" + secret)
+            token_resp = urllib.request.urlopen(token_url, timeout=10)
+            tok = json.loads(token_resp.read().decode("utf-8")).get("access_token")
+            if not tok:
+                return 0, "获取 access_token 失败"
+            msg_url = "https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=" + tok
+            payload = json.dumps({
+                "touser": "@all",
+                "msgtype": "text",
+                "agentid": int(agent),
+                "text": {"content": content},
+            }, ensure_ascii=False).encode("utf-8")
+            msg_resp = urllib.request.urlopen(msg_url, data=payload,
+                                              headers={"Content-Type": "application/json"}, timeout=10)
+            body = json.loads(msg_resp.read().decode("utf-8") or "{}")
+            if body.get("errcode", 0) != 0:
+                return 0, "应用消息 errcode=" + str(body.get("errcode"))
+            return 1, ""
+        return 0, "未配置 webhook_url 或 (corp_id+agent_id+secret)"
+    except (ue.URLError, ValueError) as e:
+        return 0, str(e)
 
 
 @app.put("/api/settings", dependencies=[Depends(require_admin)])
@@ -1244,6 +1652,87 @@ def put_thresholds(body: ThresholdsIn):
 @app.get("/api/alarms")
 def alarms(device: Optional[str] = None, limit: int = Query(50, le=500)):
     return {"alarms": db.list_alarms(device, limit)}
+
+
+# ================================================================ AI 报警分析
+class AiSettingsPatch(BaseModel):
+    enabled: Optional[bool] = None
+    provider: Optional[str] = None
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    timeout: Optional[int] = Field(default=None, ge=5, le=300)
+    max_tokens: Optional[int] = Field(default=None, ge=50, le=8192)
+    system_prompt: Optional[str] = None
+
+
+@app.get("/api/ai/settings")
+def ai_settings(user: Dict = Depends(require_admin)):
+    """读取 AI 模型接入配置（管理员）。"""
+    raw = icu.list_settings_raw()
+    keys = ["ai.enabled", "ai.provider", "ai.base_url", "ai.model",
+            "ai.api_key", "ai.timeout", "ai.max_tokens", "ai.system_prompt"]
+    return {
+        "ai_settings": {k: raw.get(k, "") for k in keys},
+        "providers": [
+            {"value": "openai", "label": "OpenAI (api.openai.com)"},
+            {"value": "deepseek", "label": "DeepSeek (api.deepseek.com)"},
+            {"value": "qwen", "label": "通义千问 Qwen / 百炼"},
+            {"value": "gemini", "label": "Google Gemini OpenAI 兼容"},
+            {"value": "ollama", "label": "Ollama (本机/局域网)"},
+            {"value": "custom", "label": "自定义 OpenAI 兼容"},
+        ],
+    }
+
+
+@app.post("/api/ai/settings")
+def save_ai_settings(body: AiSettingsPatch, user: Dict = Depends(require_admin)):
+    changes: List[str] = []
+    m: Dict[str, Any] = {}
+    if body.enabled is not None:
+        m["ai.enabled"] = "1" if body.enabled else "0"
+        changes.append("enabled")
+    for k_name, key in [
+        ("provider", "ai.provider"), ("base_url", "ai.base_url"),
+        ("model", "ai.model"), ("api_key", "ai.api_key"),
+        ("system_prompt", "ai.system_prompt"),
+    ]:
+        if getattr(body, k_name) is not None:
+            m[key] = str(getattr(body, k_name))
+            changes.append(k_name)
+    if body.timeout is not None:
+        m["ai.timeout"] = str(body.timeout)
+        changes.append("timeout")
+    if body.max_tokens is not None:
+        m["ai.max_tokens"] = str(body.max_tokens)
+        changes.append("max_tokens")
+    for k, v in m.items():
+        icu.set_setting(k, v)
+    return {"ok": True, "updated": changes, "keys": list(m.keys())}
+
+
+@app.post("/api/ai/test")
+def ai_test_connection(user: Dict = Depends(require_admin)):
+    """测试当前配置的模型是否可达。"""
+    try:
+        from . import ai_client
+        content, err, usage = ai_client.test_connection(icu.list_settings_raw())
+        return {
+            "ok": bool(content),
+            "content": content[:500],
+            "error": err or None,
+            "usage": usage,
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e), "content": "", "usage": None}
+
+
+@app.get("/api/ai/analyses")
+def ai_analyses(device: Optional[str] = None,
+                limit: int = Query(50, ge=1, le=200),
+                user: Dict = Depends(require_user)):
+    rows = db.list_ai_analyses(device, limit)
+    return {"analyses": rows, "total": len(rows)}
 
 
 # ================================================================ HL7 v2.x 解析

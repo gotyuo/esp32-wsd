@@ -215,6 +215,106 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_device ON messages(device_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)")
 
+    # v2.6: 提醒表。医生发起的语音/文字提醒，可同时走企微 webhook、推送患者设备屏幕 + 语音。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS reminders ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "patient_id TEXT NOT NULL, "
+        "device_id TEXT, "
+        "doctor_id INTEGER, "
+        "doctor_name TEXT, "
+        "text TEXT NOT NULL, "
+        "type TEXT NOT NULL DEFAULT 'reminder', "
+        "sent_to_device INTEGER NOT NULL DEFAULT 0, "
+        "sent_to_wechat INTEGER NOT NULL DEFAULT 0, "
+        "created_at TEXT NOT NULL)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_reminders_patient ON reminders(patient_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_reminders_created ON reminders(created_at)")
+
+    # v2.5: 设备接入快照表。记录每次 /api/devices/probe 主动扫描的结果，分内网/外网两栏。
+    # 保留窗口内多次快照，窗口外自动清空——避免"一直有数据送到端口"造成历史积压。
+    # access_type = 'lan' | 'wan' | 'unknown' 由 IP 是否私有地址推断。
+    # 前端据此生成"新增/在线/离线"分组，和 devices 表对比，新增设备可批量保存入库。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS device_scan_snapshots ("
+        "device_id TEXT NOT NULL, "
+        "name TEXT, "
+        "ip_addr TEXT, "
+        "access_type TEXT NOT NULL DEFAULT 'unknown', "
+        "online INTEGER NOT NULL DEFAULT 0, "
+        "fw_version TEXT, "
+        "first_seen TEXT, "
+        "scanned_at TEXT NOT NULL, "
+        "PRIMARY KEY (device_id, scanned_at)"
+        ")"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_scanned_at ON device_scan_snapshots(scanned_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_device ON device_scan_snapshots(device_id)")
+
+    # 旧版主键是 (device_id, scanned_at)——每次 probe 都新增一行，导致前端重复显示。
+    # 新版改为 device_id 唯一（每次覆盖），这里一次性重建表把旧结构换掉。
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(device_scan_snapshots)")]
+        pk = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='device_scan_snapshots'").fetchone()
+        old_def = "PRIMARY KEY (device_id, scanned_at)"
+        new_def = "PRIMARY KEY (device_id)"
+        def_str = conn.execute("SELECT sql FROM sqlite_master WHERE name='device_scan_snapshots'").fetchone()[0]
+        if old_def in def_str:
+            conn.execute("DROP TABLE IF EXISTS device_scan_snapshots_tmp")
+            conn.execute("ALTER TABLE device_scan_snapshots RENAME TO device_scan_snapshots_tmp")
+            conn.execute(
+                "CREATE TABLE device_scan_snapshots ("
+                "device_id TEXT NOT NULL, name TEXT, ip_addr TEXT, access_type TEXT NOT NULL DEFAULT 'unknown', "
+                "online INTEGER NOT NULL DEFAULT 0, fw_version TEXT, first_seen TEXT, scanned_at TEXT NOT NULL, "
+                "PRIMARY KEY (device_id))"
+            )
+            conn.execute("INSERT INTO device_scan_snapshots "
+                         "SELECT device_id, name, ip_addr, access_type, online, fw_version, first_seen, MAX(scanned_at) "
+                         "FROM device_scan_snapshots_tmp GROUP BY device_id")
+            conn.execute("DROP TABLE IF EXISTS device_scan_snapshots_tmp")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_scanned_at ON device_scan_snapshots(scanned_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_scan_device ON device_scan_snapshots(device_id)")
+            conn.commit()
+            _log.info("migration v2.5: rebuilt device_scan_snapshots pk (device_id)")
+    except Exception as e:
+        _log.warning("device_scan_snapshots pk migration skipped: %s", e)
+
+    # v2.4.1: 设备补齐。devices 表应包含所有曾被引用过的设备 id（内网 wifi 接入的
+    # ESP32、外网域名接入的设备、曾使用过但已脱网的设备）。若 device 被删或
+    # 从未通过 register_device 显式创建，patient_devices / vitals.source_device /
+    # device_patient_history 仍会引用它 → 页面上设备"消失"、监护记录找不到对应设备。
+    # 此步骤把其它表出现但 devices 表没有的设备 id 自动 INSERT 补齐，避免设备凭空消失。
+    try:
+        missing = conn.execute("""
+            SELECT DISTINCT d.device_id
+            FROM (
+              SELECT device_id FROM patient_devices
+              UNION SELECT source_device AS device_id FROM vitals WHERE source_device IS NOT NULL
+              UNION SELECT device_id FROM device_patient_history
+            ) d
+            LEFT JOIN devices dv ON dv.id = d.device_id
+            WHERE dv.id IS NULL
+        """).fetchall()
+        for row in missing:
+            did = row[0]
+            earliest = conn.execute("""
+                SELECT MIN(ts) FROM (
+                    SELECT linked_at AS ts FROM patient_devices WHERE device_id=?
+                    UNION SELECT ts FROM vitals WHERE source_device=?
+                    UNION SELECT linked_at AS ts FROM device_patient_history WHERE device_id=?
+                )""", (did, did, did)).fetchone()[0]
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO devices(id, first_seen, online) VALUES(?, ?, 0)",
+                    (did, earliest),
+                )
+            except Exception as e:
+                _log.warning("device backfill skipped %s: %s", did, e)
+        _log.info("migration v2.4.1: backfilled %d device rows", len(missing))
+    except Exception as e:
+        _log.warning("device backfill skipped: %s", e)
+
 
 def query(sql: str, params: tuple = ()) -> List[sqlite3.Row]:
     with _lock:
@@ -340,6 +440,91 @@ def set_device_online(device_id: str, online: bool) -> None:
 def list_devices() -> List[Dict[str, Any]]:
     rows = query("SELECT * FROM devices ORDER BY id")
     return [dict(r) for r in rows]
+
+
+def _is_lan_ip(ip: Optional[str]) -> bool:
+    """判断 IP 是否属于内网/私有地址。None 或空字符串直接返回 False。"""
+    if not ip or not str(ip).strip():
+        return False
+    ip = str(ip).strip()
+    try:
+        parts = [int(x) for x in ip.split(".")]
+    except (ValueError, AttributeError):
+        return False
+    if len(parts) != 4:
+        return False
+    a, b = parts[0], parts[1]
+    if a == 10:
+        return True
+    if a == 172 and 16 <= b <= 31:
+        return True
+    if a == 192 and b == 168:
+        return True
+    if a == 127 or (a == 169 and b == 254):
+        return True
+    return False
+
+
+def infer_access_type(ip: Optional[str]) -> str:
+    """先按 ip_addr 判断；为空时用 device_id 兜底（很多 ESP32 会用内网 IP 当 device_id）。"""
+    if _is_lan_ip(ip):
+        return "lan"
+    return "unknown"
+
+
+def infer_access_type_with_id(ip: Optional[str], device_id: Optional[str]) -> str:
+    """先按 ip_addr 判断；为空时用 device_id 兜底。返回 lan / wan / unknown。"""
+    if _is_lan_ip(ip):
+        return "lan"
+    if ip and ip.strip():
+        return "wan"
+    if _is_lan_ip(device_id):
+        return "lan"
+    return "unknown"
+
+
+def upsert_scan_snapshot(device_id: str, name: Optional[str] = None,
+                        ip_addr: Optional[str] = None,
+                        online: bool = False, fw_version: Optional[str] = None,
+                        first_seen: Optional[str] = None) -> None:
+    """写入一次设备接入快照。access_type 由 IP 推断（device_id 兜底）；
+    每个 device_id 保留最新一条，旧记录自动被覆盖——避免同一设备多次快照造成前端重复。"""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    access = infer_access_type_with_id(ip_addr, device_id)
+    with _lock:
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO device_scan_snapshots "
+            "(device_id, name, ip_addr, access_type, online, fw_version, first_seen, scanned_at) "
+            "VALUES (?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(device_id) DO UPDATE SET "
+            "name=excluded.name, ip_addr=excluded.ip_addr, access_type=excluded.access_type, "
+            "online=excluded.online, fw_version=excluded.fw_version, "
+            "first_seen=COALESCE(excluded.first_seen, device_scan_snapshots.first_seen), "
+            "scanned_at=excluded.scanned_at",
+            (device_id, name, ip_addr, access, 1 if online else 0, fw_version, first_seen, now),
+        )
+        conn.commit()
+
+
+def list_scan_snapshots(window_minutes: int = 5) -> List[Dict[str, Any]]:
+    """读取窗口内的设备接入快照（每设备最新一条）。
+
+    窗口语义：若某设备最近一次扫描距今超过 window_minutes，则视为"已过期"，
+    直接从表中删除，从而让"超过时长后自动清空，开启下一阶段获取"生效。
+    后续再次 probe 时该设备会重新写入。
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=window_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # 清理窗口外过期快照
+    execute("DELETE FROM device_scan_snapshots WHERE scanned_at < ?", (cutoff,))
+    rows = query(
+        "SELECT * FROM device_scan_snapshots ORDER BY access_type, online DESC, device_id",
+    )
+    return [dict(r) for r in rows]
+
+
+def clear_scan_snapshots() -> int:
+    return execute("DELETE FROM device_scan_snapshots")
 
 
 def register_device(device_id: str, name: Optional[str] = None, ip_addr: Optional[str] = None) -> None:
@@ -700,6 +885,28 @@ def delete_doctor(doctor_id: int) -> bool:
     return bool(execute("DELETE FROM doctors WHERE id=?", (doctor_id,)))
 
 
+def remind_patient(patient_id: str, device_id: Optional[str],
+                   doctor_id: Optional[int], doctor_name: Optional[str],
+                   text: str, sent_to_device: int = 0,
+                   sent_to_wechat: int = 0, rtype: str = "reminder") -> int:
+    now = utcnow()
+    cur = execute(
+        "INSERT INTO reminders(patient_id,device_id,doctor_id,doctor_name,text,type,sent_to_device,sent_to_wechat,created_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
+        (patient_id, device_id, doctor_id, doctor_name, text, rtype, sent_to_device, sent_to_wechat, now),
+    )
+    return cur or 0
+
+
+def remind_list(patient_id: str = "", limit: int = 100) -> List[Dict[str, Any]]:
+    if patient_id:
+        rows = query("SELECT * FROM reminders WHERE patient_id=? ORDER BY id DESC LIMIT ?",
+                     (patient_id, limit))
+    else:
+        rows = query("SELECT * FROM reminders ORDER BY id DESC LIMIT ?", (limit,))
+    return [dict(r) for r in rows]
+
+
 # ---------------------------------------------------------------- messages
 def list_messages(device_id: str = None, limit: int = 100) -> List[Dict[str, Any]]:
     if device_id:
@@ -787,3 +994,78 @@ def doctor_delete(doctor_id: int) -> bool:
 def message_list(device_id: str = "", limit: int = 100) -> List[Dict[str, Any]]:
     """按设备过滤取消息。device_id 为空字符串视为不筛选（路由默认传 ''）。"""
     return list_messages(device_id=device_id or None, limit=limit)
+
+
+# ================================================================ AI 报警分析历史
+_AI_ANALYSES_TABLE_DDL = (
+    "CREATE TABLE IF NOT EXISTS alarm_ai_analyses ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "device_id TEXT NOT NULL, "
+    "patient_id TEXT, "
+    "patient_name TEXT, "
+    "doctor_id INTEGER, "
+    "doctor_name TEXT, "
+    "level INTEGER NOT NULL DEFAULT 1, "
+    "reason TEXT, "
+    "model TEXT, "
+    "provider TEXT, "
+    "prompt_len INTEGER, "
+    "analysis TEXT, "
+    "usage_text TEXT, "
+    "weixin_sent INTEGER NOT NULL DEFAULT 0, "
+    "weixin_err TEXT, "
+    "created_at TEXT NOT NULL)"
+)
+
+
+def _ensure_alarm_ai_analyses() -> None:
+    with _lock:
+        conn = get_conn()
+        has = any(r[0] == "alarm_ai_analyses"
+                  for r in conn.execute(
+                      "SELECT name FROM sqlite_master WHERE type='table'").fetchall())
+        if not has:
+            conn.execute(_AI_ANALYSES_TABLE_DDL)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ai_analyses_device "
+                "ON alarm_ai_analyses(device_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ai_analyses_patient "
+                "ON alarm_ai_analyses(patient_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ai_analyses_created "
+                "ON alarm_ai_analyses(created_at)")
+            conn.commit()
+
+
+def insert_ai_analysis(*, device_id: str, patient_id: Optional[str],
+                       patient_name: Optional[str], doctor_id: Optional[int],
+                       doctor_name: Optional[str], level: int,
+                       reason: str, model: str, provider: str,
+                       prompt_len: int, analysis: str, usage_text: Optional[str],
+                       weixin_sent: int, weixin_err: Optional[str]) -> int:
+    _ensure_alarm_ai_analyses()
+    return int(execute(
+        "INSERT INTO alarm_ai_analyses("
+        "device_id, patient_id, patient_name, doctor_id, doctor_name, level, "
+        "reason, model, provider, prompt_len, analysis, usage_text, "
+        "weixin_sent, weixin_err, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (device_id, patient_id, patient_name, doctor_id, doctor_name, level,
+         reason, model, provider, prompt_len, analysis, usage_text,
+         weixin_sent, weixin_err, utcnow()),
+    ))
+
+
+def list_ai_analyses(device_id: Optional[str] = None,
+                     limit: int = 100) -> List[Dict[str, Any]]:
+    _ensure_alarm_ai_analyses()
+    if device_id:
+        rows = query(
+            "SELECT * FROM alarm_ai_analyses WHERE device_id=? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (device_id, limit))
+    else:
+        rows = query(
+            "SELECT * FROM alarm_ai_analyses ORDER BY created_at DESC LIMIT ?",
+            (limit,))
+    return [dict(r) for r in rows]
