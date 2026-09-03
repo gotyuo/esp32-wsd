@@ -1,0 +1,295 @@
+[
+    {
+        "Id": "834dd1d122760008c0f01a260b160a5ef76a6968dcd7640972f06d0b3dba0239",
+        "Created": "2026-08-30T00:18:14.493669976Z",
+        "Path": "uvicorn",
+        "Args": [
+            "app.main:app",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "12090"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 390456,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-08-30T00:18:15.046654108Z",
+            "FinishedAt": "0001-01-01T00:00:00Z"
+        },
+        "Image": "sha256:181f8989774d5c232bbedad4ae9eacf68e4d77252f7ac45f037eb977c45b8ae7",
+        "ResolvConfPath": "/vol1/docker/containers/834dd1d122760008c0f01a260b160a5ef76a6968dcd7640972f06d0b3dba0239/resolv.conf",
+        "HostnamePath": "/vol1/docker/containers/834dd1d122760008c0f01a260b160a5ef76a6968dcd7640972f06d0b3dba0239/hostname",
+        "HostsPath": "/vol1/docker/containers/834dd1d122760008c0f01a260b160a5ef76a6968dcd7640972f06d0b3dba0239/hosts",
+        "LogPath": "/vol1/docker/containers/834dd1d122760008c0f01a260b160a5ef76a6968dcd7640972f06d0b3dba0239/834dd1d122760008c0f01a260b160a5ef76a6968dcd7640972f06d0b3dba0239-json.log",
+        "Name": "/envmon-backend",
+        "RestartCount": 0,
+        "Driver": "overlay2",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "docker-default",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "/home/hotyuo/tio/server/data:/data:rw"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {
+                    "max-file": "5",
+                    "max-size": "100m"
+                }
+            },
+            "NetworkMode": "server_default",
+            "PortBindings": {
+                "12090/tcp": [
+                    {
+                        "HostIp": "",
+                        "HostPort": "12090"
+                    }
+                ]
+            },
+            "RestartPolicy": {
+                "Name": "unless-stopped",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": null,
+            "DnsSearch": null,
+            "ExtraHosts": [],
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 0,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": null,
+            "BlkioDeviceReadBps": null,
+            "BlkioDeviceWriteBps": null,
+            "BlkioDeviceReadIOps": null,
+            "BlkioDeviceWriteIOps": null,
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": null,
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 0,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+                "/proc/asound",
+                "/proc/acpi",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/sys/firmware",
+                "/sys/devices/virtual/powercap",
+                "/sys/devices/system/cpu/cpu0/thermal_throttle",
+                "/sys/devices/system/cpu/cpu1/thermal_throttle",
+                "/sys/devices/system/cpu/cpu2/thermal_throttle",
+                "/sys/devices/system/cpu/cpu3/thermal_throttle",
+                "/sys/devices/system/cpu/cpu4/thermal_throttle",
+                "/sys/devices/system/cpu/cpu5/thermal_throttle",
+                "/sys/devices/system/cpu/cpu6/thermal_throttle",
+                "/sys/devices/system/cpu/cpu7/thermal_throttle"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "GraphDriver": {
+            "Data": {
+                "ID": "834dd1d122760008c0f01a260b160a5ef76a6968dcd7640972f06d0b3dba0239",
+                "LowerDir": "/vol1/docker/overlay2/fb0d0a7fbb86c01b029ae71e96620f25e8adf0019330b1d22cb1f301b0160c79-init/diff:/vol1/docker/overlay2/ks2sbcrvog59i807a5uq81g1g/diff:/vol1/docker/overlay2/u531f5sxokky69rs5bvjakyxm/diff:/vol1/docker/overlay2/v71pbkqninpshm142qi9l5xmn/diff:/vol1/docker/overlay2/54hon4o7hhh3b189rqj65c5og/diff:/vol1/docker/overlay2/3gx1ahvflwphsb8ak4itrhjs3/diff:/vol1/docker/overlay2/kt4ahaq22uyco5kgrqhqra8tw/diff:/vol1/docker/overlay2/p44phdpydypa6d6oe2punhje1/diff:/vol1/docker/overlay2/ff6b3fb42186b78d16357802fb2396343824350f0d8e08407c1cf9985a3945d3/diff:/vol1/docker/overlay2/cff67f242c6a080bd560f0cbf64c2b740629c79bc4ce51894080d4abe0e1a246/diff:/vol1/docker/overlay2/e65de27cd8da9b63fbeb4bc45cb4e9f34923ca3af55a45ecdb08a3d8cbdc3281/diff:/vol1/docker/overlay2/84f069ad3afc749501c4c960ff01491c3282a5f3c98a47879df9b9fa335adc31/diff",
+                "MergedDir": "/vol1/docker/overlay2/fb0d0a7fbb86c01b029ae71e96620f25e8adf0019330b1d22cb1f301b0160c79/merged",
+                "UpperDir": "/vol1/docker/overlay2/fb0d0a7fbb86c01b029ae71e96620f25e8adf0019330b1d22cb1f301b0160c79/diff",
+                "WorkDir": "/vol1/docker/overlay2/fb0d0a7fbb86c01b029ae71e96620f25e8adf0019330b1d22cb1f301b0160c79/work"
+            },
+            "Name": "overlay2"
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "/home/hotyuo/tio/server/data",
+                "Destination": "/data",
+                "Mode": "rw",
+                "RW": true,
+                "Propagation": "rprivate"
+            }
+        ],
+        "Config": {
+            "Hostname": "834dd1d12276",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "ExposedPorts": {
+                "12090/tcp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "MQTT_PORT=1883",
+                "MQTT_PASS=envmon",
+                "TTS_ENABLED=1",
+                "SESSION_TTL_HOURS=168",
+                "MQTT_USER=envmon",
+                "TTS_HOST=piper",
+                "MQTT_HOST=mosquitto",
+                "TTS_PORT=10200",
+                "TTS_VOICE=zh_CN-huayan-medium",
+                "DB_PATH=/data/envmon.db",
+                "SCHEMA_FILE=/app/schema.sql",
+                "ADMIN_PASS=admin123",
+                "MINUTE_RETENTION_DAYS=400",
+                "ADMIN_TOKEN=",
+                "ADMIN_USER=admin",
+                "RAW_RETENTION_DAYS=7",
+                "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "LANG=C.UTF-8",
+                "GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305",
+                "PYTHON_VERSION=3.12.14",
+                "PYTHON_SHA256=5c8462af5790baf43a321a1559dbe0db06d1be4300fb85fb53c40060668e548a",
+                "PYTHONUNBUFFERED=1"
+            ],
+            "Cmd": [
+                "uvicorn",
+                "app.main:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "12090"
+            ],
+            "Image": "server-backend",
+            "Volumes": {
+                "/data": {}
+            },
+            "WorkingDir": "/app",
+            "Entrypoint": null,
+            "OnBuild": null,
+            "Labels": {
+                "com.docker.compose.config-hash": "4e0ca12aca619d198a6cdda6edc6a87052e45f345b24a47108f6aab136c86eeb",
+                "com.docker.compose.container-number": "1",
+                "com.docker.compose.depends_on": "piper:service_started:false,mosquitto:service_started:false",
+                "com.docker.compose.image": "sha256:181f8989774d5c232bbedad4ae9eacf68e4d77252f7ac45f037eb977c45b8ae7",
+                "com.docker.compose.oneoff": "False",
+                "com.docker.compose.project": "server",
+                "com.docker.compose.project.config_files": "/home/hotyuo/tio/server/docker-compose.yml",
+                "com.docker.compose.project.working_dir": "/home/hotyuo/tio/server",
+                "com.docker.compose.replace": "envmon-backend",
+                "com.docker.compose.service": "backend",
+                "com.docker.compose.version": "2.40.3"
+            }
+        },
+        "NetworkSettings": {
+            "Bridge": "",
+            "SandboxID": "db4388bd17ef2d7adfa3c3faaaeee0619bb7eda88debef050673af62d8cfc82c",
+            "SandboxKey": "/var/run/docker/netns/db4388bd17ef",
+            "Ports": {
+                "12090/tcp": [
+                    {
+                        "HostIp": "0.0.0.0",
+                        "HostPort": "12090"
+                    },
+                    {
+                        "HostIp": "::",
+                        "HostPort": "12090"
+                    }
+                ]
+            },
+            "HairpinMode": false,
+            "LinkLocalIPv6Address": "",
+            "LinkLocalIPv6PrefixLen": 0,
+            "SecondaryIPAddresses": null,
+            "SecondaryIPv6Addresses": null,
+            "EndpointID": "",
+            "Gateway": "",
+            "GlobalIPv6Address": "",
+            "GlobalIPv6PrefixLen": 0,
+            "IPAddress": "",
+            "IPPrefixLen": 0,
+            "IPv6Gateway": "",
+            "MacAddress": "",
+            "Networks": {
+                "server_default": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": [
+                        "envmon-backend",
+                        "backend"
+                    ],
+                    "MacAddress": "7e:8c:7d:56:39:e3",
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "9a806edada4439e29914f420f3dae81ad209bb093016a0fbd679128a67a9b397",
+                    "EndpointID": "e3c9071d14907f6df394600bed6f6cee9fc88ec61ee0bfc32d9e60b40808b63e",
+                    "Gateway": "172.28.0.1",
+                    "IPAddress": "172.28.0.4",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": [
+                        "envmon-backend",
+                        "backend",
+                        "834dd1d12276"
+                    ]
+                }
+            }
+        }
+    }
+]

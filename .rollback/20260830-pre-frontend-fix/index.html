@@ -104,17 +104,6 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .devcard .latest span{color:var(--sub)} .devcard .latest b{color:var(--txt);font-weight:600}
 .devcard .actions{margin-top:10px;display:flex;gap:5px;flex-wrap:wrap}
 .devcard .name{font-size:11px;color:var(--sub);margin-left:6px;font-weight:400}
-/* 设备卡片头部：左侧设备 ID/名称，右侧状态徽标 + 单台刷新按钮（按钮用 margin-left:auto 靠右） */
-.devcard .head .id{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.devcard .head .refresh{display:inline-flex;align-items:center;gap:4px;margin-left:auto}
-/* 设备管理：在线 / 离线 分组 */
-.devgroup{margin-bottom:18px}
-.devgroup:last-child{margin-bottom:0}
-.dg-head{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;letter-spacing:.5px;padding-bottom:8px;margin-bottom:12px;border-bottom:1px solid var(--line)}
-.dg-head .sub{font-weight:400;font-size:11px;letter-spacing:0}
-.dg-online .dg-head{color:var(--green,#2ec27e)}
-.dg-offline .dg-head{color:var(--orange,#e8a33d)}
-.dg-empty{padding:22px;text-align:center;font-size:12px;border:1px dashed var(--border,var(--line));border-radius:6px}
 
 /* ===== 表格 ===== */
 table{width:100%;border-collapse:collapse;font-size:12px;font-family:Consolas,monospace}
@@ -179,16 +168,12 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab" data-view="sessions" onclick="switchView('sessions')">📋 监护记录</span>
       <span class="vtab" data-view="alarms" onclick="switchView('alarms')">🚨 报警</span>
       <span class="vtab" data-view="hl7" onclick="switchView('hl7')">📡 非ESP接入</span>
-      <span class="vtab" data-view="access" onclick="switchView('access')">📡 设备接入</span>
-      <span class="vtab" data-view="doctors" onclick="switchView('doctors')">👨⚕ 医生管理</span>
-      <span class="vtab" data-view="remind" onclick="switchView('remind')">💬 发提醒</span>
-      <span class="vtab" data-view="ai" onclick="switchView('ai')">🧠 AI 模型</span>
     </div>
   </div>
   <div class="left">
     <span class="badge"><span id="timeNow">--</span></span>
     <span class="badge" id="wsState">WS 连接中…</span><span class="badge" style="cursor:pointer;color:#3fb6ff" onclick="window.open('/dashboard','_blank')" title="打开重症监护大屏(聚光灯轮播)">🖥 大屏展示</span>
-    <button class="secondary small" onclick="loadAll(event)">全局刷新</button>
+    <button class="secondary small" onclick="loadAll(event)">刷新</button>
     <div class="menu">
       <button class="secondary menuBtn" onclick="toggleMenu(event)">👤 <span id="userName">-</span> ▾</button>
       <div class="menuDrop hidden" id="userMenu">
@@ -211,8 +196,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="badge" id="lastSeen">最后上报 -</span>
       <button class="secondary small" onclick="dashboardSetMode('single')">单床位</button>
       <button class="secondary small active" id="dbGridBtn" onclick="dashboardSetMode('grid')">多人网格</button>
-      <button class="small" onclick="probeDevices(event)" title="主动扫描所有设备在线状态（耗时 ~1s）">🔍 刷新设备状态</button>
-      <button class="secondary small" onclick="loadDashboardGrid(event)">刷新患者网格</button>
+      <button class="secondary small" onclick="loadDashboardGrid(event)">刷新网格</button>
     </div>
     <div id="view-dashboard-single">
     <div class="vitals">
@@ -342,8 +326,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <span class="badge" id="mBadge">-</span>
   <span class="badge" id="mTime">--</span>
   <div style="flex:1"></div>
-  <button class="small" onclick="probeDevices()">🔍 刷新设备状态</button>
-  <button class="secondary small" onclick="refreshMonitor(event)">刷新监护</button>
+  <button class="secondary small" onclick="refreshMonitor(event)">刷新</button>
   <button class="secondary small" onclick="showIoForm()">+ 出入量</button>
   <button class="secondary small" id="mAssessBtn" onclick="assessPatient()">🤖 AI 评估</button>
 </div>
@@ -357,18 +340,17 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 </div>
 <div class="m-bottom">
   <div class="m-panel">
-    <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新医嘱</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">📜 历史</button></h4>
+    <h4>💊 运行中用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button></h4>
     <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
-    <div id="ordHist" class="hidden" style="margin-top:6px;max-height:220px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
   <div class="m-panel">
-    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新出入量</button><button class="secondary small" onclick="showAddIo()">+ 添加出入量</button></h4>
+    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showAddIo()">+ 添加出入量</button></h4>
     <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
     <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
     <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
   </div>
   <div class="m-panel">
-    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新检验</button><button class="secondary small" onclick="showAddLab()">+ 添加检验</button></h4>
+    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新</button><button class="secondary small" onclick="showAddLab()">+ 添加检验</button></h4>
     <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
   </div>
 </div>
@@ -392,8 +374,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <h2>🏥 患者管理 / PATIENTS
         <div class="actions" style="margin-top:0">
           <button onclick="showPatientForm()">+ 新建患者</button>
-          <button class="small" onclick="probeDevicesThenPatients(event)" title="先主动扫描设备在线状态，再刷新患者列表">🔍 刷新绑定 & 设备</button>
-          <button class="secondary small" onclick="loadPatients(event)">刷新患者</button>
+          <button class="secondary small" onclick="loadPatients(event)">刷新</button>
           <button class="secondary small" onclick="triggerBackup()">💾 手动备份</button>
         </div>
       </h2>
@@ -407,15 +388,12 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <h2>🖥 设备管理 / DEVICE MANAGEMENT
         <div class="actions" style="margin-top:0">
           <button onclick="showAddDevice()">+ 注册设备</button>
-          <button class="small" id="devProbeBtn" onclick="probeDevices(event)" title="向所有设备发心跳探测，实时判断在线/离线">🔍 刷新状态</button>
-          <button class="secondary small" onclick="loadDevices(null,event)">刷新列表</button>
           <button class="secondary small" onclick="showDeviceDiscover()">📡 局域网发现</button>
+          <button class="secondary small" onclick="loadDevices(null,event)">刷新</button>
           <span class="hint" id="devCount">0 台</span>
         </div>
       </h2>
-      <div class="hint" id="devGroupHint" style="margin-bottom:12px;font-size:11px"></div>
-      <div id="devOnline" class="devgroup dg-online"></div>
-      <div id="devOffline" class="devgroup dg-offline"></div>
+      <div class="devgrid" id="devGrid"><div class="empty">加载中…</div></div>
     </div>
   </div>
 
@@ -424,7 +402,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <div class="section">
       <h2>📋 监护记录 / MONITOR SESSIONS
         <div class="actions" style="margin-top:0">
-          <button class="secondary small" onclick="loadMonitorSessionsView(event)">刷新监护记录</button>
+          <button class="secondary small" onclick="loadMonitorSessionsView(event)">刷新</button>
         </div>
       </h2>
       <div id="sessionsList"><div class="empty">加载中…</div></div>
@@ -434,7 +412,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <!-- ============= 报警 ============= -->
   <div id="view-alarms" class="hidden">
     <div class="section">
-      <h2>🚨 报警记录 / ALARM LOG <button class="secondary small" onclick="loadAlarms(event)">刷新报警</button></h2>
+      <h2>🚨 报警记录 / ALARM LOG <button class="secondary small" onclick="loadAlarms(event)">刷新</button></h2>
       <table><thead><tr><th>时间</th><th>设备</th><th>级别</th><th>原因</th><th>数值</th><th>状态</th></tr></thead>
         <tbody id="alarmBody"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody></table>
     </div>
@@ -445,7 +423,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <div class="section">
       <h2>📡 非ESP设备接入 / HL7 & HTTP INGEST
         <div class="actions" style="margin-top:0">
-          <button class="secondary small" onclick="loadHl7View(event)">刷新接入示例</button>
+          <button class="secondary small" onclick="loadHl7View(event)">刷新</button>
         </div>
       </h2>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -500,101 +478,6 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
       </div>
     </div>
   </div>
-
-  <!-- ============= 设备接入快照（内网/外网） ============= -->
-  <div id="view-access" class="hidden">
-    <div class="section">
-      <h2>📡 设备接入 / DEVICE ACCESS
-        <div class="actions" style="margin-top:0">
-          <button class="small" onclick="loadAccess()">🔍 刷新接入</button>
-          <button class="secondary small" onclick="acceptAllNew()">✔ 批量保存新增</button>
-          <button class="secondary small" onclick="loadDevices(null,event)">同步设备管理</button>
-          <span class="hint" id="accessHint">--</span>
-        </div>
-      </h2>
-      <div style="font-size:12px;color:var(--sub);margin-bottom:10px">
-        每次"主动扫描"都会生成一条设备接入快照；当前窗口 <b id="accessWindow">5</b> 分钟，
-        窗口外自动清空，避免历史积压。新增的设备不会自动入库，需要手动"批量保存"。
-      </div>
-      <div style="margin-bottom:14px">
-        <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--orange)">🆕 新增设备（尚未保存）</h3>
-        <div class="devgrid" id="accessNewGrid"><div class="empty" style="font-size:12px">点"🔍 刷新接入"主动扫描</div></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-        <div>
-          <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--green)">🏠 内网接入（LAN）</h3>
-          <div class="devgrid" id="accessLanGrid"><div class="empty" style="font-size:12px">-</div></div>
-        </div>
-        <div>
-          <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--blue)">🌐 外网接入（WAN）</h3>
-          <div class="devgrid" id="accessWanGrid"><div class="empty" style="font-size:12px">-</div></div>
-        </div>
-      </div>
-      <div>
-        <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--sub)">❓ 未分类（无 IP）</h3>
-        <div class="devgrid" id="accessUnknownGrid"><div class="empty" style="font-size:12px">-</div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ============= 医生管理 ============= -->
-  <div id="view-doctors" class="hidden">
-    <div class="section">
-      <h2>👨⚕ 医生管理 / DOCTORS
-        <div class="actions" style="margin-top:0">
-          <button onclick="showDoctorForm()">+ 新增医生</button>
-          <button class="secondary small" onclick="loadDoctorsView()">刷新</button>
-          <span class="hint" id="docCount">0 人</span>
-        </div>
-      </h2>
-      <div style="font-size:12px;color:var(--sub);margin-bottom:10px">
-        注册医生后，可在患者管理里给患者绑定主管医生；主管医生会在患者卡片上显示，
-        患者异常和医生发提醒时自动作为"消息来源"推送到企业微信。
-      </div>
-      <table>
-        <thead><tr><th>姓名</th><th>职称</th><th>科室</th><th>电话</th><th>备注</th><th>操作</th></tr></thead>
-        <tbody id="doctorBody"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ============= 发提醒 ============= -->
-  
-<div id="view-remind" class="hidden">
-    <div class="section">
-      <h2>💬 发提醒 / PATIENT REMINDERS
-        <div class="actions" style="margin-top:0">
-          <button class="secondary small" onclick="loadRemindHistory()">刷新记录</button>
-        </div>
-      </h2>
-      <div style="font-size:12px;color:var(--sub);margin-bottom:10px">
-        医生向患者发一条提醒——可同时：① 语音播报文字内容 ② 患者端屏幕显示 ③ 推送企业微信。
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-        <div>
-          <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--blue)">📝 发起提醒</h3>
-          <div class="kv">
-            <label>患者</label><select id="rmdPatient"></select>
-            <label>主管医生</label>
-            <select id="rmdDoctor"><option value="">-- 不指定 --</option></select>
-            <label>设备（留空自动取患者第一台已绑设备）</label>
-            <select id="rmdDevice"><option value="">-- 自动 --</option></select>
-            <label>提醒内容</label>
-            <textarea id="rmdText" style="width:100%;height:80px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px" maxlength="512" placeholder="如：下午 3 点复查血常规"></textarea>
-            <div class="switchrow">
-              <input type="checkbox" id="rmdTts" checked><span>语音播报文字</span>
-              <input type="checkbox" id="rmdWx"><span>推送企业微信</span>
-            </div>
-          </div>
-          <div class="actions" style="margin-top:8px"><button onclick="doRemind()">发送提醒</button></div>
-        </div>
-        <div>
-          <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--orange)">📋 最近提醒记录</h3>
-          <div id="rmdHistory" style="max-height:360px;overflow:auto;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px"><div class="empty">-</div></div>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <div id="modalBox" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:400">
@@ -602,76 +485,10 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
 </div>
 <div class="toastWrap" id="toastWrap"></div>
 
-<div id="view-ai" class="hidden">
-    <div class="section">
-      <h2>🧠 AI 模型配置 / LLM
-        <div class="sub" style="margin-top:6px">
-          <span class="chip" data-chip="ai">🧠 模型配置</span>
-          <span class="chip" data-chip="hist">📝 分析历史</span>
-          <span class="chip" data-chip="test">🔌 测试连接</span>
-        </div>
-      </h2>
-      <div id="ai-cfg">
-        <p style="color:#666;font-size:13px;margin:6px 0 12px">
-          支持 OpenAI / Ollama / DeepSeek / Qwen / Gemini 等 <b>OpenAI 兼容</b> 接口。
-          填好 provider、base_url、model、api_key 后可在"测试连接"Tab 验证。
-          开启 <b>ai.enabled</b> 后报警会自动调用 LLM 分析；
-          开启 <b>ai.push_wechat</b> 后可把分析结果通过企业微信推送到患者主管医生。
-        </p>
-        <div class="grid2">
-          <div class="sg"><label>ai.enabled (0/1)</label><select id="s-ai.enabled"><option value="0">关闭</option><option value="1">开启</option></select></div>
-          <div class="sg"><label>provider</label><select id="s-ai.provider"><option>openai</option><option>ollama</option><option>deepseek</option><option>qwen</option><option>gemini</option><option>custom</option></select></div>
-          <div class="sg" style="grid-column:1/-1"><label>base_url</label><input id="s-ai.base_url" value=""/></div>
-          <div class="sg"><label>model</label><input id="s-ai.model" value=""/></div>
-          <div class="sg"><label>api_key</label><input id="s-ai.api_key" value="" type="password"/></div>
-          <div class="sg"><label>timeout (秒)</label><input id="s-ai.timeout" value=""/></div>
-          <div class="sg"><label>max_tokens</label><input id="s-ai.max_tokens" value=""/></div>
-          <div class="sg"><label>ai.push_wechat (0/1)</label><select id="s-ai.push_wechat"><option value="0">关闭</option><option value="1">开启</option></select></div>
-          <div class="sg" style="grid-column:1/-1"><label>system_prompt</label><textarea id="s-ai.system_prompt" rows="2"></textarea></div>
-          <div class="sg" style="grid-column:1/-1"><label>push_doctor_id</label><select id="s-ai.push_doctor_id"><option value="">-- 自动 --</option></select></div>
-        </div>
-        <div style="margin-top:14px"><button class="btn" onclick="saveAiSettings()">💾 保存配置</button><span id="ai-save-msg" style="margin-left:12px;color:#0b6"></span></div>
-      </div>
-      <div id="ai-hist" class="hidden">
-        <div class="sub" style="margin-top:10px;display:flex;gap:10px;align-items:center">
-          <span>患者：</span><select id="ai-filt-pid" style="min-width:160px"></select>
-          <span>设备：</span><select id="ai-filt-did" style="min-width:160px"><option value="">-- 全部 --</option></select>
-          <button class="btn small" onclick="loadAlarmAiAnalyses()">🔍 刷新</button>
-          <span style="margin-left:auto;color:#666">最近 50 条</span>
-        </div>
-        <table class="data" style="margin-top:10px"><thead><tr><th>时间</th><th>设备</th><th>患者</th><th>等级</th><th>原因</th><th>推送</th><th>操作</th></tr></thead><tbody id="ai-hist-body"></tbody></table>
-      </div>
-      <div id="ai-test" class="hidden">
-        <div class="sg" style="margin-top:8px"><label>测试 prompt</label><textarea id="ai-test-prompt" rows="3">请只回复一行：OK, 模型已就绪。</textarea></div>
-        <button class="btn" onclick="aiTestConnect()">🔌 发送测试</button>
-        <pre id="ai-test-result" style="margin-top:10px;white-space:pre-wrap;word-break:break-word;background:#f6f6f6;padding:10px;min-height:60px">等待测试…</pre>
-      </div>
-    </div>
-  </div>
-
 <script>
 "use strict";
 var TOKEN=localStorage.getItem("envmon_token")||"";
-
-// 全局兜底：页面共约 27 处 .catch(function(){}) 空捕获，任何一处失败都被静默吞掉，
-// 表现为"点了没反应"（按钮复位、内容没变、也没有报错）。这里补一层最后防线：
-// 未被 .catch 捕获的 Promise 拒绝一律打点，保证问题可观测、不再无声。
-// 用 800ms 窗口按消息去重，避免多个刷新按钮同时失败刷屏。
-// 注意：不处理 window.error——脚本语法错误浏览器自身会报，重复 toast 反而误导。
-(function(){
-  var _last={msg:"",t:0};
-  function _note(msg){
-    var now=Date.now();
-    if(msg===_last.msg && now-_last.t<800)return;
-    _last={msg:msg,t:now};
-    try{console.warn("[EnvMon] 未捕获错误:",msg);}catch(e){}
-    try{if(typeof toast==="function")toast("操作失败: "+String(msg).slice(0,80),"alarm");}catch(e){}
-  }
-  window.addEventListener("unhandledrejection",function(e){
-    _note(e.reason && (e.reason.message||e.reason) || "网络或服务异常");
-  });
-})();
-var ME=null, DEV=null, CURRENT_VIEW="dashboard", CURRENT_PID="", RANGE=24, HIST=[], ws=null, SOUND=true, DEVICES=[];
+var ME=null, DEV=null, CURRENT_VIEW="dashboard", RANGE=24, HIST=[], ws=null, SOUND=true, DEVICES=[];
 var DASHBOARD_MODE="grid", AI_ASSESS=false, AI_SETTINGS={};
 function $(id){return document.getElementById(id)}
 function fmt(v,d){return (v==null||isNaN(v))?"--":Number(v).toFixed(d==null?1:d)}
@@ -684,16 +501,8 @@ function _refreshBtn(ev,fn){
   if(b&&b.disabled)return;             // 防重复点击(仅锁当前按钮,不锁全局)
   var o=b?b.textContent:"";
   if(b){b.disabled=true;b.textContent=" 刷新中...";}
-  // 修复要点：fn() 往往没有 return 其内部的 api().then(...)，此时 p 为 undefined，
-  // 下面走 else 分支会「同步立即」finish(true)，按钮"刷新中..."存活不到 1ms，
-  // 用户看着就是「点了没反应」。故加最小显示时长 MIN_MS：快请求也先显示 400ms。
-  var done=false, shown=false, MIN_MS=400;
-  function finish(ok,msg){
-    if(done)return; done=true;
-    if(!ok&&msg){ shown=true; toast(msg); if(b){b.disabled=false;b.textContent=o;} return; } // 失败立即恢复
-    if(!shown){ setTimeout(function(){ if(done){ shown=true; if(b){b.disabled=false;b.textContent=o;} } },MIN_MS); }
-    else if(b){ b.disabled=false; b.textContent=o; }
-  }
+  var done=false;
+  function finish(ok,msg){ if(done)return; done=true; if(b){b.disabled=false;b.textContent=o;} if(!ok&&msg)toast(msg); }
   try{
     var p=fn();
     if(p&&typeof p.then==='function'){ p.then(function(){finish(true);}).catch(function(e){finish(false,e&&e.message?e.message:"刷新失败，请检查网络与登录状态");}); }
@@ -704,8 +513,8 @@ function _refreshBtn(ev,fn){
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}}
+  ["dashboard","monitor","patients","devices","sessions","alarms","hl7"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -768,128 +577,23 @@ function showPwd(){$("modalInner").innerHTML="<h2 style='font-size:14px;margin-b
   "<div class='kv'><label>原密码</label><input type='password' id='pOld'><label>新密码</label><input type='password' id='pNew' minlength='6'><label>确认</label><input type='password' id='pNew2'></div>"+
   "<div class='actions'><button onclick='doPwd()'>确认</button><button class='secondary' onclick='closeModal()'>取消</button></div><div id='pwdErr' style='color:var(--red);font-size:12px;margin-top:8px'></div>";$("modalBox").classList.remove("hidden");}
 function doPwd(){var o=$("pOld").value,n=$("pNew").value,n2=$("pNew2").value;if(n.length<6){$("pwdErr").textContent="新密码至少 6 位";return;}if(n!==n2){$("pwdErr").textContent="两次密码不一致";return;}
-  api("/api/me/password",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({old_password:o,new_password:n})}).then(function(){toast("密码已修改");closeModal();}).catch(function(e){toast("修改失败: "+(e&&e.message||""),"alarm");});}
+  api("/api/me/password",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({old_password:o,new_password:n})}).then(function(){toast("密码已修改");closeModal();}).catch(function(){});}
 
 function loadUsers(){api("/api/users").then(function(d){var u=d.users||[];if(u.length)$("mUsers").classList.remove("hidden");}).catch(function(){$("mUsers").classList.add("hidden");});}
 function showUsers(){api("/api/users").then(function(d){var u=d.users||[],rows=u.map(function(x){return "<tr><td>"+esc(x.username)+"</td><td>"+esc(x.display_name||"-")+"</td><td>"+(x.role==="admin"?"管理员":"观察者")+"</td><td>"+fmtTime(x.last_login)+"</td><td>"+(ME&&x.id===ME.id?"<span class='bad'>当前</span>":"<button class='danger small' onclick='delUser("+x.id+")'>删除</button>")+"</td></tr>";}).join("");
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>USER MANAGEMENT</h2><table><thead><tr><th>用户名</th><th>显示名</th><th>角色</th><th>最后登录</th><th>操作</th></tr></thead><tbody>"+rows+"</tbody></table><div style='margin-top:14px;border-top:1px solid var(--line);padding-top:12px'><div class='kv'><label>用户名</label><input id='uName' placeholder='字母数字_-.'><label>显示名</label><input id='uDisp' placeholder='可选'><label>密码</label><input id='uPass' type='password' placeholder='至少6位'><label>角色</label><select id='uRole'><option value='viewer'>观察者</option><option value='admin'>管理员</option></select></div><div class='actions'><button onclick='addUser()'>创建</button><button class='secondary' onclick='closeModal()'>关闭</button></div></div>";
   $("modalBox").classList.remove("hidden");}).catch(function(){});}
-function addUser(){var body={username:$("uName").value.trim(),display_name:$("uDisp").value.trim(),password:$("uPass").value,role:$("uRole").value};if(!body.username||body.password.length<6){alert("用户名必填，密码至少6位");return;}api("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){toast("用户已创建");showUsers();}).catch(function(e){toast("创建失败: "+(e&&e.message||""),"alarm");});}
-function delUser(id){if(!confirm("确定删除该用户？"))return;api("/api/users/"+id,{method:"DELETE"}).then(function(){toast("用户已删除");showUsers();}).catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});}
+function addUser(){var body={username:$("uName").value.trim(),display_name:$("uDisp").value.trim(),password:$("uPass").value,role:$("uRole").value};if(!body.username||body.password.length<6){alert("用户名必填，密码至少6位");return;}api("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){toast("用户已创建");showUsers();}).catch(function(){});}
+function delUser(id){if(!confirm("确定删除该用户？"))return;api("/api/users/"+id,{method:"DELETE"}).then(function(){toast("用户已删除");showUsers();}).catch(function(){});}
 
-function _devCard(x,onlineFlag){
-  // onlineFlag: true=在线徽标, false=离线徽标, null=不显示徽标
-  var nameRow=x.name?'<span class="name">'+esc(x.name)+'</span>':'';
-  var icon=(onlineFlag==null?'':onlineFlag?'<span class="ok">● 在线</span>':'<span class="bad">○ 离线</span>');
-  var latest=x.latest||null;
-  var vals=(latest?'<span>SP.T '+fmt(latest.temp_c)+'℃</span><span>HUM '+fmt(latest.hum_pct)+'%</span><span>PRESS '+fmt(latest.pres_hpa,1)+'hPa</span><span>SIG '+(latest.rssi==null?"--":latest.rssi)+'dBm</span>':'<span class="empty" style="text-align:left">无历史数据</span>');
-  var alarmState=(latest&&latest.alarm_level>=2?"alarm":latest&&latest.alarm_level==1?"warn":"");
-  // 状态徽标放在 id 之后（随内容流），单独刷新按钮靠右：
-  // 「刷新」只重新判定这一台的在线状态，不动其它设备，也不重排在线/离线分组。
-  var did=esc(x.id);
-  return "<div class='devcard "+alarmState+"' id='devcard-"+did+"'><div class='head'><span class='id'>"+did+nameRow+"</span><span id='devst-"+did+"'>"+icon+"</span><span class='refresh'><button class='secondary small' title='只刷新这一台设备的在线状态' onclick='refreshOneDevice(\""+did+"\",event)'>⟳ 刷新</button></span></div>"+
-    "<div class='meta'><div class='k'>固件</div><div class='v'>"+esc(x.fw_version||"-")+"</div>"+
-    "<div class='k'>IP</div><div class='v'>"+esc(x.ip_addr||"-")+"</div>"+
-    "<div class='k'>首次上线</div><div class='v'>"+fmtTime(x.first_seen)+"</div>"+
-    "<div class='k'>最后上报</div><div class='v' id='devseen-"+did+"'>"+fmtTime(x.last_seen)+"</div></div>"+
-    "<div class='latest'>"+vals+"</div>"+
-    "<div class='actions'><button class='secondary small' onclick='viewDevice(\""+did+"\")'>详情</button><button class='secondary small' onclick='editName(\""+did+"\")'>编辑</button><button class='success small' onclick='showDeviceConfig(\""+did+"\")'>配置</button><button class='danger small' onclick='delDev(\""+did+"\")'>删除</button></div></div>";
-}
-// 单台设备刷新：只判定这一台的在线状态并回写徽标，不重排分组。
-// 用独立的 loading 标记（而非 _refreshBtn），因为这里要自己重绘徽标与「最后上报」，
-// 而且点的是卡片内的按钮，不能影响顶部那批全局按钮。
-var _DEVREFRESH_BUSY={};
-function refreshOneDevice(id,ev){
-  var key=id;
-  if(_DEVREFRESH_BUSY[key])return;
-  _DEVREFRESH_BUSY[key]=true;
-  var btn=ev&&ev.currentTarget?ev.currentTarget:null;
-  var orig=btn?btn.textContent:"";
-  if(btn){btn.disabled=true;btn.textContent="⟳ …";}
-  var stEl=$("devst-"+esc(id)), seenEl=$("devseen-"+esc(id));
-  api("/api/devices/"+encodeURIComponent(id)+"/probe",{method:"POST"}).then(function(d){
-    var on=!!d.online, rec=d.device||{};
-    if(stEl){stEl.innerHTML=on?"<span class=\"ok\">● 在线</span>":"<span class=\"bad\">○ 离线</span>";}
-    if(seenEl){seenEl.textContent=fmtTime(rec.last_seen);}
-    // 同步进内存列表，让顶部「N 台 · 在线 N 台」与其它页面视图口径一致。
-    DEVICES.forEach(function(x){if(x.id===id){x.online=on?1:0;if(rec.last_seen!=null)x.last_seen=rec.last_seen;}});
-    var cnt=$("devCount");
-    if(cnt&&DEVICES.length){
-      cnt.textContent=DEVICES.length+" 台 · 在线 "+DEVICES.filter(function(x){return x.online;}).length+" 台";
-    }
-    toast((on?"● 在线":"○ 离线")+" "+id+(d.mqtt_connected?"":"（MQTT 未连接，仅按遥测新鲜度判定）"));
-  }).catch(function(e){
-    toast("刷新失败: "+(e&&e.message?e.message:"请检查网络与登录状态"),"alarm");
-  }).finally(function(){
-    _DEVREFRESH_BUSY[key]=false;
-    if(btn){btn.disabled=false;btn.textContent=orig;}
-  });
-}
-// 设备管理按 在线 / 离线 分两组显示。
-// src: {online:[...], offline:[...]}（主动探测结果）或纯数组（刷新，按 LWT online 字段）。
-function renderDeviceGroups(src,probeMode){
-  var on,off;
-  if(Array.isArray(src)){
-    on=[];off=[];
-    src.forEach(function(x){(x.online?on:off).push(x);});
-  }else{ on=src.online||[]; off=src.offline||[]; }
-  function block(title,sub,list,isOn){
-    var h=document.createElement("div");
-    h.className="devgrid";
-    if(!list.length){
-      var e=document.createElement("div");
-      e.className="dg-empty";
-      e.innerHTML=isOn?'没有在线设备 · 点「🔍 刷新状态」主动扫描':'当前没有离线设备';
-      h.appendChild(e);
-    }else{
-      h.innerHTML=list.map(function(x){return _devCard(x,isOn);}).join("");
-    }
-    var wrap=document.createElement("div");
-    var head=document.createElement("div");
-    head.className="dg-head";
-    head.innerHTML='<span>'+title+'</span><span class="sub">· '+list.length+' 台'+sub+'</span>';
-    wrap.appendChild(head);wrap.appendChild(h);
-    return wrap;
-  }
-  var o=document.getElementById("devOnline"), f=document.getElementById("devOffline");
-  o.innerHTML="";f.innerHTML="";
-  o.appendChild(block("🟢 在线设备",probeMode?"（主动扫描回执）":"",on,true));
-  f.appendChild(block("⚫ 离线设备",probeMode?"（扫描无回执）":"",off,false));
-}
-// 主动探测：向每台设备下发最小配置载荷，固件回 config/ack 即判定此刻在线。
-// 这是唯一的"真扫描"通道——按钮过去只是被动重读本地表，从未上报过的设备永远扫不到。
-function probeDevices(ev){
-  var b=document.getElementById("devProbeBtn");
-  if(b&&b.disabled)return;
-  if(b){b.disabled=true;var _o=b.textContent;b.textContent="扫描中…";}
-  api("/api/devices/probe",{method:"POST"}).then(function(d){
-    DEVICES=(d.online||[]).concat(d.offline||[]);
-    _syncDevSel(DEVICES);
-    renderDeviceGroups(d,true);
-    $("devCount").textContent=DEVICES.length+" 台 · 在线 "+(d.online_count||0)+"/离线 "+(d.offline_count||0);
-    var t=new Date().toLocaleTimeString();
-    $("devGroupHint").textContent="主动扫描于 "+t+" 完成（耗时 "+(d.elapsed_s||0)+"s）· 共 "+(d.probed||0)+" 台 · MQTT "+(d.mqtt_connected?"已连接":"未连接");
-    loadReal();
-  }).catch(function(e){
-    toast("扫描失败: "+(e&&e.message||""),"alarm");
-  }).finally(function(){
-    if(b){b.disabled=false;b.textContent=_o;}
-  });
-}
 function loadDevices(pick,ev){_refreshBtn(ev,function(){return api("/api/devices").then(function(d){var devs=d.devices||[];DEVICES=devs;
-  _syncDevSel(devs,pick);
-  renderDeviceGroups(devs,false);
-  $("devCount").textContent=devs.length+" 台 · 在线 "+devs.filter(function(x){return x.online;}).length+" 台";
-  $("devGroupHint").textContent="按设备 MQTT 连接状态(LWT 遗嘱)分组 · 标记可能滞后，点「🔍 刷新状态」主动扫描获取真实在线状态";
-  loadReal();loadHistory();loadTh();loadAlarms();loadDashboardGrid();return devs;}).catch(function(){return[];});});}
-// 重建设备下拉框并选定当前/首台设备。pick=true 强制取第一台。
-function _syncDevSel(devs,pick){
-  var sel=$("devSel");if(!sel)return;
-  sel.innerHTML=devs.map(function(x){return "<option value=\""+esc(x.id)+"\">"+esc(x.name||x.id)+"</option>";}).join("");
+  var sel=$("devSel");sel.innerHTML=devs.map(function(x){return "<option value=\""+esc(x.id)+"\">"+esc(x.name||x.id)+"</option>";}).join("");
+  // pick=true 强制切到第一台(首次进入/显式刷新的语义);否则保留当前 DEV,只在 DEV 不在列表时才回落
   if(!devs.length){sel.innerHTML="<option value=''>无设备</option>";DEV=null;}
-  else if(pick||!DEV||!devs.some(function(x){return x.id===DEV;})){DEV=devs[0].id;}
+  else if(pick){DEV=devs[0].id;}
+  else if(!DEV||!devs.some(function(x){return x.id===DEV;})){DEV=devs[0].id;}
   sel.value=DEV||"";
-}
+  renderDeviceGrid(devs);$("devCount").textContent=devs.length+" 台";loadReal();loadHistory();loadTh();loadAlarms();loadDashboardGrid();return devs;}).catch(function(){return[];});});}
 function switchDevice(){
   DEV=$("devSel").value;
   // 切到下拉所选 —— 同步刷新 vitals / history / 阈值 / 报警,并重绘监护网格让顶部实时卡片跟着换设备
@@ -929,33 +633,25 @@ function loadTh(){api("/api/thresholds?device="+(DEV?encodeURIComponent(DEV):"*"
     $("sHum").textContent="正常区间 "+fmt(t.hum_min)+" ~ "+fmt(t.hum_max)+" %";
     $("sPres").textContent="正常区间 "+fmt(t.pres_min)+" ~ "+fmt(t.pres_max)+" hPa";
   }).catch(function(){});}
-function loadAlarms(ev){_refreshBtn(ev,function(){api("/api/alarms?limit=50").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+fmt(x.temp_c)+"℃ "+fmt(x.hum_pct)+"% "+fmt(x.pres_hpa)+"hPa</td><td>"+st+"</td></tr>";}).join("");}).catch(function(){});});}// 上端「刷新」：按当前视图刷新整个页面（不是所有视图都刷全部）。
-// 原先 loadAll 无论当前在哪个视图都只调 loadDevices()（只刷新设备下拉框），
-// 表现为"点了没反应"——页面内容完全不变。区域内的「刷新」按钮仍只刷本区域，
-// 两级刷新各司其职。
-//
-// 注意：这里故意不传 ev、直接调用各 loadXxx() 的无参形式。原因是各 loadXxx 内部
-// 已经会再包一层 _refreshBtn；若把 ev 透传下去，内层会拿到同一个按钮并再次
-// disabled/改文字，与外层 finish 抢状态（外层 finish 设 done=true 后内层仍会
-// 覆写按钮文案）。外层已负责锁按钮+还原，内层直接执行数据加载即可。
-function loadAll(ev){
-  _refreshBtn(ev,function(){
-    switch(CURRENT_VIEW){
-      case "monitor":  refreshMonitor();            return;
-      case "patients": loadPatients();              return;
-      case "devices":  loadDevices();               return;
-      case "sessions": loadMonitorSessionsView();  return;
-      case "alarms":   loadAlarms();                return;
-      case "hl7":      loadHl7View();               return;
-      case "dashboard":
-      default:
-        loadReal(); loadDashboardGrid();
-    }
-  });
-}
+function loadAlarms(ev){_refreshBtn(ev,function(){api("/api/alarms?limit=50").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+fmt(x.temp_c)+"℃ "+fmt(x.hum_pct)+"% "+fmt(x.pres_hpa)+"hPa</td><td>"+st+"</td></tr>";}).join("");}).catch(function(){});});}function loadAll(ev){_refreshBtn(ev,function(){loadDevices();});}
 function saveTh(ev){ev.preventDefault();var body={device_id:$("fDev").value||"*",temp_min:+$("fTmin").value,temp_max:+$("fTmax").value,hum_min:+$("fHmin").value,hum_max:+$("fHmax").value,pres_min:+$("fPmin").value,pres_max:+$("fPmax").value,report_interval:+$("fIv").value,alarm_enabled:$("fEn").checked,alarm_sound:$("fSnd").checked};
-  api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";setTimeout(function(){$("saveMsg").textContent="";},5000);}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});}
+  api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";setTimeout(function(){$("saveMsg").textContent="";},5000);}).catch(function(){});}
 
+// ====== 设备网格 ======
+function renderDeviceGrid(devs){var g=$("devGrid");if(!devs.length){g.innerHTML='<div class="empty">暂无设备 · 点击右侧"注册设备"手动添加，或等待终端自动上线</div>';return;}g.innerHTML=devs.map(function(x){
+  var nameRow=x.name?'<span class="name">'+esc(x.name)+'</span>':'';
+  var statusIcon=x.online?'<span class="ok">● 在线</span>':'<span class="bad">○ 离线</span>';
+  var latest=x.latest||null;
+  var vals=(latest?'<span>SP.T '+fmt(latest.temp_c)+'℃</span><span>HUM '+fmt(latest.hum_pct)+'%</span><span>PRESS '+fmt(latest.pres_hpa,1)+'hPa</span><span>SIG '+(latest.rssi==null?"--":latest.rssi)+'dBm</span>':'<span class="empty" style="text-align:left">无历史数据</span>');
+  var alarmState=(latest&&latest.alarm_level>=2?"alarm":latest&&latest.alarm_level==1?"warn":"");
+  return "<div class='devcard "+alarmState+"'><div class='head'><span class='id'>"+esc(x.id)+nameRow+"</span>"+statusIcon+"</div>"+
+    "<div class='meta'><div class='k'>固件</div><div class='v'>"+esc(x.fw_version||"-")+"</div>"+
+    "<div class='k'>IP</div><div class='v'>"+esc(x.ip_addr||"-")+"</div>"+
+    "<div class='k'>首次上线</div><div class='v'>"+fmtTime(x.first_seen)+"</div>"+
+    "<div class='k'>最后上报</div><div class='v'>"+fmtTime(x.last_seen)+"</div></div>"+
+    "<div class='latest'>"+vals+"</div>"+
+    "<div class='actions'><button class='secondary small' onclick='viewDevice(\""+esc(x.id)+"\")'>详情</button><button class='secondary small' onclick='editName(\""+esc(x.id)+"\")'>重命名</button><button class='success small' onclick='showDeviceConfig(\""+esc(x.id)+"\")'>配置</button><button class='danger small' onclick='delDev(\""+esc(x.id)+"\")'>删除</button></div></div>";
+}).join("");}
 
 // ====== 设备操作 ======
 function showAddDevice(){$("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>REGISTER DEVICE</h2>"+
@@ -963,17 +659,12 @@ function showAddDevice(){$("modalInner").innerHTML="<h2 style='font-size:14px;ma
   "<div style='font-size:11px;color:var(--dim);margin-top:8px'>设备 ID 用于 MQTT 主题 envmon/{ID}/telemetry，请在终端配置页填写一致。</div>"+
   "<div class='actions'><button onclick='doAddDevice()'>注册</button><button class='secondary' onclick='closeModal()'>取消</button></div>";$("modalBox").classList.remove("hidden");}
 function doAddDevice(){var id=$("dId").value.trim(),name=$("dName").value.trim();if(!id){alert("请输入设备 ID");return;}api("/api/devices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device_id:id,name:name})}).then(function(){toast("已注册设备 "+id);closeModal();loadDevices();}).catch(function(){});}
-function editName(id){var cur=DEVICES.find(function(x){return x.id===id});var old=(cur&&cur.name)||"",oldIp=(cur&&cur.ip_addr)||"";
-  $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>EDIT DEVICE · "+esc(id)+"</h2>"+
-    "<div class='kv'><label>设备 ID</label><div style='color:var(--blue);font-weight:600;font-family:Consolas,monospace'>"+esc(id)+"</div>"+
-    "<label>设备名称</label><input id='dRename' value='"+esc(old)+"' placeholder='留空则用 ID 显示'>"+
-    "<label>设备 IP / 接入地址</label><input id='dIp' value='"+esc(oldIp)+"' placeholder='如 192.168.1.50 或 ddns.example.com:12090'>"+
-    "<div style='font-size:11px;color:var(--dim)'>内网设备填本机 IP；外网设备填可直连的接入地址（域名或公网 IP:端口）。IP 通常由设备上报自动填充，此处可手工覆盖。</div></div>"+
+function editName(id){var cur=DEVICES.find(function(x){return x.id===id});var old=(cur&&cur.name)||"";
+  $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>RENAME DEVICE</h2>"+
+    "<div class='kv'><label>设备 ID</label><div style='color:var(--blue);font-weight:600;font-family:Consolas,monospace'>"+esc(id)+"</div><label>名称</label><input id='dRename' value='"+esc(old)+"' placeholder='留空则用 ID 显示'></div>"+
     "<div class='actions'><button onclick='doRename(\""+esc(id)+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";$("modalBox").classList.remove("hidden");}
-function doRename(id){var n=$("dRename").value.trim(),ip=$("dIp").value.trim();
-  api("/api/devices/"+encodeURIComponent(id),{method:"PATCH",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({name:n||null,ip_addr:ip||null})})
-  .then(function(){toast("已保存设备信息");closeModal();loadDevices();}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});}
+function doRename(id){var n=$("dRename").value.trim();var url=encodeURIComponent(id)+"?name="+encodeURIComponent(n);
+  var r=new XMLHttpRequest();r.open("PUT","/api/devices/"+url);r.setRequestHeader("Authorization","Bearer "+TOKEN);r.onload=function(){if(r.status===200){toast("已重命名");closeModal();loadDevices();}else{alert("重命名失败");}};r.send();}
 function delDev(id){if(!confirm("删除设备 "+id+"？将清除其全部历史数据！"))return;api("/api/devices/"+encodeURIComponent(id),{method:"DELETE"}).then(function(){toast("设备已删除");if(DEV===id)DEV=null;loadDevices();}).catch(function(){});}
 function viewDevice(id){api("/api/devices/"+encodeURIComponent(id)).then(function(d){var dev=d.device,lt=d.latest,th=d.thresholds;
   var alarmTxt=lt?(lt.alarm_level>=2?"<span class='bad'>LV2 报警</span>":lt.alarm_level==1?"<span class='warn'>LV1 预警</span>":"<span class='ok'>正常</span>"):'';
@@ -1013,7 +704,7 @@ function showDeviceConfig(id){api("/api/thresholds?device="+encodeURIComponent(i
   $("modalBox").classList.remove("hidden");
 }).catch(function(){});}
 function saveDeviceTh(id){var body={device_id:id,temp_min:+$("mTmin").value,temp_max:+$("mTmax").value,hum_min:+$("mHmin").value,hum_max:+$("mHmax").value,pres_min:+$("mPmin").value,pres_max:+$("mPmax").value,report_interval:+$("mIv").value,alarm_enabled:$("mEn").checked,alarm_sound:$("mSnd").checked};
-  api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";toast("配置已保存");}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});}
+  api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";toast("配置已保存");}).catch(function(){});}
 function showDeviceAlarm(id){api("/api/alarms?limit=20").then(function(d){var a=(d.alarms||[]).filter(function(x){return x.device_id===id});
   var rows=a.length?a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+st+"</td></tr>";}).join(""):'<tr><td colspan="4" class="empty">暂无报警</td></tr>';
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>ALARM LOG · "+esc(id)+"</h2><table><thead><tr><th>时间</th><th>级别</th><th>原因</th><th>状态</th></tr></thead><tbody>"+rows+"</tbody></table><div class='actions'><button class='secondary' onclick='closeModal()'>关闭</button></div>";$("modalBox").classList.remove("hidden");
@@ -1056,51 +747,26 @@ function connectWS(){try{ws=new WebSocket((location.protocol==="https:"?"wss://"
 if(TOKEN){api("/api/me").then(function(u){ME=u;SOUND=u.sound_alarm!==0;enterApp();}).catch(function(){showLogin();});}else{showLogin();}
 
 // ==================== 患者管理 ====================
-function probeDevicesThenPatients(ev){
-  var b=(ev&&ev.currentTarget)||null;
-  if(b){b.disabled=true;var _o=b.textContent;b.textContent="扫描中…";}
-  api("/api/devices/probe",{method:"POST"}).then(function(d){
-    DEVICES=(d.online||[]).concat(d.offline||[]);
-    _syncDevSel(DEVICES);
-    // 患者页显示的设备点来自 /api/patients/summary -> devices[].online；
-    // probe 已经把结果写回 DB，此调用会拉取最新绑定+在线状态。
-    loadPatients();
-    toast("设备状态已刷新 · 在线 "+(d.online_count||0)+"/"+DEVICES.length);
-  }).catch(function(e){
-    toast("扫描失败: "+(e&&e.message||""),"alarm");
-  }).finally(function(){
-    if(b){b.disabled=false;b.textContent=_o;}
-  });
-}
 function loadPatients(ev){_refreshBtn(ev,function(){
-  // 用 /api/patients/summary：它比 /api/patients 多带 devices[]（含 online）和
-  // online_device_count。原先这里调 /api/patients，该端点不返回 online 字段，
-  // 导致下面 (p.online===0) 恒为 false、所有患者卡片永远显示绿点（假指标）。
-  api("/api/patients/summary").then(function(d){
+  api("/api/patients").then(function(d){
     var ps=d.patients||[];
     if(!ps.length){$("pGrid").innerHTML='<div class="empty">暂无患者，点击「+ 新建患者」创建</div>';return;}
     $("pGrid").innerHTML=ps.map(function(p){
-      // 在线状态来自关联设备：有设备且全部在线=绿，部分在线=黄，无设备或全离线=灰
-      var devs=p.devices||[], onlineCnt=p.online_device_count||0;
-      var alarmIcon = (devs.length&&onlineCnt===devs.length)?'🟢':(onlineCnt>0?'🟡':'⚪');
-      var devTag = devs.length
-        ? devs.map(function(x){return '<span class="small" style="color:'+(x.online?'var(--green)':'var(--sub)')+'">'+(x.online?'● ':'○ ')+esc(x.device_id)+'</span>';}).join(' · ')
-        : '<span class="small">未关联设备</span>';
+      var alarmIcon = (p.online===0)?'🔴':'🟢';
       return '<div class="devcard" onclick="showPatientDetail(\''+esc(p.pid)+'\')">'
         +'<div class="k">'
           +'<div class="name">'+alarmIcon+' '+esc(p.pid)+' <span class="small">'+esc(p.name||"")+'</span></div>'
           +'<div class="grid">'
             +'<span>床号 <b>'+esc(p.bed_no||"-")+'</b></span>'
-            +'<span>年龄 <b>'+(p.age!=null?p.age:'-')+' 岁</b></span>'
+            +'<span>年龄 <b>'+(p.age!=null?p.age:'-')+'</b> 岁</span>'
             +'<span>主管 <b>'+esc(p.doctor||"-")+'</b></span>'
           +'</div>'
           +'<div class="sub">诊断: '+esc(p.diagnosis||"-")+'</div>'
           +'<div class="sub">入院: '+fmtTime(p.admit_ts)+' · 更新: '+fmtTime(p.updated_at)+'</div>'
           +'<div class="tag">'+esc(p.gender||"")+' · '+esc(p.phone||"-")+'</div>'
-          +'<div class="tag" style="margin-top:4px">'+devTag+'</div>'
         +'</div>'
-        +'<div class="v">'
-          +'<button class="secondary small" onclick="event.stopPropagation();linkDev(\''+esc(p.pid)+'\')">🔗 关联设备</button>'
+        +'<div class="v">'+
+          '<button class="secondary small" onclick="event.stopPropagation();linkDev(\''+esc(p.pid)+'\')">🔗 关联设备</button>'
           +'<button class="secondary small" onclick="event.stopPropagation();delPatient(\''+esc(p.pid)+'\')">删除</button>'
         +'</div>';
     }).join("");
@@ -1118,7 +784,7 @@ function showPatientForm(pid){
         +"<label>性别</label><select id='pGender'><option value=''>-</option><option value='M'"+(p.gender==="M"?" selected":"")+">男</option><option value='F'"+(p.gender==="F"?" selected":"")+">女</option></select>"
         +"<label>年龄</label><input type='number' id='pAge' value='"+(p.age||"")+"' min='0' max='150'>"
         +"<label>床号</label><input id='pBed' value='"+esc(p.bed_no||"")+"' maxlength='16'>"
-        +"<label>主管医生</label><select id='pDoc'><option value=''>-- 无 --</option></select>"
+        +"<label>主管医生</label><input id='pDoc' value='"+esc(p.doctor||"")+"' maxlength='64'>"
         +"<label>诊断</label><input id='pDiag' value='"+esc(p.diagnosis||"")+"' maxlength='512'>"
         +"<label>联系电话</label><input id='pPhone' value='"+esc(p.phone||"")+"' maxlength='20'>"
       +"</div>"
@@ -1134,7 +800,7 @@ function savePatient(pid){
     age:parseInt($("pAge").value||"0",10),
     bed_no:$("pBed").value.trim(),
     diagnosis:$("pDiag").value.trim(),
-    doctor:_pDocName(),
+    doctor:$("pDoc").value.trim(),
     phone:$("pPhone").value.trim(),
   };
   if(pid){
@@ -1157,63 +823,27 @@ function linkDev(pid){
   api("/api/devices").then(function(d){
     var devs=d.devices||[];
     if(!devs.length){toast("没有可用设备");return;}
-    // 逐个查绑定状态；已绑设备灰显并标注"已被 X 绑定"
-    Promise.all(devs.map(function(x){
-      return api("/api/devices/"+encodeURIComponent(x.id)+"/binding").catch(function(){return {bound:false};});
-    })).then(function(bindings){
-      var html="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>LINK DEVICE · "+esc(pid)+"</h2>"
-        +"<div class='small' style='color:var(--sub);margin-bottom:8px'>规则：一台设备同一时段只能绑定一位患者；已绑定的设备不可再绑，需先解绑。</div>"
-        +"<div class='kv'>";
-      devs.forEach(function(x,idx){
-        var b=bindings[idx];
-        var who=(b&&b.binding)?((b.binding.name||"")+(b.binding.pid?(" ("+b.binding.pid+")"):"")).trim():"";
-        var disabled=!!(b&&b.bound);
-        html+="<label style='display:flex;align-items:center;gap:8px;opacity:"+(disabled?".55":"1")+"'>"
-          +"<input type='radio' name='devLink' value='"+esc(x.id)+"'"+(disabled?" disabled":"")+">"
-          +esc(x.name||x.id)+(x.online?' 🟢':' 🔴')
-          +(x.fw_version?' <span class="small">fw '+esc(x.fw_version)+'</span>':'')
-          +(disabled?' <span class="small" style="color:var(--orange)">[已被 '+esc(who||"某患者")+' 绑定]</span>':'')
-          +"</label>";
-      });
-      html+="</div><div class='actions'><button onclick='doLink(\""+pid+"\")'>关联</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
-      $("modalInner").innerHTML=html;
-      $("modalBox").classList.remove("hidden");
+    var html="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>LINK DEVICE · "+esc(pid)+"</h2>"
+      +"<div class='kv'>";
+    devs.forEach(function(x){
+      html+="<label style='display:flex;align-items:center;gap:8px'><input type='radio' name='devLink' value='"+esc(x.id)+"'>"
+        +esc(x.name||x.id)+ (x.online? ' 🟢':' 🔴')
+        +(x.fw_version?' <span class="small">fw '+esc(x.fw_version)+'</span>':'')+
+        '</label>';
     });
+    html+="</div><div class='actions'><button onclick='doLink(\""+pid+"\")'>关联</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+    $("modalInner").innerHTML=html;
+    $("modalBox").classList.remove("hidden");
   });
 }
 function doLink(pid){
   var r=document.querySelector('input[name="devLink"]:checked');
   if(!r){alert("请选择设备");return;}
-  api("/api/patients/"+pid+"/link/"+encodeURIComponent(r.value),{method:"POST"})
-    .then(function(){
-      toast("已关联 "+r.value);closeModal();loadPatients();
-    })
-    .catch(function(e){
-      if(e&&e.status===409){
-        alert(e.detail||"设备已被其他患者绑定，请先解绑再试");
-        linkDev(pid);
-      }else{
-        alert("关联失败");
-      }
-    });
-}
-function unlinkDev(pid, did){
-  if(!confirm("确定解除患者 "+pid+" 与设备 "+did+" 的绑定？监护记录按患者留存，解绑不影响历史查询。"))return;
-  api("/api/patients/"+pid+"/unlink/"+encodeURIComponent(did),{method:"DELETE"})
-    .then(function(){toast("已解绑");loadPatients();})
-    .catch(function(){alert("解绑失败");});
+  api("/api/patients/"+pid+"/link/"+encodeURIComponent(r.value),{method:"POST"}).then(function(){
+    toast("已关联 "+r.value);closeModal();loadPatients();});
 }
 
-function refreshPatientDevices(){
-  if(!CURRENT_PID){toast("请先打开一个患者详情","alarm");return;}
-  // 主动 probe + 重开患者详情，让设备点实时刷新。
-  api("/api/devices/probe",{method:"POST"}).then(function(){
-    showPatientDetail(CURRENT_PID);
-    toast("设备状态已刷新");
-  }).catch(function(e){toast("扫描失败: "+(e&&e.message||""),"alarm");});
-}
 function showPatientDetail(pid){
-  CURRENT_PID=pid;
   Promise.all([
     api("/api/patients/"+pid),
     api("/api/patients/"+pid+"/vitals?hours=6"),
@@ -1257,14 +887,9 @@ function showPatientDetail(pid){
         +"<button class='secondary small' onclick='closeModal();linkDev(\""+pid+"\")'>关联设备</button>"
         +"<button class='danger small' onclick='closeModal();delPatient(\""+pid+"\")'>删除</button>"
       +"</div>"
-      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin-bottom:6px'>设备 ("+devs.length+") <button class='secondary small' onclick='refreshPatientDevices()' style='font-size:10px'>⟳ 刷新设备状态</button></h3>"
+      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin-bottom:6px'>设备 ("+devs.length+")</h3>"
       +"<div style='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px'>"
-        +devs.map(function(d){
-            return "<span class='tag'>"+esc(d.device_name||d.device_id)+" "+(d.online?"🟢":"🔴")
-              +(d.fw_version?" <span class='small'>"+esc(d.fw_version)+"</span>":"")
-              +"<button class='danger small' style='margin-left:6px;padding:1px 6px' onclick='event.stopPropagation();unlinkDev(\""+esc(p.pid)+"\",\""+esc(d.device_id)+"\")'>解绑</button>"
-              +"</span>";
-          }).join("")||"<span class='empty'>未关联</span>"
+        +devs.map(function(d){return "<span class='tag'>"+esc(d.device_name||d.device_id)+" "+(d.online?"🟢":"🔴")+(d.fw_version?" <span class='small'>"+esc(d.fw_version)+"</span>":"")+"</span>";}).join("")||"<span class='empty'>未关联</span>"
       +"</div>"
       // Issue 5: 监护记录按钮
       +"<div class='row' style='gap:6px;margin-bottom:14px'>"
@@ -1280,6 +905,11 @@ function showPatientDetail(pid){
     +"</div>";
     $("modalBox").classList.remove("hidden");
   }).catch(function(){});
+}
+
+function stopOrder(pid, oid){
+  api("/api/patients/"+pid+"/orders/"+oid+"/stop",{method:"POST"}).then(function(){
+    toast("医嘱已停");showPatientDetail(pid);});
 }
 
 function triggerBackup(){
@@ -1307,8 +937,6 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
   $("mTime").textContent="患者 "+pid;
   // 加载患者体征
   api("/api/patients/"+pid+"/vitals?hours=6").then(function(d){
-    // 后端 patient_vitals 按 ts ASC（升序）返回：points[0] 是最旧、末尾是最新。
-    // 因此"最新一条"必须取末尾下标，不能改成 [0]（否则会取到最旧值）。
     MONITOR_VITALS=d.points||[];
     var latest=MONITOR_VITALS.length?MONITOR_VITALS[MONITOR_VITALS.length-1]:null;
     var cards=document.querySelectorAll("#mVitals .m-card");
@@ -1484,69 +1112,16 @@ function showAddIo(){
 function loadOrders(ev){_refreshBtn(ev,function(){
   var pid=MONITOR_PID;if(!pid)return;
   api("/api/patients/"+pid+"/orders").then(function(d){
-    // 后端按 start_ts DESC 返回全部医嘱（含已停），据此分出运行中与历史两段。
-    var all=d.orders||[];
-    var ord=all.filter(function(o){return o.status==="active";}).slice(0,10);
-    if(!ord.length){$("mOrders").innerHTML='<div class="empty" style="font-size:12px">无运行中医嘱</div>';}
-    else{
-      $("mOrders").innerHTML=ord.map(function(o){
-        var pump=o.rate_mlph!=null?" <span class='badge' style='font-size:10px'>泵速 "+o.rate_mlph.toFixed(1)+" mL/h</span>":"";
-        // 原写法 "...开 "+fmtTime(o.start_ts)+pump?":":"" 会把三元当作整个 map
-        // 回调的返回值，导致整行 HTML 被丢弃、面板只渲染出一个个冒号。这里去掉
-        // pump 条件显示（泵速已在上一行 badge 显示，重复无意义）。
-        return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line)'>"
-          +"<b>"+esc(o.drug_name||"-")+"</b> "+esc(o.dosage||"")+esc(o.route||"")+pump
-          +" <span class='small'>开 "+fmtTime(o.start_ts)+"</span>"
-          // 删除=停医嘱（软停：置 status=stopped + end_ts，保留历史记录）。
-          // 观察者角色无 admin 权限时后端返回 403，前端按只读处理。
-          +(ME&&ME.role==="admin"
-            ?" <button class='danger small' onclick='stopOrder(\""+esc(pid)+"\", "+o.id+")'>停</button>"
-            :"<span class='small' style='color:var(--green)'>运行中</span>")
-          +"</div>";
-      }).join("");
-    }
-    renderOrderHistory(all);
-  }).catch(function(e){toast("医嘱加载失败: "+(e&&e.message||""),"alarm");});
-});}
-// 历史给药：已停医嘱的流水（含停医嘱时间），只读，无删除按钮。
-function renderOrderHistory(all){
-  var hist=(all||[]).filter(function(o){return o.status!=="active";}).slice(0,30);
-  var box=$("ordHist");if(!box)return;
-  if(!hist.length){box.innerHTML='<div class="empty" style="font-size:11px">暂无历史给药记录</div>';return;}
-  box.innerHTML="<div style='font-size:10px;color:var(--sub);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px'>历史给药 ("+hist.length+")</div>"
-    +hist.map(function(o){
-      return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line);opacity:.75'>"
-        +"<span class='small'>"+fmtTime(o.start_ts)+"</span> "
-        +"<b>"+esc(o.drug_name||"-")+"</b> "+esc(o.dosage||"")+esc(o.route||"")
-        +(o.rate_mlph!=null?" <span class='small'>(泵速 "+o.rate_mlph.toFixed(1)+")</span>":"")
-        +"<span class='small'> → 停 "+fmtTime(o.end_ts)+"</span>"
-        +(o.operator?" <span class='small'>("+esc(o.operator)+")</span>":"")
-        +"</div>";
+    var ord=(d.orders||[]).filter(function(o){return o.status==="active";}).slice(0,10);
+    if(!ord.length){$("mOrders").innerHTML='<div class="empty" style="font-size:12px">无运行中医嘱</div>';return;}
+    $("mOrders").innerHTML=ord.map(function(o){
+      var pump=o.rate_mlph!=null?" <span class='badge' style='font-size:10px'>泵速 "+o.rate_mlph.toFixed(1)+" mL/h</span>":"";
+      return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line)'>"
+        +"<b>"+esc(o.drug_name||"-")+"</b> "+esc(o.dosage||"")+esc(o.route||"")+pump
+        +"<div class='small'>开 "+fmtTime(o.start_ts)+pump?"":""+"</div></div>";
     }).join("");
-}
-function toggleOrderHistory(){
-  var box=$("ordHist"),btn=$("ordHistBtn");if(!box)return;
-  var show=box.classList.contains("hidden");
-  box.classList.toggle("hidden",!show);
-  if(btn)btn.textContent=show?"关闭历史":"📜 历史";
-  // 首次展开时若未加载则现取一次，保证数据是新的
-  if(show&&!MONITOR_PID)return;
-  if(show)loadOrders();
-}
-// 停医嘱：软停（后端置 status=stopped + end_ts），数据保留可查历史。
-// 同时兼容两个调用来源——监护视图内刷新 mOrders，患者详情页内刷新该详情。
-function stopOrder(pid, oid){
-  if(!confirm("停止该医嘱？\n（将标记为已停并保留在历史记录中）"))return;
-  api("/api/patients/"+pid+"/orders/"+oid+"/stop",{method:"POST"}).then(function(d){
-    if(d&&d.ok)toast("医嘱已停");
-    else toast("该医嘱已不在运行中","alarm");
-    if(CURRENT_VIEW==="monitor")loadOrders();
-    else if(typeof showPatientDetail==="function")showPatientDetail(pid);
-  }).catch(function(e){
-    // 观察者角色无 admin 权限（403）时按钮本就不应渲染，这里是兜底
-    toast("停医嘱失败: "+(e&&e.message||""),"alarm");
-  });
-}
+  }).catch(function(){});
+});}
 function loadIo(ev){_refreshBtn(ev,function(){
   var pid=MONITOR_PID;if(!pid)return;
   Promise.all([
@@ -1621,7 +1196,7 @@ function submitIo(pid){
   if(body.amount_ml<=0 && body.amount_g<=0){alert("量必须 >0");return;}
   api("/api/patients/"+pid+"/io",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
     toast("出入量已录入");closeModal();loadIo();assessPatient();
-  }).catch(function(e){toast("录入失败: "+(e&&e.message||""),"alarm");});
+  }).catch(function(){});
 }
 
 // WS 消息：新体征到达时刷新 monitor（如果当前在 monitor view）
@@ -1660,41 +1235,25 @@ function showSettings(){
     var ss=d.settings||[];
     AI_SETTINGS={};
     ss.forEach(function(x){AI_SETTINGS[x.key]=x.value;});
-    var wec=AI_SETTINGS["wechat.enabled"]==="true";
     $("modalInner").innerHTML=
-      "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>SYSTEM SETTINGS</h2>"+
-      "<div style='font-size:13px;color:var(--blue);margin-bottom:6px'>AI 解读配置</div>"+
+      "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>SYSTEM SETTINGS · AI</h2>"+
       "<div class='kv'>"+
         "<label>AI 开关</label><div class='switchrow'><input type='checkbox' id='sAIEn' "+(AI_SETTINGS["ai.enabled"]==="true"?"checked":"")+" onchange='toggleAiKey()'><span>启用联网 AI 解读（需要 API Key）</span></div>"+
-        "<label>Provider</label><select id='sAIProv'><option value='openai' "+(AI_SETTINGS["ai.provider"]=="openai"?"selected":"")+">openai / 兼容</option><option value='deepseek' "+(AI_SETTINGS["ai.provider"]=="deepseek"?"selected":"")+">deepseek</option><option value='other' "+(AI_SETTINGS["ai.provider"]=="other"?"selected":"")+">other</option></select>"+
+        "<label>Provider</label><select id='sAIProv'><option value='openai' "+(AI_SETTINGS["ai.provider"]==="openai"?"selected":"")+">openai / 兼容</option><option value='deepseek' "+(AI_SETTINGS["ai.provider"]==="deepseek"?"selected":"")+">deepseek</option><option value='other' "+(AI_SETTINGS["ai.provider"]==="other"?"selected":"")+">other</option></select>"+
         "<label>Base URL</label><input id='sAIBase' value='"+esc(AI_SETTINGS["ai.base_url"]||"")+"' placeholder='https://api.deepseek.com/v1' maxlength='4096'>"+
         "<label>Model</label><input id='sAIMdl' value='"+esc(AI_SETTINGS["ai.model"]||"")+"' placeholder='deepseek-v3.2' maxlength='200'>"+
         "<label>API Key</label><input id='sAIKey' type='password' value='"+esc(AI_SETTINGS["ai.api_key"]||"")+"' placeholder='Bearer token' maxlength='4096'>"+
-        "<label>System Prompt</label><textarea id='sAIPrompt' style='width:100%;height:80px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px' maxlength='4096'>"+esc(AI_SETTINGS["ai.prompt"]||"")+"</textarea>"+
+        "<label>System Prompt</label><textarea id='sAIPrompt' style='width:100%;height:110px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px' maxlength='4096'>"+esc(AI_SETTINGS["ai.prompt"]||"")+"</textarea>"+
       "</div>"+
-      "<div style='font-size:11px;color:var(--dim);margin:6px 0 14px'>AI 解读仅用于临床辅助，不构成诊疗建议。</div>"+
-      "<div style='border-top:1px dashed var(--line);padding-top:12px;margin-top:12px;font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信提醒配置（医生接收异常、患者端屏幕 + 语音播报）</div>"+
-      "<div class='kv'>"+
-        "<label>企微开关</label><div class='switchrow'><input type='checkbox' id='sWxEn' "+(wec?"checked":"")+" onchange='toggleWxKey()'><span>启用企业微信推送提醒</span></div>"+
-        "<label>模式</label><div style='font-size:11px;color:var(--dim);margin-bottom:4px'>任选其一：<b>webhook_url</b>（群机器人，最简单）或 <b>corp_id + agent_id + secret</b>（应用消息）</div>"+
-        "<label>Webhook URL</label><input id='sWxUrl' value='"+esc(AI_SETTINGS["wechat.webhook_url"]||"")+" placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' maxlength='2048'>"+
-        "<label>企业 ID (corp_id)</label><input id='sWxCorp' value='"+esc(AI_SETTINGS["wechat.corp_id"]||"")+" maxlength='200'>"+
-        "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+" maxlength='50'>"+
-        "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+" maxlength='4096'>"+
-      "</div>"+
-      "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信；同时通过 TTS 下发到患者设备语音播报，并在患者端屏幕 topic 显示。</div>"+
+      "<div style='font-size:11px;color:var(--dim);margin:8px 0 12px'>AI 解读仅用于临床辅助，仅供参考，不构成诊疗建议。失败时自动回退纯规则评估。</div>"+
       "<div class='actions'><button onclick='saveSettings()'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
-    toggleAiKey(); toggleWxKey();
+    toggleAiKey();
     $("modalBox").classList.remove("hidden");
   }).catch(function(){});
 }
 function toggleAiKey(){
   var en=$("sAIEn")&&$("sAIEn").checked;
   $("sAIBase").disabled=!en;$("sAIMdl").disabled=!en;$("sAIKey").disabled=!en;$("sAIPrompt").disabled=!en;
-}
-function toggleWxKey(){
-  var en=$("sWxEn")&&$("sWxEn").checked;
-  $("sWxUrl").disabled=!en;$("sWxCorp").disabled=!en;$("sWxAgent").disabled=!en;$("sWxSecret").disabled=!en;
 }
 function saveSettings(){
   var keys=[
@@ -1704,17 +1263,9 @@ function saveSettings(){
     ["ai.model",$("sAIMdl").value.trim()],
     ["ai.api_key",$("sAIKey").value],
     ["ai.prompt",$("sAIPrompt").value],
-    ["wechat.enabled",$("sWxEn").checked?"1":"0"],
-    ["wechat.webhook_url",$("sWxUrl").value.trim()],
-    ["wechat.corp_id",$("sWxCorp").value.trim()],
-    ["wechat.agent_id",$("sWxAgent").value.trim()],
-    ["wechat.secret",$("sWxSecret").value],
   ];
-  var body={};
-  keys.forEach(function(kv){body[kv[0]]=kv[1];});
-  api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-    .then(function(){toast("设置已保存");closeModal();})
-    .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
+  var promises=keys.map(function(kv){return api("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({key:kv[0],value:kv[1]})});});
+  Promise.all(promises).then(function(){toast("AI 设置已保存");closeModal();loadSettingsForMenu();}).catch(function(){});
 }
 
 // ==================== 设备接入（内网 / 外网 双扫描） ====================
@@ -1753,23 +1304,8 @@ function _buildDiscover(net) {
         // 统计
         var stat = document.createElement('div');
         stat.style.cssText = 'font-size:11px;color:var(--dim);margin-bottom:10px';
-        stat.textContent = cs + ' 设备清单来自设备管理表，MQTT 在线状态取自设备表（LWT 维护）；按 IP 归类（RFC1918 私有地址=内网，未上报 IP 计入内网）。';
+        stat.textContent = cs + ' 基于最近 telemetry 上报，按设备 IP（RFC1918 私有地址=内网）自动分类。';
         root.appendChild(stat);
-
-        // 扫描时间戳：让「重新扫描」有可见反馈（同一数据重复请求时，至少能看到时间变了）
-        var stamp = document.createElement('div');
-        stamp.style.cssText = 'font-size:11px;color:var(--dim);margin-bottom:10px';
-        stamp.textContent = '上次扫描 ' + new Date().toLocaleTimeString();
-        root.appendChild(stamp);
-
-        // 勾选框语义说明：注册与删除共用这一组勾选，默认不选任何项。
-        // 不写清楚用户会以为勾选是「待注册」，然后一点批量删除就把在线设备删了。
-        var selHint = document.createElement('div');
-        selHint.style.cssText = 'font-size:11px;color:var(--orange);margin-bottom:10px'
-            + 'background:rgba(255,171,0,.08);border:1px solid rgba(255,171,0,.35);'
-            + 'padding:7px 10px;border-radius:5px';
-        selHint.innerHTML = '☑ 勾选 = 待【批量删除】（默认不选）。注册设备请用「批量注册未接入」，该操作幂等、不影响已接入设备。';
-        root.appendChild(selHint);
 
         // 外网接入入口
         if (net === 'external' || net === 'all') {
@@ -1803,12 +1339,10 @@ function _buildDiscover(net) {
                     ? '<span class="ok">● 已接入</span>'
                     : '<span class="bad">○ 未接入</span>';
                 var online = x.online ? ' <span class="ok">在线</span>' : ' <span class="bad">离线</span>';
-                // 所有设备都给勾选框（注册与删除共用同一组勾选）。
-                // 默认不勾选任何一项 —— 勾选框的语义是「待批量删除」，
-                // 默认勾选会把在线设备也变成删除候选，很容易误删。
-                var checkTd = '<td><input type="checkbox" class="disc-cb" value="' + esc(x.device_id) + '"></td>';
+                // 所有设备都给勾选框（已接入也可取消接入）
+                var checkTd = '<td><input type="checkbox" class="disc-cb" value="' + esc(x.device_id) + '"' + (isReg ? ' checked' : '') + '></td>';
                 var actHtml = isReg
-                    ? '<button class="danger small" data-del="' + esc(x.device_id) + '">删除</button>'
+                    ? '<span class="small">已接入</span>'
                     : '<button class="success small" data-reg="' + esc(x.device_id) + '">注册</button>';
                 tr.innerHTML = checkTd
                     + '<td>' + esc(x.device_id) + '</td>'
@@ -1822,22 +1356,14 @@ function _buildDiscover(net) {
                     var did = regBtn.getAttribute('data-reg');
                     regBtn.onclick = function(){ registerDiscovered(did); };
                 }
-                var delBtn = tr.querySelector('[data-del]');
-                if (delBtn) {
-                    var delId = delBtn.getAttribute('data-del');
-                    delBtn.onclick = function(){ deleteDeviceOne(delId); };
-                }
                 tb.appendChild(tr);
             });
             tbl.appendChild(tb);
             root.appendChild(tbl);
             // 全选/反选
-            // 勾选框默认【不选】：选中项 = 待批量删除的对象，避免打开弹窗就
-            // 误伤一批设备。要批量注册请直接点「批量注册未接入」。
             var checkAll = root.querySelector('#discCheckAll');
             var cbs = root.querySelectorAll('.disc-cb');
             checkAll.checked = false;
-            checkAll.title = '全选 / 取消全选';
             checkAll.onchange = function(){ cbs.forEach(function(cb){cb.checked=checkAll.checked;}); };
             cbs.forEach(function(cb){
                 cb.onchange = function(){
@@ -1853,23 +1379,9 @@ function _buildDiscover(net) {
         act.className = 'actions';
         var regSelBtn = document.createElement('button');
         regSelBtn.className = 'success small';
-        regSelBtn.textContent = '批量注册未接入';
-        // 注册是幂等且无害的（db.register_device 对已存在 ID 是 INSERT OR IGNORE），
-        // 所以不必依赖勾选框，直接取当前网络下全部「未接入」设备，最省事也最不易漏。
-        // 勾选框专用于批量删除（危险操作，必须先明确勾出要删哪些）。
-        regSelBtn.onclick = function(){
-            var ids = devs.filter(function(x){ return x.status !== 'registered'; })
-                          .map(function(x){ return x.device_id; });
-            if (!ids.length) { toast('当前网络下没有未接入的设备'); return; }
-            if (!confirm('确定注册 ' + ids.length + ' 台未接入设备？\n\n' + ids.join('、'))) return;
-            _batchRegister(ids);
-        };
+        regSelBtn.textContent = '批量注册已勾选';
+        regSelBtn.onclick = function(){ batchRegisterSelected(); };
         act.appendChild(regSelBtn);
-        var delSelBtn = document.createElement('button');
-        delSelBtn.className = 'danger small';
-        delSelBtn.textContent = '批量删除已勾选';
-        delSelBtn.onclick = function(){ batchDeleteSelected(); };
-        act.appendChild(delSelBtn);
         var rescanBtn = document.createElement('button');
         rescanBtn.textContent = '重新扫描';
         rescanBtn.onclick = function(){ _buildDiscover(DISC_NET); };
@@ -1885,8 +1397,10 @@ function _buildDiscover(net) {
         mi.appendChild(root);
     }).catch(function() { toast("扫描失败，请检查网络与登录状态"); });
 }
-function _batchRegister(ids) {
-    if (!ids.length) { toast('没有可注册的设备'); return; }
+function batchRegisterSelected() {
+    var cbs = document.querySelectorAll('.disc-cb:checked');
+    if (!cbs.length) { toast('请先勾选要接入的设备'); return; }
+    var ids = Array.prototype.map.call(cbs, function(cb){ return cb.value; });
     api("/api/devices/batch-register", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -1903,8 +1417,6 @@ function showAddExternalDevice() {
         + '<div style="font-size:12px;color:var(--dim);margin-bottom:12px">外网设备通过 HTTP POST 推送数据到本服务器即可接入，无需 MQTT。</div>'
         + '<label>设备 ID</label><input id="extDevId" placeholder="如 ext-001" style="width:100%;margin-bottom:8px">'
         + '<label>设备名称</label><input id="extDevName" placeholder="如 远程监测站" style="width:100%;margin-bottom:8px">'
-        + '<label>接入地址（显示用）</label><input id="extDevIp" placeholder="如 203.0.113.7:12090 或 ddns.example.com" style="width:100%;margin-bottom:8px">'
-        + '<div style="font-size:11px;color:var(--dim);margin-bottom:12px">这里填的是【外网设备可访问本服务器的地址】，仅用于在设备列表里看清对应关系；实际推送地址见下方。</div>'
         + '<label>接入说明</label><div style="font-size:11px;color:var(--dim);margin-bottom:8px">'
         + '设备端配置推送地址: <code>'+location.origin+'/api/ingest</code><br>'
         + 'HTTP POST Header: <code>Authorization: Bearer &lt;token&gt;</code><br>'
@@ -1916,9 +1428,8 @@ function showAddExternalDevice() {
 function registerExternalDevice() {
     var id = document.getElementById('extDevId').value.trim();
     var name = document.getElementById('extDevName').value.trim();
-    var ip = (document.getElementById('extDevIp')||{}).value ? document.getElementById('extDevIp').value.trim() : "";
     if (!id) { toast('请输入设备 ID'); return; }
-    api("/api/devices", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({device_id:id, name:name, ip_addr:ip}) }).then(function() {
+    api("/api/devices", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({device_id:id, name:name}) }).then(function() {
         toast("外网设备已注册: " + id);
         _buildDiscover('external');
     }).catch(function(e) { toast(e && e.message ? e.message : "注册失败"); });
@@ -1927,32 +1438,6 @@ function registerDiscovered(id) {
     api("/api/devices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device_id: id, name: "" }) }).then(function() {
         toast("已注册设备 " + id); loadDevices(); _buildDiscover(DISC_NET);
     }).catch(function() { toast("注册失败"); });
-}
-// 删除设备（单台 / 批量共用同一个后端接口，批量删除是注册的反操作）。
-// 删除会连带清掉该设备的全部遥测、报警、阈值等关联数据，所以必须二次确认。
-function deleteDeviceOne(id) {
-    if (!confirm("确定删除设备 " + id + "？\n\n将同时删除该设备的全部历史遥测、报警与阈值配置，此操作不可恢复。")) return;
-    _batchDelete([id]);
-}
-function batchDeleteSelected() {
-    var cbs = document.querySelectorAll('.disc-cb:checked');
-    if (!cbs.length) { toast('请先勾选要删除的设备'); return; }
-    var ids = Array.prototype.map.call(cbs, function(cb){ return cb.value; });
-    if (!confirm("确定批量删除 " + ids.length + " 台设备？\n\n" + ids.join("、") + "\n\n将同时删除这些设备的全部历史遥测、报警与阈值配置，此操作不可恢复。")) return;
-    _batchDelete(ids);
-}
-function _batchDelete(ids) {
-    api("/api/devices/batch-delete", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({device_ids: ids})
-    }).then(function(d){
-        var msg = '已删除 ' + d.deleted + ' / ' + d.total + ' 台';
-        if (d.missing) msg += '（' + d.missing + ' 台本就不存在）';
-        if (d.errors) msg += '，' + d.errors + ' 台删除失败';
-        toast(msg, d.deleted > 0 ? undefined : 'alarm');
-        loadDevices(); _buildDiscover(DISC_NET);
-    }).catch(function(e){ toast('批量删除失败: '+(e&&e.message?e.message:'')); });
 }
 
 // ==================== HL7 / 非ESP设备接入 ====================
@@ -2148,409 +1633,6 @@ function assessPatient(){
     $("mAssessBtn").textContent="🤖 AI 评估";
   });
 }
-
-// ==================== 设备接入快照（内网/外网） ====================
-// 每次 probe 会生成一条快照；保留窗口内多次快照，窗口外自动清掉。
-// 新增的设备不会自动入库，需手动"批量保存"。
-function _accessRow(x){
-  var icon = x.online ? '● 在线' : '○ 离线';
-  var iconCls = x.online ? 'ok' : 'bad';
-  var chip = '<span class="small" style="color:'+(x.online?'var(--green)':'var(--sub)')+'">'+(x.online?'●':'○')+'</span>';
-  return '<div class="devcard">'
-    +'<div class="head"><span class="id">'+esc(x.device_id)
-      +(x.name&&x.name!==x.device_id?' <span class="name">'+esc(x.name)+'</span>':'')
-    +'</span>'
-    +'<span><span class="'+iconCls+'">'+icon+'</span></span>'
-    +'</div>'
-    +'<div class="meta">'
-      +'<div class="k">IP / 接入</div><div class="v">'+(x.ip_addr?esc(x.ip_addr):'<span class="empty">-</span>')+'</div>'
-      +'<div class="k">类型</div><div class="v">'+esc(x.access_type)+'</div>'
-      +'<div class="k">固件</div><div class="v">'+esc(x.fw_version||'-')+'</div>'
-      +'<div class="k">扫描时间</div><div class="v">'+fmtTime(x.scanned_at)+'</div>'
-    +'</div>'
-    +'<div class="actions">'
-      +(x.online?'':'<span class="empty" style="font-size:11px">未在本窗口内探测到</span>')
-    +'</div>'
-  +'</div>';
-}
-function _accessNewRow(x){
-  return '<div class="devcard" style="border-left:3px solid var(--orange)">'
-    +'<div class="head"><span class="id">'+esc(x.device_id)
-      +(x.name&&x.name!==x.device_id?' <span class="name">'+esc(x.name)+'</span>':'')
-    +'</span>'
-    +'<span><span class="ok">'+(x.online?'● 在线':'○ 离线')+'</span></span>'
-    +'</div>'
-    +'<div class="meta">'
-      +'<div class="k">IP / 接入</div><div class="v">'+(x.ip_addr?esc(x.ip_addr):'<span class="empty">-</span>')+'</div>'
-      +'<div class="k">类型</div><div class="v">'+esc(x.access_type)+'</div>'
-      +'<div class="k">首次</div><div class="v">'+fmtTime(x.first_seen||x.scanned_at)+'</div>'
-      +'<div class="k">扫描</div><div class="v">'+fmtTime(x.scanned_at)+'</div>'
-    +'</div>'
-    +'<div class="actions">'
-      +'<button class="success small" onclick="acceptNew(\''+esc(x.device_id)+'\')">保存</button>'
-      +'<input type="checkbox" class="access-new-cb" value="'+esc(x.device_id)+'">'
-    +'</div>'
-  +'</div>';
-}
-function _renderAccess(d){
-  var win = $("accessWindow"); if(win) win.textContent = d.window_minutes || 5;
-  var accessHint = $("accessHint");
-  if(accessHint){
-    accessHint.textContent = '新增 '+(d.new||[]).length+' / 在线 '+(d.online||[]).length+' / 离线 '+(d.offline||[]).length+'（窗口 '+(d.window_minutes||5)+'min）';
-  }
-  function render(gridId, arr, rowFn){
-    var g = $(gridId); if(!g) return;
-    if(!arr || !arr.length){
-      g.innerHTML = '<div class="empty" style="font-size:12px">暂无</div>';
-      return;
-    }
-    g.innerHTML = arr.map(rowFn).join('');
-  }
-  render('accessNewGrid', d.new || [], _accessNewRow);
-  render('accessLanGrid', d.lan || [], _accessRow);
-  render('accessWanGrid', d.wan || [], _accessRow);
-  render('accessUnknownGrid', d.unknown || [], _accessRow);
-}
-function loadAccess(ev){
-  var b = (ev && ev.currentTarget) || null;
-  if(b){ b.disabled = true; var _o = b.textContent; b.textContent = '扫描中…'; }
-  // 先主动扫描一次（写快照），再拉 access 视图
-  api("/api/devices/probe", {method:"POST"}).then(function(){
-    return api("/api/devices/access-state");
-  }).then(function(d){
-    _renderAccess(d);
-  }).catch(function(e){
-    toast("扫描失败: "+(e&&e.message||""),"alarm");
-  }).finally(function(){
-    if(b){ b.disabled = false; b.textContent = _o || '🔍 刷新接入'; }
-  });
-}
-function _selectAndAccept(newArr){
-  var cbs = document.querySelectorAll('#accessNewGrid .access-new-cb');
-  if(!cbs.length){ toast('没有新增设备可保存'); return; }
-  var allChecked = Array.from(cbs).every(function(x){return x.checked;});
-  Array.from(cbs).forEach(function(x){ x.checked = allChecked ? false : true; });
-  _doAccept(cbs);
-}
-function _doAccept(cbs){
-  var ids = Array.from(cbs).filter(function(x){return x.checked;}).map(function(x){return x.value;});
-  if(!ids.length){ toast('请先勾选要保存的设备'); return; }
-  if(!confirm('将保存 '+ids.length+' 台新增设备到设备管理？')) return;
-  api("/api/devices/access-save", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({device_ids:ids})}).then(function(d){
-    toast('已保存 '+d.added+' 台，跳过 '+d.skipped);
-    loadAccess();
-  }).catch(function(e){ toast('保存失败: '+(e&&e.message||""),"alarm"); });
-}
-function acceptAllNew(){ _selectAndAccept(); }
-function acceptNew(did){
-  api("/api/devices/access-save", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({device_ids:[did]})}).then(function(d){
-    if(d.added>0){ toast('已保存 '+did); loadAccess(); }
-    else { toast('保存失败，设备可能已存在','alarm'); }
-  }).catch(function(e){ toast('保存失败: '+(e&&e.message||""),"alarm"); });
-}
-
-
-// ==================== 医生管理 ====================
-function loadDoctorsView(){
-  api("/api/doctors").then(function(d){
-    var list=d.doctors||[];
-    if(!list.length){$("doctorBody").innerHTML='<tr><td colspan="6" class="empty">暂无医生，点「+ 新增医生」创建</td></tr>';$("docCount").textContent="0 人";return;}
-    $("doctorBody").innerHTML=list.map(function(x){
-      return "<tr><td><b>"+esc(x.name)+"</b></td><td>"+esc(x.title||"-")+"</td><td>"+esc(x.department||"-")+"</td><td>"+esc(x.phone||"-")+"</td><td>"+esc(x.note||"-")+"</td><td><button class='secondary small' onclick='showDoctorForm("+x.id+")'>编辑</button> <button class='danger small' onclick='delDoctor("+x.id+")'>删除</button></td></tr>";
-    }).join("");
-    $("docCount").textContent=list.length+" 人";
-    // 同步填充医生下拉（发提醒页 + 患者编辑页）
-    _refreshDoctorSelects(list);
-  }).catch(function(){$("doctorBody").innerHTML='<tr><td colspan="6" class="empty">加载失败</td></tr>';});
-}
-function _refreshDoctorSelects(list){
-  function fill(sel){
-    if(!sel) return;
-    var cur=sel.value;
-    var html="<option value=''>-- 无 --</option>";
-    list.forEach(function(x){html+="<option value='"+esc(x.id)+"' data-name='"+esc(x.name)+"'>"+esc(x.name)+(x.title?" ("+x.title+")":"")+"</option>";});
-    sel.innerHTML=html;
-    // 恢复先前选中（按 id）
-    if(cur){
-      var oq=sel.querySelector('option[value="'+cur+'"]');
-      if(oq) sel.value=cur;
-    }
-  }
-  fill($("rmdDoctor"));
-  fill($("pDoc"));
-  fill($("pDocSel"));
-}
-function _pDocName(){
-  var sel=$("pDoc");
-  if(!sel) return "";
-  var opt=sel.options[sel.selectedIndex];
-  return opt && opt.dataset && opt.dataset.name ? opt.dataset.name : (sel.value ? sel.value : "");
-}
-
-function showDoctorForm(did){
-  var fetchD = did?api("/api/doctors/"+did):Promise.resolve({});
-  fetchD.then(function(d){
-    var doc = did?(d||{}):{};
-    $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+(did?"EDIT":"NEW")+" DOCTOR</h2>"+
-      "<div class='kv'>"+
-        "<label>姓名</label><input id='dName' value='"+esc(doc.name||"")+" maxlength='64' required>"+
-        "<label>职称</label><input id='dTitle' value='"+esc(doc.title||"")+" maxlength='48'>"+
-        "<label>科室</label><input id='dDept' value='"+esc(doc.department||"")+" maxlength='48'>"+
-        "<label>电话</label><input id='dPhone' value='"+esc(doc.phone||"")+" maxlength='20'>"+
-        "<label>备注</label><input id='dNote' value='"+esc(doc.note||"")+" maxlength='256'>"+
-      "</div>"+
-      "<div class='actions'><button onclick='saveDoctor("+did+")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
-    $("modalBox").classList.remove("hidden");
-  }).catch(function(){});
-}
-function saveDoctor(did){
-  var name=$("dName").value.trim();
-  if(!name){alert("姓名必填");return;}
-  var body={
-    name:name,
-    title:$("dTitle").value.trim(),
-    department:$("dDept").value.trim(),
-    phone:$("dPhone").value.trim(),
-    note:$("dNote").value.trim(),
-  };
-  if(did){
-    api("/api/doctors/"+did,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-      .then(function(){toast("医生已更新");closeModal();loadDoctorsView();})
-      .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
-  } else {
-    api("/api/doctors",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-      .then(function(){toast("医生已创建");closeModal();loadDoctorsView();})
-      .catch(function(e){toast("创建失败: "+(e&&e.message||""),"alarm");});
-  }
-}
-function delDoctor(did){
-  if(!confirm("确定删除该医生？"))return;
-  api("/api/doctors/"+did,{method:"DELETE"})
-    .then(function(){toast("已删除");loadDoctorsView();})
-    .catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});
-}
-
-// ==================== 发提醒 ====================
-var REMIND_DOCTORS=[];
-function loadPatientsForRemind(){
-  api("/api/patients/summary").then(function(d){
-    var ps=d.patients||[];
-    var html="<option value=''>-- 选择患者 --</option>";
-    ps.forEach(function(p){html+="<option value='"+esc(p.pid)+"' data-doctor='"+esc(p.doctor||"")+"'>"+esc(p.pid)+" · "+esc(p.name||"")+(p.bed_no?" (床"+p.bed_no+")":"")+"</option>";});
-    var sel=$("rmdPatient");if(sel) sel.innerHTML=html;
-    if(ps.length && !sel.value){ sel.value=ps[0].pid; onRemindPatientChanged(); }
-    // 设备列表也预加载
-    api("/api/devices").then(function(dd){
-      var devs=dd.devices||[];
-      var dhtml="<option value=''>-- 自动 --</option>";
-      devs.forEach(function(x){dhtml+="<option value='"+esc(x.id)+"'>"+esc(x.name||x.id)+"</option>";});
-      var ds=$("rmdDevice");if(ds) ds.innerHTML=dhtml;
-    }).catch(function(){});
-  }).catch(function(){});
-}
-function onRemindPatientChanged(){
-  var sel=$("rmdPatient");if(!sel||!sel.value) return;
-  var opt=sel.querySelector("option[value='"+sel.value+"']");
-  var doctor=(opt&&opt.dataset&&opt.dataset.doctor)||"";
-  var docSel=$("rmdDoctor");
-  if(docSel && doctor){
-    var match=docSel.querySelector("[data-name='"+doctor+"']");
-    if(match){docSel.value=match.value;}
-  }
-}
-function loadRemindHistory(){
-  api("/api/reminders?limit=30").then(function(d){
-    var list=d.reminders||[];
-    if(!list.length){$("rmdHistory").innerHTML='<div class="empty">暂无</div>';return;}
-    $("rmdHistory").innerHTML=list.map(function(x){
-      var flag = (x.sent_to_device?"<span class='ok'>🔊 设备</span>":"")+(x.sent_to_wechat?" <span class='ok'>📱 企微</span>":"");
-      var who = x.doctor_name||"-";
-      return "<div style='padding:6px 0;border-bottom:1px dashed var(--line)'>"+
-        "<div><b>"+esc(x.patient_id)+"</b> · <span style='color:var(--blue)'>"+esc(who)+"</span> · <span style='color:var(--dim)'>"+fmtTime(x.created_at)+"</span></div>"+
-        "<div style='margin-top:2px'>"+esc(x.text)+"</div>"+
-        "<div style='margin-top:2px;color:var(--dim)'>"+flag+" · 设备 "+esc(x.device_id||"-")+"</div>"+
-      "</div>";
-    }).join("");
-  }).catch(function(e){$("rmdHistory").innerHTML='<div class="empty" style="color:var(--red)">加载失败</div>';});
-}
-function doRemind(){
-  var p=$("rmdPatient"), t=$("rmdText");
-  if(!p||!p.value){toast("请选择患者","alarm");return;}
-  var text=(t&&t.value.trim())||"";
-  if(!text){toast("请输入提醒内容","alarm");return;}
-  var did=$("rmdDevice").value||null;
-  var doctorSel=$("rmdDoctor");
-  var doctor_id = (doctorSel.value&&doctorSel.value!=="")?parseInt(doctorSel.value,10):null;
-  var doctor_name = doctorSel.value ? (doctorSel.querySelector("option[value='"+doctorSel.value+"']").dataset.name||"") : null;
-  api("/api/reminders/send",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      patient_id:p.value,
-      doctor_id:doctor_id,
-      doctor_name:doctor_name,
-      device_id:did,
-      text:text,
-      tts:$("rmdTts").checked,
-      wechat:$("rmdWx").checked,
-    })
-  }).then(function(d){
-    var msg = "已发送：";
-    if(d.tts) msg+=" 🔊 语音播报已下发";
-    else msg+=" 🔊 语音下发失败";
-    if(d.wechat) msg+=" 📱 企微已推送";
-    else if($("rmdWx").checked) msg+=" 📱 企微推送失败: "+(d.wechat_error||"-");
-    toast(msg);
-    t.value="";
-    loadRemindHistory();
-    loadPatients(); // 让患者页最新
-  }).catch(function(e){toast("发送失败: "+(e&&e.message||""),"alarm");});
-}
-
 </script>
-
-  <script>
-// ============== AI 模型配置 ==============
-function switchAiChip(c){
-  curAiChip = c;
-  document.querySelectorAll('#view-ai .chip').forEach(e=>e.classList.toggle('active',e.dataset.chip===c));
-  document.getElementById('ai-cfg').classList.toggle('hidden',c!=='ai');
-  document.getElementById('ai-hist').classList.toggle('hidden',c!=='hist');
-  document.getElementById('ai-test').classList.toggle('hidden',c!=='test');
-  if(c==='hist') loadAlarmAiAnalyses();
-  if(c==='ai') loadAiSettings();
-}
-function switchView(v){
-  const views = ['dashboard','patients','devices','sessions','alarms','hl7','access','doctors','remind','ai'];
-  views.forEach(k=>{
-    const el = document.getElementById('view-'+k); if(el) el.classList.toggle('hidden', k!==v);
-  });
-  document.querySelectorAll('.vtab').forEach(e=>e.classList.toggle('active', e.dataset.view===v));
-  if(v==='ai'){ document.getElementById('ai-cfg').classList.remove('hidden'); document.getElementById('ai-hist').classList.add('hidden'); document.getElementById('ai-test').classList.add('hidden'); switchAiChip('ai'); loadAiSettings(); }
-  if(v==='patients') loadPatients();
-  if(v==='patients' || v==='doctors') loadDoctors();
-  if(v==='patients' || v==='remind' || v==='devices') loadDevices();
-  if(v==='access') refreshAccess();
-  if(v==='remind'){ loadRemindHistory(); }
-  if(v==='alarms') loadAlarms();
-  if(v==='sessions') loadSessions();
-  if(v==='devices') refreshDevicesThenPatients();
-}
-async function loadAiSettings(){
-  try{
-    const r = await api('/api/ai/settings');
-    if(!r || !r.ai_settings) return;
-    const m = r.ai_settings;
-    const set = (id,val)=>{ const e=document.getElementById(id); if(e){ e.value = val; }};
-    set('s-ai.enabled', m['ai.enabled']||'0');
-    set('s-ai.provider', m['ai.provider']||'openai');
-    set('s-ai.base_url', m['ai.base_url']||'');
-    set('s-ai.model', m['ai.model']||'');
-    set('s-ai.api_key', m['ai.api_key']||'');
-    set('s-ai.timeout', m['ai.timeout']||'30');
-    set('s-ai.max_tokens', m['ai.max_tokens']||'512');
-    set('s-ai.system_prompt', m['ai.system_prompt']||'');
-    set('s-ai.push_wechat', m['ai.push_wechat']||'0');
-    set('s-ai.push_doctor_id', m['ai.push_doctor_id']||'');
-  }catch(e){ console.error('loadAiSettings',e); }
-}
-async function saveAiSettings(){
-  const ids = ['enabled','provider','base_url','model','api_key','timeout','max_tokens','system_prompt','push_wechat','push_doctor_id'];
-  const body = {};
-  ids.forEach(id=>{ body['ai.'+id] = (document.getElementById('s-ai.'+id).value || ''); });
-  body['ai.api_key'] = (document.getElementById('s-ai.api_key').value || '');
-  try{
-    const r = await api('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-    if(r && r.ok){
-      const msg = document.getElementById('ai-save-msg');
-      msg.textContent = '✅ 已保存 '+new Date().toLocaleTimeString();
-      setTimeout(()=>{ msg.textContent=''; }, 3000);
-    } else { alert('保存失败: '+(r&&r.error||'')); }
-  }catch(e){ alert('请求失败: '+e); }
-}
-async function aiTestConnect(){
-  const prompt = (document.getElementById('ai-test-prompt').value||'');
-  const out = document.getElementById('ai-test-result');
-  out.textContent = '发送中…';
-  try{
-    const r = await api('/api/ai/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({prompt})});
-    if(r && r.ok){
-      let s = '✅ 连接成功\n\n';
-      if(r.usage){ s += 'Token 用量: '+JSON.stringify(r.usage)+'\n\n'; }
-      s += '回复:\n'+(r.content||'');
-      out.textContent = s;
-    } else {
-      out.textContent = '❌ '+((r&&r.error)||'测试失败');
-    }
-  }catch(e){ out.textContent = '❌ 网络错误: '+e; }
-}
-async function loadAlarmAiAnalyses(){
-  try{
-    const pid = (document.getElementById('ai-filt-pid').value||'');
-    const did = (document.getElementById('ai-filt-did').value||'');
-    const q = new URLSearchParams({limit:'50'});
-    if(pid) q.set('patient',pid);
-    if(did) q.set('device',did);
-    const r = await api('/api/ai/analyses?'+q.toString());
-    const list = (r && r.analyses) || [];
-    const tbody = document.getElementById('ai-hist-body');
-    if(!list.length){ tbody.innerHTML = '<tr><td colspan="7">暂无分析记录</td></tr>'; return; }
-    tbody.innerHTML = list.map(a=>{
-      const pushed = a.weixin_sent?'<span style="color:#0b6">✅ 已推送</span>':'<span style="color:#999">未推送</span>';
-      const pushErr = a.weixin_err?'<br><span style="color:#c00;font-size:12px">'+escapeHtml(a.weixin_err).replace(/\n/g,' ')+'</span>':'';
-      const err = a.error?'<br><span style="color:#c00;font-size:12px">err: '+escapeHtml(a.error).replace(/\n/g,' ')+'</span>':'';
-      return '<tr><td>'+escapeHtml(a.created_at||'')+'</td><td>'+escapeHtml(a.device_id||'')+'</td><td>'+escapeHtml(a.patient_name||a.patient_id||'')+'</td><td>LV'+(a.level||0)+'</td><td>'+escapeHtml(a.reason||'')+'</td><td>'+pushed+pushErr+err+'</td><td><button class="btn small" onclick="showAiAnalysis('+(a.id||0)+')">查看</button></td></tr>';
-    }).join('');
-  }catch(e){ console.error('loadAlarmAiAnalyses',e); }
-}
-function showAiAnalysis(id){
-  api('/api/ai/analyses?id='+id).then(r=>{
-    const a = ((r&&r.analyses)||[0])[0]; if(!a) return;
-    const analysis = a.analysis||'';
-    openModal('AI 分析 #'+(a.id||''),
-      '<b>设备</b>: '+escapeHtml(a.device_id||'')+'<br>'+
-      '<b>患者</b>: '+escapeHtml(a.patient_name||a.patient_id||'')+'<br>'+
-      '<b>等级</b>: LV'+(a.level||0)+'<br>'+
-      '<b>原因</b>: '+escapeHtml(a.reason||'')+'<br>'+
-      '<b>模型</b>: '+escapeHtml(a.model||'')+'<br>'+
-      '<b>Token</b>: '+(a.usage_tokens||0)+'<br>'+
-      '<b>时间</b>: '+escapeHtml(a.created_at||'')+'<br>'+
-      '<br><b>分析内容:</b><br><pre style="white-space:pre-wrap;word-break:break-word;background:#f6f6f6;padding:10px;margin-top:8px">'+escapeHtml(analysis)+'</pre>'
-    );
-  });
-}
-// 注册 view-ai 的 chip 点击（在 #view-ai 的 chip 上）
-document.addEventListener('click', function(e){
-  if(e.target.classList.contains('chip') && e.target.dataset.chip){
-    switchAiChip(e.target.dataset.chip);
-  }
-});
-// 初始化过滤下拉（患者/设备）
-api('/api/patients').then(r=>{
-  const sel = document.getElementById('ai-filt-pid'); if(!sel) return;
-  sel.innerHTML = '<option value="">-- 全部 --</option>' + ((r&&r.patients)||[]).map(p=>'<option value="'+p.id+'">'+escapeHtml(p.name||p.pid||'')+' ('+(p.pid||p.id)+')</option>').join('');
-}).catch(()=>{});
-api('/api/devices').then(r=>{
-  const sel = document.getElementById('ai-filt-did'); if(!sel) return;
-  sel.innerHTML = '<option value="">-- 全部 --</option>' + ((r&&r.devices)||[]).map(d=>'<option value="'+d.device_id+'">'+escapeHtml(d.name||d.device_id)+'</option>').join('');
-}).catch(()=>{});
-</script>
-
-
-
-// ============= AI 通用 helper =============
-function escapeHtml(s){ return esc(s); }
-function openModal(title, bodyHtml){
-  if(document.getElementById('aiModal') && document.getElementById('aiModal').classList.contains('hidden')) {
-    document.getElementById('aiModal').classList.remove('hidden');
-    document.getElementById('aiModalBody').innerHTML = bodyHtml;
-    return;
-  }
-  document.getElementById('modalInner').innerHTML =
-    '<div style="font-size:18px;font-weight:600;margin-bottom:12px">'+escapeHtml(title)+'</div>'+
-    '<div>'+bodyHtml+'</div>'+
-    '<div style="margin-top:16px;text-align:right"><button onclick="closeModal()">关闭</button></div>';
-  document.getElementById('modalBox').classList.remove('hidden');
-}
 </body>
 </html>
