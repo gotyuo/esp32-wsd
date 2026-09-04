@@ -1677,10 +1677,10 @@ function showSettings(){
       "<div class='kv'>"+
         "<label>企微开关</label><div class='switchrow'><input type='checkbox' id='sWxEn' "+(wec?"checked":"")+" onchange='toggleWxKey()'><span>启用企业微信推送提醒</span></div>"+
         "<label>模式</label><div style='font-size:11px;color:var(--dim);margin-bottom:4px'>任选其一：<b>webhook_url</b>（群机器人，最简单）或 <b>corp_id + agent_id + secret</b>（应用消息）</div>"+
-        "<label>Webhook URL</label><input id='sWxUrl' value='"+esc(AI_SETTINGS["wechat.webhook_url"]||"")+" placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' maxlength='2048'>"+
-        "<label>企业 ID (corp_id)</label><input id='sWxCorp' value='"+esc(AI_SETTINGS["wechat.corp_id"]||"")+" maxlength='200'>"+
-        "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+" maxlength='50'>"+
-        "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+" maxlength='4096'>"+
+        "<label>Webhook URL</label><input id='sWxUrl' value='"+esc(AI_SETTINGS["wechat.webhook_url"]||"")+"' placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' maxlength='2048'>"+
+        "<label>企业 ID (corp_id)</label><input id='sWxCorp' value='"+esc(AI_SETTINGS["wechat.corp_id"]||"")+"' maxlength='200'>"+
+        "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+"' maxlength='50'>"+
+        "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+"' maxlength='4096'>"+
       "</div>"+
       "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信；同时通过 TTS 下发到患者设备语音播报，并在患者端屏幕 topic 显示。</div>"+
       "<div class='actions'><button onclick='saveSettings()'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
@@ -2291,13 +2291,13 @@ function showDoctorForm(did){
   var fetchD = did?api("/api/doctors/"+did):Promise.resolve({});
   fetchD.then(function(d){
     var doc = did?(d||{}):{};
-    $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+(did?"EDIT":"NEW")+" DOCTOR</h2>"+
+    $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+(did?"编辑医生":"新增医生")+"</h2>"+
       "<div class='kv'>"+
-        "<label>姓名</label><input id='dName' value='"+esc(doc.name||"")+" maxlength='64' required>"+
-        "<label>职称</label><input id='dTitle' value='"+esc(doc.title||"")+" maxlength='48'>"+
-        "<label>科室</label><input id='dDept' value='"+esc(doc.department||"")+" maxlength='48'>"+
-        "<label>电话</label><input id='dPhone' value='"+esc(doc.phone||"")+" maxlength='20'>"+
-        "<label>备注</label><input id='dNote' value='"+esc(doc.note||"")+" maxlength='256'>"+
+        "<label>姓名</label><input id='dName' value='"+esc(doc.name||"")+"' maxlength='64' required>"+
+        "<label>职称</label><input id='dTitle' value='"+esc(doc.title||"")+"' maxlength='48'>"+
+        "<label>科室</label><input id='dDept' value='"+esc(doc.department||"")+"' maxlength='48'>"+
+        "<label>电话</label><input id='dPhone' value='"+esc(doc.phone||"")+"' maxlength='20'>"+
+        "<label>备注</label><input id='dNote' value='"+esc(doc.note||"")+"' maxlength='256'>"+
       "</div>"+
       "<div class='actions'><button onclick='saveDoctor("+did+")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     $("modalBox").classList.remove("hidden");
