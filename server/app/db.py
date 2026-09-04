@@ -137,6 +137,14 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
         _log.info("migration v2.3: cleared %d polluted device last_seen values (%s)",
                   n, ", ".join(polluted))
 
+    # v2.8: 患者企微绑定。patients 表加 wechat_userid 列，
+    # 让患者也能直接绑自己的企微账号（异常/提醒时可定向推给患者本人）。
+    if not _has_col(conn, "patients", "wechat_userid"):
+        conn.execute(
+            "ALTER TABLE patients ADD COLUMN wechat_userid TEXT DEFAULT NULL"
+        )
+        _log.info("migration v2.8: added patients.wechat_userid column")
+
     # Issue 5: 监护记录表 — 患者在某设备上的监护时间段。
     conn.execute(
         "CREATE TABLE IF NOT EXISTS monitor_sessions ("

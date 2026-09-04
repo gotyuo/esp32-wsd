@@ -182,6 +182,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab" data-view="access" onclick="switchView('access')">📡 设备接入</span>
       <span class="vtab" data-view="doctors" onclick="switchView('doctors')">👨⚕ 医生管理</span>
       <span class="vtab" data-view="remind" onclick="switchView('remind')">💬 发提醒</span>
+      <span class="vtab" data-view="wechat" onclick="switchView('wechat')">🏥 企微配置</span>
       <span class="vtab" data-view="ai" onclick="switchView('ai')">🧠 AI 模型</span>
     </div>
   </div>
@@ -595,6 +596,43 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
       </div>
     </div>
   </div>
+
+  <!-- ============= 企业微信配置 ============= -->
+<div id="view-wechat" class="hidden">
+    <div class="section">
+      <h2>🏥 企业微信配置 / WECHAT
+        <div class="actions" style="margin-top:0">
+          <button onclick="saveWechatSettings()">💾 保存</button>
+          <button class="secondary" onclick="testWechat()">📤 发送测试消息</button>
+        </div>
+      </h2>
+      <div style="font-size:12px;color:var(--sub);margin-bottom:14px">
+        患者异常/医生发提醒时，自动推送企业微信。支持两种模式（任选其一）：<b>webhook_url</b>（群机器人，最简单）或 <b>corp_id + agent_id + secret</b>（应用消息，可定向发到某位医生）。
+      </div>
+      <div class="m-panel" style="max-width:720px">
+        <div class="kv">
+          <label>企微开关</label>
+          <div class="switchrow"><input type="checkbox" id="wcEn"><span>启用企业微信推送</span></div>
+          <label>模式</label>
+          <div style="font-size:11px;color:var(--dim);margin-bottom:4px">
+            模式 A：Webhook URL 群机器人（推荐，无需企业号）<br>
+            模式 B：corp_id + agent_id + secret（应用消息，需企业管理员授权）
+          </div>
+          <label>Webhook URL (模式 A)</label>
+          <input id="wcWebhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" maxlength="2048" style="width:100%">
+          <label>企业 ID / corp_id (模式 B)</label>
+          <input id="wcCorp" placeholder="ww1234567890abcdef" maxlength="200">
+          <label>应用 ID / agent_id (模式 B)</label>
+          <input id="wcAgent" placeholder="1000001" maxlength="50">
+          <label>应用 Secret (模式 B)</label>
+          <input id="wcSecret" type="password" placeholder="secret..." maxlength="4096">
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--dim);margin-top:10px">
+        医生表中 <code>wechat_userid</code> 字段对应"应用消息"的 touser（定向推送）；留空则由应用推送给 @all。患者表同样新增 wechat_userid 字段，支持异常时直接推给患者本人。
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="modalBox" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:400">
@@ -704,8 +742,8 @@ function _refreshBtn(ev,fn){
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}}
+  ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai")loadSettings();}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -1119,8 +1157,9 @@ function showPatientForm(pid){
         +"<label>年龄</label><input type='number' id='pAge' value='"+(p.age||"")+"' min='0' max='150'>"
         +"<label>床号</label><input id='pBed' value='"+esc(p.bed_no||"")+"' maxlength='16'>"
         +"<label>主管医生</label><select id='pDoc'><option value=''>-- 无 --</option></select>"
-        +"<label>诊断</label><input id='pDiag' value='"+esc(p.diagnosis||"")+"' maxlength='512'>"
-        +"<label>联系电话</label><input id='pPhone' value='"+esc(p.phone||"")+"' maxlength='20'>"
+        +"<label>诊断</label><input id='pDiag' value='" + esc(p.diagnosis||"") + "' maxlength='512'>"
+        +"<label>联系电话</label><input id='pPhone' value='" + esc(p.phone||"") + "' maxlength='20'>"
+        +"<label>企业微信 userid (可选)</label><input id='pWxId' value='" + esc(p.wechat_userid||"") + "' maxlength='128' placeholder='Wechat 账号，如 zhangsan'>"
       +"</div>"
       +"<div class='actions'><button onclick='savePatient(\""+(pid||"")+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     $("modalBox").classList.remove("hidden");
@@ -1136,6 +1175,7 @@ function savePatient(pid){
     diagnosis:$("pDiag").value.trim(),
     doctor:_pDocName(),
     phone:$("pPhone").value.trim(),
+    wechat_userid:($("pWxId")?$("pWxId").value.trim():""),
   };
   if(pid){
     api("/api/patients/"+pid,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
@@ -1649,6 +1689,36 @@ function loadSettings(){
     ss.forEach(function(x){AI_SETTINGS[x.key]=x.value;});
     AI_ASSESS=(AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]===true);
   }).catch(function(){});
+}
+// 加载企微配置到独立 tab 表单
+function loadWechatTab(){
+  if(!AI_SETTINGS || Object.keys(AI_SETTINGS).length===0) loadSettings();
+  api("/api/settings").then(function(d){
+    var ss=d.settings||[];AI_SETTINGS={};
+    ss.forEach(function(x){AI_SETTINGS[x.key]=x.value;});
+    var el=$( "wcEn"); if(el) el.checked = (AI_SETTINGS["wechat.enabled"]==="1"||AI_SETTINGS["wechat.enabled"]==="true");
+    var e2=$( "wcWebhook"); if(e2) e2.value = AI_SETTINGS["wechat.webhook_url"]||"";
+    var e3=$( "wcCorp"); if(e3) e3.value = AI_SETTINGS["wechat.corp_id"]||"";
+    var e4=$( "wcAgent"); if(e4) e4.value = AI_SETTINGS["wechat.agent_id"]||"";
+    var e5=$( "wcSecret"); if(e5) e5.value = AI_SETTINGS["wechat.secret"]||"";
+  }).catch(function(){});
+}
+function saveWechatSettings(){
+  var body={
+    "wechat.enabled": $("wcEn")&&$("wcEn").checked?"1":"0",
+    "wechat.webhook_url": $("wcWebhook").value.trim(),
+    "wechat.corp_id": $("wcCorp").value.trim(),
+    "wechat.agent_id": $("wcAgent").value.trim(),
+    "wechat.secret": $("wcSecret").value,
+  };
+  api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+    .then(function(){toast("企微配置已保存");})
+    .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
+}
+function testWechat(){
+  api("/api/wechat/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:"envmon 企微配置测试消息"})})
+    .then(function(d){toast(d.ok?("✅ 已推送" + (d.detail?(" ("+d.detail+")"):"")):("❌ 失败: "+(d.detail||"")),"");})
+    .catch(function(e){toast("测试失败: "+(e&&e.message||""),"alarm");});
 }
 function loadSettingsForMenu(){
   if(!ME) return;

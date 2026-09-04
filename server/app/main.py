@@ -1715,6 +1715,17 @@ def save_ai_settings(body: AiSettingsPatch, user: Dict = Depends(require_admin))
     return {"ok": True, "updated": changes, "keys": list(m.keys())}
 
 
+@app.post("/api/wechat/test", dependencies=[Depends(require_admin)])
+def test_wechat(body: Dict[str, Any]):
+    """企业微信配置测试：发一条文本消息到已配置的 webhook 或应用消息通道。"""
+    text = (body or {}).get("text") or "envmon 企微配置测试消息"
+    sent, err = _send_wechat_reminder(text, patient_id="TEST",
+                                       doctor_name="系统测试", device_id=None)
+    if sent:
+        return {"ok": True, "detail": "消息已推送到企业微信"}
+    return {"ok": False, "detail": err or "推送失败"}
+
+
 @app.post("/api/ai/test")
 def ai_test_connection(user: Dict = Depends(require_admin)):
     """测试当前配置的模型是否可达。"""
@@ -2145,6 +2156,7 @@ def create_patient(body: PatientCreate):
     pid_id = icu.patient_create(
         body.pid, body.name, body.gender, body.age, body.bed_no,
         body.admit_ts, body.diagnosis, body.doctor, body.phone,
+        body.wechat_userid,
     )
     return {"ok": True, "patient_id": pid_id, "pid": body.pid}
 

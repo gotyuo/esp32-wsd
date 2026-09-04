@@ -94,6 +94,7 @@ class PatientCreate(BaseModel):
     diagnosis: str = Field("", max_length=512)
     doctor: str = Field("", max_length=64)
     phone: str = Field("", max_length=20)
+    wechat_userid: str = Field("", max_length=128)
 
 
 class PatientUpdate(BaseModel):
@@ -104,6 +105,7 @@ class PatientUpdate(BaseModel):
     diagnosis: str = Field("", max_length=512)
     doctor: str = Field("", max_length=64)
     phone: str = Field("", max_length=20)
+    wechat_userid: str = Field("", max_length=128)
 
 
 class LinkDeviceIn(BaseModel):
