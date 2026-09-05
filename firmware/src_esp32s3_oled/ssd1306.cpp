@@ -34,9 +34,12 @@ bool Ssd1306::begin(uint8_t scl, uint8_t sda, uint8_t addr, TwoWire *wire) {
     cmd(C_SET_VCOM_DESELECT); cmd(0x40);
     cmd(C_MEMORY_ADDR);     cmd(0x00);        // 水平寻址模式
     cmd(C_CHARGE_PUMP);     cmd(0x14);        // 升压使能
-    cmd(C_DISPLAY_ON);
 
+    // 清空帧缓冲并推送到 OLED（避免上电时显示内部 RAM 垃圾数据=白屏）
     clear();
+    flush();
+
+    cmd(C_DISPLAY_ON);
     _ok = true;
     return _ok;
 }
@@ -72,9 +75,12 @@ bool Ssd1306::beginSoftware(uint8_t scl, uint8_t sda, uint8_t addr) {
     cmd(C_SET_VCOM_DESELECT); cmd(0x40);
     cmd(C_MEMORY_ADDR);     cmd(0x00);
     cmd(C_CHARGE_PUMP);     cmd(0x14);
-    cmd(C_DISPLAY_ON);
 
+    // 清空帧缓冲并推送到 OLED（避免上电时显示内部 RAM 垃圾数据=白屏）
     clear();
+    flush();
+
+    cmd(C_DISPLAY_ON);
     _ok = true;
     return _ok;
 }
