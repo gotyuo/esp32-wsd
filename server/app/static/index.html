@@ -278,6 +278,12 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 #view-monitor .m-spark{height:32px;margin-top:4px;width:100%}
 #view-monitor .m-bottom{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
 #view-monitor .m-panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.m-panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:14px}
+.m-panel .kv{display:grid;grid-template-columns:120px 1fr;gap:10px 14px;align-items:start;font-size:13px}
+.m-panel .kv label{color:var(--sub);font-weight:600;letter-spacing:.3px}
+.m-panel .kv input[type=text],.m-panel .kv input[type=password],.m-panel .kv input:not([type]){width:100%;background:rgba(0,0,0,.2);border:1px solid var(--line);color:var(--ink);padding:6px 8px;border-radius:4px;font-size:13px;font-family:inherit}
+.m-panel .kv input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(97,180,255,.15)}
+.m-panel .kv .switchrow{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
 #view-monitor .m-panel h4{font-size:11px;color:var(--sub);letter-spacing:1px;margin:0 0 6px 0;display:flex;justify-content:space-between;align-items:center}
 #view-monitor table{width:100%;font-size:11px;border-collapse:collapse}
 #view-monitor table th,#view-monitor table td{padding:2px 4px;text-align:left;border-bottom:1px solid var(--line)}
@@ -2366,7 +2372,8 @@ function showDoctorForm(did){
         "<label>姓名</label><input id='dName' value='"+esc(doc.name||"")+"' maxlength='64' required>"+
         "<label>职称</label><input id='dTitle' value='"+esc(doc.title||"")+"' maxlength='48'>"+
         "<label>科室</label><input id='dDept' value='"+esc(doc.department||"")+"' maxlength='48'>"+
-        "<label>电话</label><input id='dPhone' value='"+esc(doc.phone||"")+"' maxlength='20'>"+
+        "<label>电话</label><input id='dPhone' value='"+esc(doc.phone||doc.contact||"")+"' maxlength='20'>"+
+        "<label>企微 userid</label><input id='dWxId' value='"+esc(doc.wechat_userid||"")+"' maxlength='128' placeholder='企业微信账号，用于推送异常提醒'>"+
         "<label>备注</label><input id='dNote' value='"+esc(doc.note||"")+"' maxlength='256'>"+
       "</div>"+
       "<div class='actions'><button onclick='saveDoctor("+did+")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
@@ -2380,8 +2387,9 @@ function saveDoctor(did){
     name:name,
     title:$("dTitle").value.trim(),
     department:$("dDept").value.trim(),
-    phone:$("dPhone").value.trim(),
+    contact:$("dPhone").value.trim(),
     note:$("dNote").value.trim(),
+    wechat_userid:$("dWxId").value.trim(),
   };
   if(did){
     api("/api/doctors/"+did,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})

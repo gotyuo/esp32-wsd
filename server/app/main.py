@@ -632,7 +632,8 @@ app = FastAPI(title="EnvMon Backend", version="2.0.0", lifespan=lifespan)
 @app.get("/", include_in_schema=False)
 def index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"),
-                        headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
+                        headers={"Cache-Control": "no-store, max-age=0, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
 
 
 # 禁缓存：本地 ICU 内网改前端不用清浏览器缓存；静态文件直接从磁盘读，无需 rebuild。
@@ -2514,6 +2515,7 @@ def list_doctors(limit: int = Query(200, ge=1, le=1000)):
 def create_doctor(body: DoctorCreateIn):
     did = db.doctor_create(
         body.name, body.title, body.department, body.contact, body.note,
+        wechat_userid=body.wechat_userid,
     )
     return {"ok": True, "doctor_id": did, "name": body.name}
 

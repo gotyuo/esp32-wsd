@@ -182,6 +182,7 @@ class DoctorCreateIn(BaseModel):
     department: str = Field("", max_length=64)
     contact: str = Field("", max_length=64)
     note: str = Field("", max_length=4096)
+    wechat_userid: str = Field("", max_length=128)
 
 
 class DoctorUpdateIn(BaseModel):
@@ -190,6 +191,7 @@ class DoctorUpdateIn(BaseModel):
     department: Optional[str] = Field(None, max_length=64)
     contact: Optional[str] = Field(None, max_length=64)
     note: Optional[str] = Field(None, max_length=4096)
+    wechat_userid: Optional[str] = Field(None, max_length=128)
 
 
 # ================================================================ 文字消息

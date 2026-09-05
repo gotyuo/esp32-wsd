@@ -144,6 +144,23 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE patients ADD COLUMN wechat_userid TEXT DEFAULT NULL"
         )
         _log.info("migration v2.8: added patients.wechat_userid column")
+    if not _has_col(conn, "doctors", "wechat_userid"):
+        conn.execute(
+            "ALTER TABLE doctors ADD COLUMN wechat_userid TEXT DEFAULT NULL"
+        )
+        _log.info("migration v2.8b: added doctors.wechat_userid column")
+    # 清理之前 value= 引号错位写入的 maxlength= 垃圾数据
+    try:
+        n1 = conn.execute(
+            "DELETE FROM doctors WHERE name LIKE '%maxlength=%' "
+            "OR title LIKE '%maxlength=%' OR department LIKE '%maxlength=%' "
+            "OR note LIKE '%maxlength=%'"
+        ).rowcount
+        if n1:
+            _log.info("migration v2.9: cleaned %d junk doctors rows", n1)
+        conn.commit()
+    except Exception as e:
+        _log.warning("doctor junk cleanup failed: %s", e)
 
     # Issue 5: 监护记录表 — 患者在某设备上的监护时间段。
     conn.execute(
@@ -293,6 +310,8 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
     # 从未通过 register_device 显式创建，patient_devices / vitals.source_device /
     # device_patient_history 仍会引用它 → 页面上设备"消失"、监护记录找不到对应设备。
     # 此步骤把其它表出现但 devices 表没有的设备 id 自动 INSERT 补齐，避免设备凭空消失。
+    # v2.9 扩展：也纳入 device_scan_snapshots 和 telemetry——之前只扫 3 张表导致
+    # 用户设备被清掉后，probe 完全看不到它们，即使它们曾发过数据。
     try:
         missing = conn.execute("""
             SELECT DISTINCT d.device_id
@@ -300,18 +319,23 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
               SELECT device_id FROM patient_devices
               UNION SELECT source_device AS device_id FROM vitals WHERE source_device IS NOT NULL
               UNION SELECT device_id FROM device_patient_history
+              UNION SELECT device_id FROM device_scan_snapshots
+              UNION SELECT device_id FROM telemetry
             ) d
             LEFT JOIN devices dv ON dv.id = d.device_id
-            WHERE dv.id IS NULL
+            WHERE dv.id IS NULL AND d.device_id IS NOT NULL AND d.device_id != ''
         """).fetchall()
         for row in missing:
             did = row[0]
+            # 取最早出现的时刻作为 first_seen
             earliest = conn.execute("""
                 SELECT MIN(ts) FROM (
                     SELECT linked_at AS ts FROM patient_devices WHERE device_id=?
                     UNION SELECT ts FROM vitals WHERE source_device=?
                     UNION SELECT linked_at AS ts FROM device_patient_history WHERE device_id=?
-                )""", (did, did, did)).fetchone()[0]
+                    UNION SELECT MIN(scanned_at) FROM device_scan_snapshots WHERE device_id=?
+                    UNION SELECT MIN(ts) FROM telemetry WHERE device_id=?
+                )""", (did, did, did, did, did)).fetchone()[0]
             try:
                 conn.execute(
                     "INSERT OR IGNORE INTO devices(id, first_seen, online) VALUES(?, ?, 0)",
@@ -859,14 +883,15 @@ def list_doctors() -> List[Dict[str, Any]]:
 
 def add_doctor(name: str, title: Optional[str] = None, department: Optional[str] = None,
                department_id: Optional[str] = None, phone: Optional[str] = None,
-               contact: Optional[str] = None, note: Optional[str] = None) -> int:
+               contact: Optional[str] = None, note: Optional[str] = None,
+               wechat_userid: Optional[str] = None) -> int:
     """登记一名医生。phone 与 contact 是同一字段（联系电话/联系方式）的别名。"""
     now = utcnow()
     if contact is not None:
         phone = contact  # 兼容 contact 别名
     cur = execute(
-        "INSERT INTO doctors(name,title,department,department_id,phone,note,created_at) VALUES(?,?,?,?,?,?,?)",
-        (name, title, department, department_id, phone, note, now),
+        "INSERT INTO doctors(name,title,department,department_id,phone,note,wechat_userid,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (name, title, department, department_id, phone, note, wechat_userid, now),
     )
     return int(cur)
 
@@ -877,7 +902,7 @@ def update_doctor(doctor_id: int, fields: dict) -> bool:
         return False
     if "contact" in fields:
         fields["phone"] = fields.pop("contact")
-    allowed = ("title", "department", "department_id", "phone", "note", "name")
+    allowed = ("title", "department", "department_id", "phone", "note", "name", "wechat_userid")
     cols, params = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -975,13 +1000,14 @@ def doctor_list(limit: int = 200) -> List[Dict[str, Any]]:
 
 def doctor_create(name: str, title: Optional[str] = None,
                   department: Optional[str] = None, contact: Optional[str] = None,
-                  note: Optional[str] = None) -> int:
+                  note: Optional[str] = None,
+                  wechat_userid: Optional[str] = None) -> int:
     """登记医生。contact = 联系电话（别名）；department_id 未提供。"""
     now = utcnow()
     cur = execute(
-        "INSERT INTO doctors(name,title,department,department_id,phone,note,created_at) "
-        "VALUES(?,?,?,?,?,?,?)",
-        (name, title, department, None, contact, note, now),
+        "INSERT INTO doctors(name,title,department,department_id,phone,note,wechat_userid,created_at) "
+        "VALUES(?,?,?,?,?,?,?,?)",
+        (name, title, department, None, contact, note, wechat_userid, now),
     )
     return int(cur)
 
