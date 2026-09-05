@@ -93,17 +93,19 @@ bool MqttMgr::connected() const {
 }
 
 bool MqttMgr::doConnect() {
-    Serial.printf("[MQTT] Connecting to %s:%d ...\n", g_cfg.mqtt_host, g_cfg.mqtt_port);
+    int rssi = WiFi.RSSI();
+    int wl  = WiFi.status();
+    Serial.printf("[MQTT] Connecting to %s:%d (rssi=%d) ...\n", g_cfg.mqtt_host, g_cfg.mqtt_port, rssi);
     bool ok = _client.connect(g_cfg.mqtt_host, g_cfg.mqtt_port, g_cfg.device_id,
                               g_cfg.mqtt_user, g_cfg.mqtt_pass,
                               _topicStat, "offline", 30);
     if (ok) {
         Serial.println(F("[MQTT] Connected"));
-        _client.publish(_topicStat, "online", 6, true, 0);   // 在线状态(保留)
+        _client.publish(_topicStat, "online", 6, true, 0);
         _client.subscribe(_topicCfg, 1);
-        _client.subscribe(_topicTts, 1);   // 订阅 TTS 语音播报主题
-        _client.publish(_topicReq, "{}", 2, false, 0);       // 请求最新配置
-        _retryDelay = 2000;
+        _client.subscribe(_topicTts, 1);
+        _client.publish(_topicReq, "{}", 2, false, 0);
+        _retryDelay = 1000;
     } else {
         Serial.printf("[MQTT] Failed, state=%d\n", _client.state());
     }
@@ -115,6 +117,14 @@ void MqttMgr::ensureConn() {
     uint32_t now = millis();
     if (now - _lastTry < _retryDelay) return;
     _lastTry = now;
+    int rssi = WiFi.RSSI();
+    int wl   = WiFi.status();
+    Serial.printf("[MQTT] Reconnect attempt in %lu ms (rssi=%d, wl=%d)\n",
+                  _retryDelay, rssi, wl);
+    if (rssi < -80) {
+        _net.stop();
+        _client.disconnect();
+    }
     _retryDelay = min((uint32_t)60000, _retryDelay * 2);
     doConnect();
 }

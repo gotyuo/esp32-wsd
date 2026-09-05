@@ -122,7 +122,8 @@ void setup() {
     g_net.setConfig(&g_cfg);
     g_net.begin();
 
-    String _otaHost = String(g_cfg.mqtt_host) + ":" + String(g_cfg.mqtt_port);
+    // OTA 服务器：硬编码 12090（Web 端口）。OLED 变体 config_store 没有 web_port 字段。
+    String _otaHost = String(g_cfg.mqtt_host) + ":" + "12090";
     ota_set_server(_otaHost.length() > 1 ? _otaHost.c_str() : nullptr, nullptr);
     delay(500);
     ota_setup();

@@ -35,7 +35,9 @@ bool MqttMgr::connected() const {
 }
 
 bool MqttMgr::doConnect() {
-    Serial.printf("[MQTT] Connecting to %s:%d ...\n", g_cfg.mqtt_host, g_cfg.mqtt_port);
+    int rssi = WiFi.RSSI();
+    int wl  = WiFi.status();
+    Serial.printf("[MQTT] Connecting to %s:%d (rssi=%d) ...\n", g_cfg.mqtt_host, g_cfg.mqtt_port, rssi);
     bool ok = client.connect(g_cfg.mqtt_host, g_cfg.mqtt_port, g_cfg.device_id,
                               g_cfg.mqtt_user, g_cfg.mqtt_pass,
                               topicStat, "offline", 30);
@@ -43,6 +45,7 @@ bool MqttMgr::doConnect() {
         Serial.println(F("[MQTT] Connected"));
         client.publish(topicStat, "online", 6, true, 0);
         client.subscribe(topicCfg, 1);
+        _retryDelay = 1000;  // 成功后重置退避（从 1s 开始）
     } else {
         Serial.printf("[MQTT] Failed, state=%d\n", client.state());
     }
@@ -54,6 +57,15 @@ void MqttMgr::ensureConn() {
     uint32_t now = millis();
     if (now - _lastTry < _retryDelay) return;
     _lastTry = now;
+    int rssi = WiFi.RSSI();
+    int wl   = WiFi.status();
+    Serial.printf("[MQTT] Reconnect attempt in %lu ms (rssi=%d, wl=%d)\n",
+                  _retryDelay, rssi, wl);
+    // WiFi 信号弱时强制断线重连（路由器静默 RST 后 WiFiClient 不立刻翻 false）
+    if (rssi < -80) {
+        net.stop();
+        client.disconnect();
+    }
     _retryDelay = min((uint32_t)60000, _retryDelay * 2);
     doConnect();
 }

@@ -307,7 +307,10 @@ void setup() {
     g_net.begin();
 
     // 根据保存的 MQTT host 自动推断 OTA 服务器（空 host 时 OTA 暂不检查）
-    String _otaHost = String(g_cfg.mqtt_host) + ":" + String(g_cfg.mqtt_port);
+    // OTA 服务器：用 web_port（Web=12090），不能用 mqtt_port（MQTT=18830）。
+    // web_port=0 时默认 12090。
+    uint16_t _otaPort = g_cfg.web_port ? g_cfg.web_port : 12090;
+    String _otaHost = String(g_cfg.mqtt_host) + ":" + String(_otaPort);
     ota_set_server(_otaHost.length() > 1 ? _otaHost.c_str() : nullptr, nullptr);
 
     initMic();  // 初始化麦克风
