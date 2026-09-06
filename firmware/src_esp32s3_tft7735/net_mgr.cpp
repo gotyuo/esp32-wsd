@@ -5,7 +5,7 @@
 #include <WebServer.h>
 #include <esp_wifi.h>
 
-static WebServer web(80);
+static WebServer web(6667);  // 非标准端口，避免冲突
 static DNSServer dns;
 
 NetManager g_net;
@@ -63,7 +63,7 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 <label>MQTT 用户名</label>
 <input name="user" value="envmon">
 <label>MQTT 密码</label>
-<input name="mpass" type="password">
+<input name="mpass" type="password" value="envmon">
 <label>设备编号</label>
 <input name="devid" placeholder="留空自动生成"><input type="hidden" name="smode" id="m_smode" value="0">
 <label>上报间隔（秒）</label>
@@ -205,6 +205,19 @@ function _doTest(){
     btn.textContent='🔍 测试连通性';
   });
 }
+// 页面加载时自动预填已保存的配置
+fetch('/config').then(r=>r.json()).then(d=>{
+  if(d.ssid) document.getElementById('ssid2').value=d.ssid;
+  if(d.pass) document.querySelector('input[name="pass"]').value=d.pass;
+  if(d.apssid) document.getElementById('apssid').value=d.apssid;
+  if(d.host) document.getElementById('m_host').value=d.host;
+  if(d.port) document.querySelector('input[name="port"]').value=d.port;
+  if(d.user) document.querySelector('input[name="user"]').value=d.user;
+  if(d.mpass) document.querySelector('input[name="mpass"]').value=d.mpass;
+  if(d.devid) document.querySelector('input[name="devid"]').value=d.devid;
+  if(d.interval) document.querySelector('input[name="interval"]').value=d.interval;
+  if(d.smode==1) switchMode('manual');
+}).catch(function(){});
 </script></body></html>)rawliteral";
 
 // ---------------- 实时数据页面 ----------------
@@ -380,6 +393,7 @@ void NetManager::startPortalServer() {
     });
     web.on("/save", HTTP_POST, [this]() { handleSave(); });
     web.on("/test", HTTP_POST, [this]() { handleTest(); });
+    web.on("/config", HTTP_GET, [this]() { handleConfig(); });
     web.on("/factory", HTTP_GET, [this]() { restoreFactory(); });
     web.on("/generate_204", HTTP_GET, [this]() { handleRoot(); });
     web.on("/hotspot-detect.html", HTTP_GET, [this]() { handleRoot(); });
@@ -402,17 +416,24 @@ void NetManager::handleScan() {
     web.send(200, "application/json", json);
 }
 
-// STA 模式下启动 Web 服务器（实时数据页 + 配置页）
+// STA 模式下启动 Web 服务器（实时数据页 + 配置页 + 全部功能）
 void NetManager::startDataServer() {
     if (_dataRunning) return;
     _dataRunning = true;
+    web.on("/", HTTP_GET, [this]() { handleRoot(); });
     web.on("/data", HTTP_GET, [this]() { handleData(); });
     web.on("/json", HTTP_GET, [this]() { handleJson(); });
     web.on("/factory", HTTP_GET, [this]() { restoreFactory(); });
-    web.on("/", HTTP_GET, [this]() { handleRoot(); });
+    web.on("/save", HTTP_POST, [this]() { handleSave(); });
+    web.on("/test", HTTP_POST, [this]() { handleTest(); });
+    web.on("/scan", HTTP_GET, [this]() {
+        if (web.arg("refresh") == "1") requestScan();
+        handleScan();
+    });
+    web.on("/config", HTTP_GET, [this]() { handleConfig(); });
     web.begin();
-    Serial.printf("[NET] Data web server started on http://%s/data\n",
-                  WiFi.localIP().toString().c_str());
+    String ip = WiFi.localIP().toString();
+    Serial.printf("[NET] Web server started on http://%s:6667 (data=/data, config=/)\n", ip.c_str());
 }
 
 void NetManager::handleData() {
@@ -434,6 +455,23 @@ void NetManager::handleJson() {
         (uint32_t)(millis() / 1000),
         s.valid ? "true" : "false");
     web.send(200, "application/json", buf);
+}
+
+// /config: 返回已保存配置（HTML 页面预填用）
+void NetManager::handleConfig() {
+    char buf[512];
+    int n = snprintf(buf, sizeof(buf),
+        "{\"ssid\":\"%s\",\"pass\":\"%s\",\"host\":\"%s\",\"port\":%u,"
+        "\"user\":\"%s\",\"mpass\":\"%s\",\"devid\":\"%s\","
+        "\"smode\":%u,\"interval\":%u,\"apssid\":\"%s\"}",
+        _cfg->wifi_ssid, _cfg->wifi_pass,
+        _cfg->mqtt_host, _cfg->mqtt_port,
+        _cfg->mqtt_user, _cfg->mqtt_pass,
+        _cfg->device_id,
+        _cfg->server_mode,
+        _cfg->report_interval,
+        _cfg->ap_ssid);
+    web.send(200, "application/json", String(buf, n));
 }
 
 // 恢复出厂设置：清除 NVS 配置，重启进入配网模式
@@ -506,7 +544,8 @@ void NetManager::handleSave() {
         "<p>WiFi: <code>" + c.wifi_ssid + "</code></p>" +
         "<p>服务器: " + modeStr + (detailStr.length() > 0 ? " " + detailStr : "") + "</p>" +
         "<p>热点即将关闭，请重新连回家庭 WiFi。</p>" +
-        "<p>连接后可访问 <code>http://" + c.wifi_ssid + ":80/data</code> 查看实时数据。</p></body>";
+        "<p>重启后在路由器 DHCP 列表查看设备 IP，然后访问 <code>http://设备IP:6667</code></p>" +
+        "<p>数据页: <code>:6667/data</code> · 配置页: <code>:6667/</code></p></body>";
     web.send(200, "text/html", html);
     Serial.println(F("[NET] Config saved, closing AP, rebooting in 2s"));
     delay(1000);

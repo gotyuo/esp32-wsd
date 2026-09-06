@@ -82,11 +82,11 @@ static void renderTft() {
     if (bars >= 3) g_tft.fillRect(134, 7, 2, 4, C_GREEN);
     if (bars >= 4) g_tft.fillRect(132, 9, 2, 2, C_GREEN);
 
-    // 页码指示器（右下角）
+    // 页码指示器（右上角，紧凑布局适配4页）
     g_tft.setTextColor(C_GRAY);
     for (int i = 0; i < NUM_PAGES; i++) {
         uint16_t c = (i == g_page) ? C_WHITE : C_GRAY;
-        g_tft.fillRect(140 + i * 8, 3, 5, 5, c);
+        g_tft.fillRect(142 + i * 4, 5, 3, 3, c);
     }
 
     // 分隔线
@@ -475,7 +475,8 @@ void loop() {
     // TFT 刷新（每 15 秒自动翻页）
     if (g_tftOk && (now - g_lastTft >= 15000 || g_displayDirty)) {
         g_lastTft = now;
-        g_page = (g_page + 1) % NUM_PAGES;  // 自动翻页
+        if (!g_displayDirty) g_page = (g_page + 1) % NUM_PAGES;  // 自动翻页（消息跳转时不自动翻）
+        g_displayDirty = false;
         renderTft();
     }
 

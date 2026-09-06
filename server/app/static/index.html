@@ -945,7 +945,7 @@ function switchDevice(){
     }).catch(function(){});
   }
 }
-function loadReal(){api("/api/realtime"+(DEV?"?device="+encodeURIComponent(DEV):"")).then(function(d){var list=d.devices||[];list.forEach(function(x){var L=x.latest;if(!L)return;
+function loadReal(){api("/api/realtime"+(DEV?"?device="+encodeURIComponent(DEV):"")).then(function(d){var list=d.devices||[];if(!list.length){if($("lastSeen"))$("lastSeen").textContent="暂无设备数据";return;}var hasLatest=false;list.forEach(function(x){var L=x.latest;if(!L)return;hasLatest=true;
     $("vTemp").textContent=fmt(L.temp_c);$("vHum").textContent=fmt(L.hum_pct);$("vPres").textContent=fmt(L.pres_hpa,1);
     $("vRssi").textContent=(L.rssi==null?"--":L.rssi);
     $("lastSeen").textContent="最后上报: "+fmtTime(L.ts);
@@ -958,7 +958,7 @@ function loadReal(){api("/api/realtime"+(DEV?"?device="+encodeURIComponent(DEV):
     if(L.alarm_level>=2){["vitT","vitH","vitP"].forEach(function(id){$(""+id+"").classList.add("alarm");});}
     else if(L.alarm_level===1){["vitT","vitH","vitP"].forEach(function(id){$(""+id+"").classList.add("warn");});}
     else{$("vAlarm").textContent="状态正常";$("vAlarm").className="sub";["vitT","vitH","vitP"].forEach(function(id){$(""+id+"").classList.remove("alarm","warn");});}
-  });}).catch(function(e){
+  });if(!hasLatest){if($("lastSeen"))$("lastSeen").textContent="暂无实时数据";if($("devDot"))$("devDot").className="dot off";if($("devLabel"))$("devLabel").textContent="离线";}}).catch(function(e){
     // Issue 2: 不再静默吞错，显示错误信息
     var dd=$("devDot"),dl=$("devLabel");
     if(dd)dd.className="dot off";
@@ -2456,10 +2456,15 @@ function doRemind(){
   if(!p||!p.value){toast("请选择患者","alarm");return;}
   var text=(t&&t.value.trim())||"";
   if(!text){toast("请输入提醒内容","alarm");return;}
-  var did=$("rmdDevice").value||null;
+  var didSel=$("rmdDevice");
+  var did=(didSel&&didSel.value)||null;
   var doctorSel=$("rmdDoctor");
-  var doctor_id = (doctorSel.value&&doctorSel.value!=="")?parseInt(doctorSel.value,10):null;
-  var doctor_name = doctorSel.value ? (doctorSel.querySelector("option[value='"+doctorSel.value+"']").dataset.name||"") : null;
+  var doctor_id=null, doctor_name=null;
+  if(doctorSel&&doctorSel.value&&doctorSel.value!==""){
+    doctor_id=parseInt(doctorSel.value,10);
+    var docOpt=doctorSel.querySelector("option[value='"+doctorSel.value+"']");
+    doctor_name=(docOpt&&docOpt.dataset&&docOpt.dataset.name)||"";
+  }
   api("/api/reminders/send",{
     method:"POST",
     headers:{"Content-Type":"application/json"},

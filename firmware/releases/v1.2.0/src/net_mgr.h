@@ -63,6 +63,7 @@ private:
     void handleTest();
     void handleData();
     void handleJson();
+    void handleConfig();
     void startPortalServer();
     void startDataServer();
 
