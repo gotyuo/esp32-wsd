@@ -13,12 +13,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import json
 import logging
 import os
 import secrets
+import struct
+import subprocess
 import time
 import threading
 from contextlib import asynccontextmanager
@@ -1330,8 +1333,10 @@ def list_settings():
     """列出当前配置值（原始字符串，admin）。"""
     raw = icu.list_settings_raw()
     keys = ["ai.enabled", "ai.provider", "ai.base_url", "ai.model", "ai.api_key", "ai.prompt",
-            "wechat.corp_id", "wechat.agent_id", "wechat.secret", "wechat.webhook_url", "wechat.enabled"]
-    rows = db.query("SELECT key, updated_at FROM app_settings WHERE key IN (?,?,?,?,?,?,?,?,?,?,?)", tuple(keys))
+            "wechat.corp_id", "wechat.agent_id", "wechat.secret", "wechat.webhook_url", "wechat.enabled",
+            "wechat.token", "wechat.aes_key"]
+    placeholders = ",".join(["?"] * len(keys))
+    rows = db.query(f"SELECT key, updated_at FROM app_settings WHERE key IN ({placeholders})", tuple(keys))
     updated = {dict(r)["key"]: dict(r).get("updated_at") for r in rows}
     out = [{"key": k, "value": raw.get(k, ""), "updated_at": updated.get(k)} for k in keys]
     return {"settings": out}
@@ -1455,6 +1460,131 @@ def _broadcast_reminder_text(device_id: str, text: str) -> None:
             )
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------- 企业微信回调（医生→设备消息管道）
+def _wecom_pkcs7_pad(data: bytes, block_size: int = 32) -> bytes:
+    pad_len = block_size - (len(data) % block_size)
+    return data + bytes([pad_len]) * pad_len
+
+def _wecom_pkcs7_unpad(data: bytes) -> bytes:
+    pad_len = data[-1]
+    return data[:-pad_len]
+
+def _wecom_encrypt_msg(plain: str, key: str, recv: str) -> str:
+    """AES-256-CBC 加密（企微回调要求）"""
+    raw_key = base64.b64decode(key + "=")
+    iv = raw_key[:16]
+    msg_bytes = plain.encode("utf-8")
+    random_bytes = struct.pack(">I", secrets.randbelow(0xFFFFFFFF))
+    payload = random_bytes + struct.pack(">I", len(msg_bytes)) + msg_bytes + recv.encode("utf-8")
+    padded = _wecom_pkcs7_pad(payload)
+    enc = subprocess.run(
+        ["openssl", "enc", "-aes-256-cbc", "-e", "-nopad",
+         "-K", raw_key.hex(), "-iv", iv.hex()],
+        input=padded, capture_output=True, check=True
+    )
+    return base64.b64encode(enc.stdout).decode("utf-8")
+
+def _wecom_decrypt_msg(encrypted: str, key: str) -> str:
+    """AES-256-CBC 解密（企微回调要求）"""
+    raw_key = base64.b64decode(key + "=")
+    iv = raw_key[:16]
+    enc_bytes = base64.b64decode(encrypted)
+    dec = subprocess.run(
+        ["openssl", "enc", "-aes-256-cbc", "-d", "-nopad",
+         "-K", raw_key.hex(), "-iv", iv.hex()],
+        input=enc_bytes, capture_output=True, check=True
+    )
+    payload = _wecom_pkcs7_unpad(dec.stdout)
+    msg_len = struct.unpack(">I", payload[16:20])[0]
+    return payload[20:20 + msg_len].decode("utf-8")
+
+@app.post("/api/wechat/callback")
+async def wechat_callback(request: Request):
+    """企业微信消息回调：医生在企微发消息 → 服务器解析 → MQTT 转发到设备屏幕。
+
+    企微回调流程：
+      1. 企微推送加密 XML 到本端点
+      2. 服务器验证签名 + AES 解密
+      3. 解析医生发消息（from user → message text）
+      4. 查 doctors 表获取主管患者 → 获取绑定设备
+      5. MQTT 发布到 envmon/{device_id}/reminder（设备屏幕显示）
+      6. 返回 success 确认接收
+    """
+    from fastapi import Query
+    msg_signature = request.query_params.get("msg_signature", "")
+    timestamp = request.query_params.get("timestamp", "")
+    nonce = request.query_params.get("nonce", "")
+
+    # 获取企微配置
+    corp = icu.get_setting_raw("wechat.corp_id") or ""
+    agent = icu.get_setting_raw("wechat.agent_id") or ""
+    secret = icu.get_setting_raw("wechat.secret") or ""
+    token = icu.get_setting_raw("wechat.token") or ""
+    aes_key = icu.get_setting_raw("wechat.aes_key") or ""
+    # 回调加密 key 从 corp_secret 推导（简化模式，不依赖应用 token）
+    # 实际部署时可添加独立 aes_key 配置
+    if not aes_key:
+        aes_key = secret[:43] + "="  # 企微标准 AESKey 格式
+
+    if not corp or not token:
+        return {"ok": False, "error": "wechat.corp_id / wechat.token 未配置"}
+
+    body = await request.body()
+
+    # 验证签名
+    signature_calc = hashlib.sha1((
+        token + timestamp + nonce + base64.b64encode(body).decode("utf-8")
+    ).encode("utf-8")).hexdigest()
+
+    if signature_calc != msg_signature:
+        log.warning("WeChat callback signature mismatch: %s vs %s", signature_calc, msg_signature)
+        return {"ok": False, "error": "签名验证失败"}
+
+    # 解析 XML
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(body)
+        encrypt_tag = root.find("Encrypt")
+        if not encrypt_tag or not encrypt_tag.text:
+            return {"ok": False, "error": "XML 缺少 Encrypt 节点"}
+        plain_xml = _wecom_decrypt_msg(encrypt_tag.text, aes_key)
+        log.info("WeChat callback decrypted: %s", plain_xml[:200])
+        msg_root = ET.fromstring(plain_xml.encode("utf-8"))
+    except Exception as e:
+        log.warning("WeChat callback XML parse/decrypt failed: %s", e)
+        return {"ok": False, "error": f"解密失败: {str(e)}"}
+
+    msg_type = msg_root.findtext("MsgType", "")
+    content = msg_root.findtext("Content", "")
+    sender = msg_root.findtext("FromUserName", "")
+
+    if msg_type == "text" and content:
+        log.info("WeChat doctor message from=%s: %s", sender, content[:50])
+        # 查医生绑定的患者和设备
+        # 链路：doctors.wechat_userid → patients.doctor → patient_devices
+        patient_ids = db.query(
+            "SELECT p.id AS patient_id, p.pid "
+            "FROM patients p "
+            "JOIN doctors d ON p.doctor = d.name "
+            "WHERE d.wechat_userid = ?",
+            (sender,)
+        )
+        for row in patient_ids:
+            row_dict = dict(row) if not isinstance(row, dict) else row
+            pid_int = row_dict.get("patient_id")
+            pid_str = row_dict.get("pid")
+            bound = db.query(
+                "SELECT device_id FROM patient_devices WHERE patient_id=?", (pid_int,)
+            )
+            if bound:
+                b0 = dict(bound[0]) if not isinstance(bound[0], dict) else bound[0]
+                did = b0.get("device_id")
+                if did:
+                    _broadcast_reminder_text(did, content)
+                    log.info("WeChat msg → device %s for patient %s", did, pid_str)
+    return {"ok": True}
 
 
 def _send_wechat_reminder(text: str, patient_id: str,
