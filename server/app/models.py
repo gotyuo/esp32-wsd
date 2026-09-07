@@ -1,9 +1,10 @@
 """Pydantic 数据模型（API 输入/输出）。"""
 from __future__ import annotations
 
+import re
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ThresholdsIn(BaseModel):
@@ -42,9 +43,21 @@ class ThresholdsOut(BaseModel):
     updated_at: Optional[str] = None
 
 
+DEVICE_ID_RE = r"^[A-Za-z0-9_-]{1,32}$"
+DEVICE_NAME_RE = r"^[^<>{}[\]\x00-\x1f]{1,64}$"
+
+
 class RegisterDeviceIn(BaseModel):
-    device_id: str = Field(..., min_length=1, max_length=32)
+    device_id: str = Field(..., pattern=DEVICE_ID_RE)
     name: str = Field(default="", max_length=64)
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        if not re.match(DEVICE_NAME_RE, v or ""):
+            raise ValueError("name 仅允许字母数字中文及常见标点，不含 < > { } [ ] 及控制字符")
+        return v
+
     # 可选：人工登记 IP / 接入地址。内网设备通常留空（由遥测上报自动填充），
     # 外网设备用它登记可直连的地址（如 ddns 域名或公网 IP:端口）。
     ip_addr: str = Field(default="", max_length=128)
@@ -54,6 +67,15 @@ class UpdateDeviceIn(BaseModel):
     """更新设备名称和/或 IP 地址。两个字段均可选，传哪个改哪个。"""
     name: Optional[str] = Field(default=None, max_length=64)
     ip_addr: Optional[str] = Field(default=None, max_length=128)
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        if not re.match(DEVICE_NAME_RE, v or ""):
+            raise ValueError("name 仅允许字母数字中文及常见标点，不含 < > { } [ ] 及控制字符")
+        return v
 
 
 # ================================================================ 认证

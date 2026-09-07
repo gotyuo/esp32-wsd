@@ -414,8 +414,8 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <h2>🖥 设备管理 / DEVICE MANAGEMENT
         <div class="actions" style="margin-top:0">
           <button onclick="showAddDevice()">+ 注册设备</button>
-          <button class="small" id="devProbeBtn" onclick="probeDevices(event)" title="向所有设备发心跳探测，实时判断在线/离线">🔍 刷新状态</button>
-          <button class="secondary small" onclick="loadDevices(null,event)">刷新列表</button>
+          <button class="small" id="devProbeBtn" onclick="probeDevices(event)" title="向所有设备发 MQTT 心跳探测，实时判断在线/离线">🔍 刷新状态</button>
+          <button class="secondary small" onclick="loadDevices(null,event)">📋 刷新列表</button>
           <button class="secondary small" onclick="showDeviceDiscover()">📡 局域网发现</button>
           <span class="hint" id="devCount">0 台</span>
         </div>
@@ -515,7 +515,7 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
         <div class="actions" style="margin-top:0">
           <button class="small" onclick="loadAccess()">🔍 刷新接入</button>
           <button class="secondary small" onclick="acceptAllNew()">✔ 批量保存新增</button>
-          <button class="secondary small" onclick="loadDevices(null,event)">同步设备管理</button>
+          <button class="secondary small" onclick="switchView('devices');loadDevices()">同步设备管理</button>
           <span class="hint" id="accessHint">--</span>
         </div>
       </h2>
@@ -1006,7 +1006,7 @@ function showAddDevice(){$("modalInner").innerHTML="<h2 style='font-size:14px;ma
   "<div class='kv'><label>设备 ID</label><input id='dId' placeholder='envmon-bed-001' pattern='[A-Za-z0-9_-]{1,32}'><label>名称(可选)</label><input id='dName' placeholder='如 ICU-3床'></div>"+
   "<div style='font-size:11px;color:var(--dim);margin-top:8px'>设备 ID 用于 MQTT 主题 envmon/{ID}/telemetry，请在终端配置页填写一致。</div>"+
   "<div class='actions'><button onclick='doAddDevice()'>注册</button><button class='secondary' onclick='closeModal()'>取消</button></div>";$("modalBox").classList.remove("hidden");}
-function doAddDevice(){var id=$("dId").value.trim(),name=$("dName").value.trim();if(!id){alert("请输入设备 ID");return;}api("/api/devices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device_id:id,name:name})}).then(function(){toast("已注册设备 "+id);closeModal();loadDevices();}).catch(function(){});}
+function doAddDevice(){var id=$("dId").value.trim(),name=$("dName").value.trim();if(!id){alert("请输入设备 ID");return;}if(!/^[A-Za-z0-9_-]{1,32}$/.test(id)){alert("设备 ID 仅允许字母数字下划线和连字符，1-32 字符");return;}if(name&&/<|>/.test(name)){alert("设备名称不能包含 < >");return;}api("/api/devices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device_id:id,name:name})}).then(function(){toast("已注册设备 "+id);closeModal();loadDevices();}).catch(function(){});}
 function editName(id){var cur=DEVICES.find(function(x){return x.id===id});var old=(cur&&cur.name)||"",oldIp=(cur&&cur.ip_addr)||"";
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>EDIT DEVICE · "+esc(id)+"</h2>"+
     "<div class='kv'><label>设备 ID</label><div style='color:var(--blue);font-weight:600;font-family:Consolas,monospace'>"+esc(id)+"</div>"+
@@ -2317,7 +2317,9 @@ function _doAccept(cbs){
     loadAccess();
   }).catch(function(e){ toast('保存失败: '+(e&&e.message||""),"alarm"); });
 }
-function acceptAllNew(){ _selectAndAccept(); }
+function toggleSelectAllNew(){ _selectAndAccept(); }
+// BUG-16: 兼容旧调用
+function acceptAllNew(){ toggleSelectAllNew(); }
 function acceptNew(did){
   api("/api/devices/access-save", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({device_ids:[did]})}).then(function(d){
     if(d.added>0){ toast('已保存 '+did); loadAccess(); }

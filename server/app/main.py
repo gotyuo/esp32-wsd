@@ -344,17 +344,18 @@ def _trigger_ai_alarm_analysis(device_id: str, level: int, reason: str,
                 except Exception:
                     usage_text = str(usage)
 
-            # 落库
-            db.insert_ai_analysis(
-                device_id=device_id, patient_id=str(pid) if pid else None,
-                patient_name=pname, doctor_id=did, doctor_name=dname,
-                level=level, reason=reason,
-                model=model.strip(), provider=provider.strip(),
-                prompt_len=len(prompt),
-                analysis=content or "",
-                usage_text=usage_text,
-                weixin_sent=0, weixin_err=err or None,
-            )
+            # 落库 - 仅在分析成功时保存记录
+            if content and not err:
+                db.insert_ai_analysis(
+                    device_id=device_id, patient_id=str(pid) if pid else None,
+                    patient_name=pname, doctor_id=did, doctor_name=dname,
+                    level=level, reason=reason,
+                    model=model.strip(), provider=provider.strip(),
+                    prompt_len=len(prompt),
+                    analysis=content or "",
+                    usage_text=usage_text,
+                    weixin_sent=0, weixin_err=None,
+                )
 
             # 企微推送：分析成功 且 有主管医生 且 企微已配
             if content and did:
@@ -769,18 +770,27 @@ def health(q: Optional[str] = Query(default=None)):
     return {"ok": True, "mqtt_connected": bridge.connected, "time": db.localnow()}
 
 
-@app.get("/api/devices")
-def devices():
+@app.get("/api/devices", dependencies=[Depends(require_user)])
+def devices(limit: int = Query(0, ge=0, description="0=全部"), offset: int = Query(0, ge=0)):
     """设备列表 + 每台设备的最新一帧遥测。
     latest 供设备卡片直接显示 SP.T/HUM/PRESS/SIG，避免退化成"无历史数据"。
+    limit/offset: 0 表示不分页（默认），传正整数则分页。
     """
+    all_devs = db.list_devices()
+    total = len(all_devs)
+    if limit > 0:
+        all_devs = all_devs[offset:offset + limit]
     return {"devices": [dict(d, latest=db.latest_telemetry(d["id"]))
-                        for d in db.list_devices()]}
+                        for d in all_devs], "total": total}
 
 
 # 以下为通配路由 /api/devices/{device_id} 的"固定子路径"——必须在其之前定义，
 # 否则 FastAPI 会把字符串 "access-state" 当作 device_id 参数抢走。
 SCAN_WINDOW_MINUTES = 5  # 快照保留窗口（分钟），窗口外自动清理
+_backup_last_ts: float = 0  # 上一次备份时间戳
+
+_PROBE_COOLDOWN_S = 3  # probe 最小间隔（秒）
+_probe_last_ts: float = 0  # 上一次 probe 调用时间戳
 
 
 @app.get("/api/devices/access-state", dependencies=[Depends(require_user)])
@@ -811,7 +821,7 @@ def list_device_access(window_minutes: int = Query(SCAN_WINDOW_MINUTES, ge=1, le
     }
 
 
-@app.post("/api/devices/access-save", dependencies=[Depends(require_user)])
+@app.post("/api/devices/access-save", dependencies=[Depends(require_admin)])
 def accept_new_devices(body: dict):
     """批量把快照里"新增"的设备保存到 devices 表。body: {"device_ids":["a","b"]}。"""
     ids = body.get("device_ids", [])
@@ -845,8 +855,10 @@ def clear_device_access():
 @app.post("/api/devices", dependencies=[Depends(require_admin)])
 def register_device(body: RegisterDeviceIn):
     """注册设备。ip_addr 可选：外网设备可登记接入地址（域名/IP:端口）。"""
+    existing = db.device_detail(body.device_id) is not None
     db.register_device(body.device_id, body.name or None, body.ip_addr or None)
-    return {"ok": True}
+    return {"ok": True, "created": not existing,
+            "message": "已存在" if existing else ""}
 
 
 @app.patch("/api/devices/{device_id}", dependencies=[Depends(require_admin)])
@@ -856,6 +868,9 @@ def update_device(device_id: str, body: UpdateDeviceIn):
     用 exclude_unset 区分「没传该字段」与「显式传 null（清空）」，
     否则用户想清空名称/IP 时会因为没有字段可改而误报 404。
     """
+    # BUG-02: 先检查设备是否存在，避免不存在时返回 200 ok:true
+    if not db.device_detail(device_id):
+        raise HTTPException(status_code=404, detail="设备不存在")
     data = body.model_dump(exclude_unset=True) if hasattr(body, "model_dump") else body.dict(exclude_unset=True)
     if not data:
         return {"ok": True}
@@ -883,7 +898,31 @@ def batch_register_devices(body: dict):
     return {"ok": True, "registered": done, "total": len(ids)}
 
 
-@app.get("/api/devices/{device_id}")
+# BUG-04: 固定路径必须在 {device_id} 通配路由之前声明，
+# 否则 GET /api/devices/probe 会被 {device_id} 吞掉并返回 404 "设备不存在"。
+# 以下 GET 处理器返回 405，这些路径只接受 POST。
+
+@app.get("/api/devices/probe", status_code=405)
+def _probe_get_405():
+    raise HTTPException(405, "此路径仅支持 POST，请用 POST 方法")
+
+
+@app.get("/api/devices/access-save", status_code=405)
+def _access_save_get_405():
+    raise HTTPException(405, "此路径仅支持 POST")
+
+
+@app.get("/api/devices/batch-register", status_code=405)
+def _batch_register_get_405():
+    raise HTTPException(405, "此路径仅支持 POST")
+
+
+@app.get("/api/devices/batch-delete", status_code=405)
+def _batch_delete_get_405():
+    raise HTTPException(405, "此路径仅支持 POST")
+
+
+@app.get("/api/devices/{device_id}", dependencies=[Depends(require_user)])
 def get_device_detail(device_id: str):
     d = db.device_detail(device_id)
     if d is None:
@@ -891,7 +930,7 @@ def get_device_detail(device_id: str):
     return d
 
 
-@app.get("/api/devices/{device_id}/history")
+@app.get("/api/devices/{device_id}/history", dependencies=[Depends(require_user)])
 def device_patient_timeline(device_id: str):
     """某设备的历次患者分配时间线（同设备换患者时可追溯）。"""
     return {"device_id": device_id, "history": icu.device_patient_history(device_id)}
@@ -1068,12 +1107,18 @@ def _probe_status_ids(ids: List[str]) -> Set[str]:
     return online
 
 
-@app.post("/api/devices/probe", dependencies=[Depends(require_user)])
+@app.post("/api/devices/probe", dependencies=[Depends(require_admin)])
 def probe_devices(body: dict = None):
     """主动扫描设备在线状态：读取 broker 上每台设备的 status 保留消息。
     body 可带 {"device_ids": [...]}；缺省扫描全部设备。
     无保留消息（从未连过）且无新鲜遥测 = 离线。
     返回 online/offline 两组 + 每台设备的 probe 标记。"""
+    global _probe_last_ts
+    now = time.time()
+    if now - _probe_last_ts < _PROBE_COOLDOWN_S:
+        remaining = round(_PROBE_COOLDOWN_S - (now - _probe_last_ts), 1)
+        raise HTTPException(429, f"探测过于频繁，请 {remaining}s 后重试")
+    _probe_last_ts = now
     devs = db.list_devices()
     body = body or {}
     want = body.get("device_ids")
@@ -1183,7 +1228,7 @@ def batch_delete_devices(body: dict):
             log.exception("batch delete device %s failed", did)
             errors += 1
     return {"ok": True, "deleted": deleted, "missing": missing,
-            "errors": errors, "total": len(ids)}
+            "errors": errors + missing, "total": len(ids)}
 
 
 # ================================================================ 设备网络接入
@@ -1345,6 +1390,15 @@ def list_settings():
 @app.post("/api/settings", dependencies=[Depends(require_admin)])
 def set_settings(body: Dict[str, Any]):
     """批量写入配置。支持 wechat.* 键：企业微信 corp_id/agent_id/secret 或 webhook_url。"""
+    # BUG-33: window_minutes 必须为正整数
+    wm = body.get("window_minutes")
+    if wm is not None:
+        try:
+            wm_val = int(wm)
+            if wm_val < 1 or wm_val > 1440:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise HTTPException(400, "window_minutes 必须为 1-1440 的整数")
     for k, v in (body or {}).items():
         if k and not str(k).startswith("_"):
             icu.set_setting(str(k), str(v) if v is not None else "")
@@ -1355,7 +1409,7 @@ def set_settings(body: Dict[str, Any]):
 WECHAT_WECHAT = "app_settings:wechat."
 
 
-@app.post("/api/reminders/send", dependencies=[Depends(require_user)])
+@app.post("/api/reminders/send", dependencies=[Depends(require_admin)])
 def send_reminder(body: Dict[str, Any]):
     """医生向患者发提醒。可同时：① 推送到患者绑定设备（语音播报 + 屏幕显示）
     ② 通过企业微信 webhook 或 应用消息 通知医生自己。
@@ -1376,6 +1430,8 @@ def send_reminder(body: Dict[str, Any]):
     text = str(body.get("text", "")).strip()
     if not text:
         raise HTTPException(400, "text 必填")
+    if len(text) > 512:
+        raise HTTPException(400, "text 长度不能超过 512 字符")
     did = str(body.get("device_id", "") or "").strip() or None
     doctor_id = body.get("doctor_id")
     doctor_name = str(body.get("doctor_name", "") or "").strip() or None
@@ -1620,7 +1676,17 @@ def _send_wechat_reminder(text: str, patient_id: str,
                                          timeout=10)
             body = json.loads(resp.read().decode("utf-8") or "{}")
             if body.get("errcode", 0) != 0:
-                return 0, "webhook errcode=" + str(body.get("errcode"))
+                code = body.get("errcode")
+                desc = {93000: "企微 webhook URL 无效或未配置",
+                        40001: "access_token 无效或已过期",
+                        81013: "用户不在企业内",
+                        45009: "接口调用频率超限",
+                        60011: "不合法的secret",
+                        40056: "IP 不在白名单内"}.get(code, "")
+                msg = f"webhook errcode={code}"
+                if desc:
+                    msg += f" ({desc})"
+                return 0, msg
             return 1, ""
         if corp and agent and secret:
             token_url = ("https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=" + corp +
@@ -1654,7 +1720,7 @@ def update_setting(body: SettingsUpdateIn):
     return {"ok": True, "key": body.key, "value": body.value}
 
 
-@app.get("/api/realtime")
+@app.get("/api/realtime", dependencies=[Depends(require_user)])
 def realtime(device: Optional[str] = None):
     devs = db.list_devices()
     out: List[dict] = []
@@ -1758,7 +1824,7 @@ def history(device: str = Query(...), hours: int = Query(24, ge=1, le=24 * 365))
             "points": points}
 
 
-@app.get("/api/thresholds")
+@app.get("/api/thresholds", dependencies=[Depends(require_user)])
 def get_thresholds(device: str = "*"):
     th = db.get_thresholds(device)
     if not th:
@@ -1773,6 +1839,9 @@ def get_thresholds(device: str = "*"):
 def put_thresholds(body: ThresholdsIn):
     data = body.model_dump()
     device_id = data.pop("device_id")
+    # BUG-03: 非全局设备必须先存在
+    if device_id != "*" and not db.device_detail(device_id):
+        raise HTTPException(status_code=404, detail="设备不存在")
     data["alarm_enabled"] = int(data["alarm_enabled"])
     data["alarm_sound"] = int(data["alarm_sound"])
     db.save_thresholds(device_id, data)
@@ -1784,8 +1853,9 @@ def put_thresholds(body: ThresholdsIn):
     return {"ok": True, "device_id": device_id, "pushed_to": pushed}
 
 
-@app.get("/api/alarms")
-def alarms(device: Optional[str] = None, limit: int = Query(50, le=500)):
+@app.get("/api/alarms", dependencies=[Depends(require_user)])
+def alarms(device: Optional[str] = None, limit: int = Query(50, le=500),
+         level: Optional[int] = Query(None, ge=0, le=2, description="报警级别 0=正常 1=预警 2=报警")):
     return {"alarms": db.list_alarms(device, limit)}
 
 
@@ -1808,7 +1878,7 @@ def ai_settings(user: Dict = Depends(require_admin)):
     keys = ["ai.enabled", "ai.provider", "ai.base_url", "ai.model",
             "ai.api_key", "ai.timeout", "ai.max_tokens", "ai.system_prompt"]
     return {
-        "ai_settings": {k: raw.get(k, "") for k in keys},
+        "ai_settings": {k: ("******" if k == "ai.api_key" and raw.get(k, "") else raw.get(k, "")) for k in keys},
         "providers": [
             {"value": "openai", "label": "OpenAI (api.openai.com)"},
             {"value": "deepseek", "label": "DeepSeek (api.deepseek.com)"},
@@ -1863,14 +1933,25 @@ def ai_test_connection(user: Dict = Depends(require_admin)):
     try:
         from . import ai_client
         content, err, usage = ai_client.test_connection(icu.list_settings_raw())
+        # BUG-38: 错误消息转中文
+        err_msg = None
+        if err:
+            if "Connection refused" in err or "Errno 111" in err:
+                err_msg = "无法连接 AI 服务，请检查 ollama 是否已启动"
+            elif "Connection reset" in err:
+                err_msg = "AI 服务连接被拒绝"
+            elif "timed out" in err or "Timeout" in err:
+                err_msg = "AI 服务响应超时"
+            else:
+                err_msg = "AI 连接失败: " + err
         return {
             "ok": bool(content),
             "content": content[:500],
-            "error": err or None,
+            "error": err_msg,
             "usage": usage,
         }
     except Exception as e:
-        return {"ok": False, "error": str(e), "content": "", "usage": None}
+        return {"ok": False, "error": "AI 测试异常: " + str(e), "content": "", "usage": None}
 
 
 @app.get("/api/ai/analyses")
@@ -1988,7 +2069,7 @@ def _parse_hl7(text: str) -> Dict[str, Any]:
     return result
 
 
-@app.post("/api/ingest", dependencies=[Depends(require_user)])
+@app.post("/api/ingest", dependencies=[Depends(require_admin)])
 async def ingest(request: Request):
     """HTTP 数据接入通道，支持 JSON 和 HL7 v2.x 文本两种格式。
 
@@ -2060,7 +2141,27 @@ async def ingest(request: Request):
 
     if not device_id:
         raise HTTPException(400, "缺少 device_id")
-
+    
+    # BUG-29: device_id 字符校验（与 /api/devices 统一）
+    import re as _re
+    if not _re.match(r'^[A-Za-z0-9_-]{1,32}$', device_id):
+        raise HTTPException(400, "device_id 仅允许字母数字下划线和连字符，1-32 字符")
+    
+    # BUG-27/28/30: 数值范围校验
+    import math
+    for val, name, lo, hi in [(temp, "temp_c", -50, 150),
+                              (hum, "hum_pct", 0, 100),
+                              (pres, "pres_hpa", 300, 1300)]:
+        if val is not None:
+            if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                raise HTTPException(400, f"{name} 不能为 NaN/Infinity")
+            if val < lo or val > hi:
+                raise HTTPException(400, f"{name}={val} 超出范围 [{lo},{hi}]")
+    
+    # BUG-30: 至少提供一个测量值
+    if temp is None and hum is None and pres is None and rssi is None:
+        raise HTTPException(400, "至少提供一个测量值 (temp_c/hum_pct/pres_hpa/rssi)")
+    
     # 设备不存在时自动登记（只保证记录存在，不碰 online/last_seen）
     db.ensure_device(device_id)
 
@@ -2301,6 +2402,7 @@ def get_patient(pid: str):
 
 
 @app.put("/api/patients/{pid}", dependencies=[Depends(require_admin)])
+@app.patch("/api/patients/{pid}", dependencies=[Depends(require_admin)])
 def update_patient(pid: str, body: PatientUpdate):
     p = icu.patient_by_pid(pid)
     if not p:
@@ -2328,10 +2430,13 @@ def link_device(pid: str, device_id: str, role: str = Query("primary", pattern=r
         icu.link_device(p["id"], device_id, role)
     except ValueError as e:
         raise HTTPException(409, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"关联失败: {str(e)}")
     return {"ok": True}
 
 
 @app.delete("/api/patients/{pid}/unlink/{device_id}", dependencies=[Depends(require_admin)])
+@app.post("/api/patients/{pid}/unlink/{device_id}", dependencies=[Depends(require_admin)])
 def unlink_device(pid: str, device_id: str):
     p = icu.patient_by_pid(pid)
     if not p:
@@ -2625,6 +2730,12 @@ def assess(pid: str, hours: int = 24, ai: bool = Query(False)):
 # ---------- 备份 ----------
 @app.post("/api/backup", dependencies=[Depends(require_admin)])
 def trigger_backup():
+    global _backup_last_ts
+    now = time.time()
+    if now - _backup_last_ts < 60:
+        remaining = round(60 - (now - _backup_last_ts), 1)
+        raise HTTPException(429, f"备份过于频繁，请 {remaining}s 后重试")
+    _backup_last_ts = now
     info = icu.do_backup()
     return {"ok": True, **info}
 
