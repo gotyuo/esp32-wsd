@@ -1106,12 +1106,11 @@ function probeDevicesThenPatients(ev){
   api("/api/devices/probe",{method:"POST"}).then(function(d){
     DEVICES=(d.online||[]).concat(d.offline||[]);
     _syncDevSel(DEVICES);
-    // 患者页显示的设备点来自 /api/patients/summary -> devices[].online；
-    // probe 已经把结果写回 DB，此调用会拉取最新绑定+在线状态。
     loadPatients();
     toast("设备状态已刷新 · 在线 "+(d.online_count||0)+"/"+DEVICES.length);
   }).catch(function(e){
     toast("扫描失败: "+(e&&e.message||""),"alarm");
+    // BUG-15: probe 失败时中止后续操作，不继续加载患者
   }).finally(function(){
     if(b){b.disabled=false;b.textContent=_o;}
   });
@@ -2053,10 +2052,14 @@ function testIngest(){
   var pres=document.getElementById('hl7TestPres').value.trim();
   var resultEl=document.getElementById('hl7TestResult');
   if(!id){resultEl.textContent='请填写设备ID';return;}
+  if(!/^[A-Za-z0-9_-]{1,32}$/.test(id)){resultEl.textContent='设备ID仅允许字母数字下划线和连字符';return;}
   var body={device_id:id};
-  if(temp)body.temp_c=parseFloat(temp);
-  if(hum)body.hum_pct=parseFloat(hum);
-  if(pres)body.pres_hpa=parseFloat(pres);
+  var vals={};
+  if(temp){vals.temp_c=parseFloat(temp);if(isNaN(vals.temp_c)||vals.temp_c<-100||vals.temp_c>100){resultEl.textContent='温度范围 -100~100℃';return;}}
+  if(hum){vals.hum_pct=parseFloat(hum);if(isNaN(vals.hum_pct)||vals.hum_pct<0||vals.hum_pct>100){resultEl.textContent='湿度范围 0~100%';return;}}
+  if(pres){vals.pres_hpa=parseFloat(pres);if(isNaN(vals.pres_hpa)||vals.pres_hpa<0||vals.pres_hpa>2000){resultEl.textContent='气压范围 0~2000hPa';return;}}
+  if(!Object.keys(vals).length){resultEl.textContent='请至少填写一项传感器数据';return;}
+  Object.assign(body,vals);
   resultEl.textContent='推送中...';
   api('/api/ingest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(d){
     resultEl.textContent='成功: '+JSON.stringify(d);
@@ -2184,7 +2187,7 @@ function endMonitorSession(sid, pid){
 
 // ==================== AI 评估 ====================
 function assessPatient(){
-  var pid=MONITOR_PID;if(!pid)return;
+  var pid=MONITOR_PID;if(!pid){toast("请先选择患者","alarm");return;}
   // 从设置同步 AI 开关（默认关），按钮切换与设置页一致
   if(AI_SETTINGS["ai.enabled"]==="true"||AI_ASSESS){AI_ASSESS=true;}
   $("mAssessBtn").textContent="⏳ AI 评估中…";
@@ -2538,6 +2541,11 @@ async function saveAiSettings(){
   }catch(e){ alert('请求失败: '+e); }
 }
 async function aiTestConnect(){
+  // 如果 AI 未启用，提示用户先开启
+  if(AI_SETTINGS["ai.enabled"]!=="true"){
+    toast("请先在设置中启用 AI（AI 开关）","alarm");
+    return;
+  }
   const prompt = (document.getElementById('ai-test-prompt').value||'');
   const out = document.getElementById('ai-test-result');
   out.textContent = '发送中…';

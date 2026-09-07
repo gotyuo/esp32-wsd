@@ -1796,7 +1796,7 @@ def dashboard_data():
             "now": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
-@app.get("/api/history")
+@app.get("/api/history", dependencies=[Depends(require_user)])
 def history(device: str = Query(...), hours: int = Query(24, ge=1, le=24 * 365)):
     end = datetime.now(timezone.utc)
     start = end - timedelta(hours=hours)
