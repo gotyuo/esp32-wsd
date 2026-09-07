@@ -2503,22 +2503,6 @@ function switchAiChip(c){
   if(c==='hist') loadAlarmAiAnalyses();
   if(c==='ai') loadAiSettings();
 }
-function switchView(v){
-  const views = ['dashboard','patients','devices','sessions','alarms','hl7','access','doctors','remind','ai'];
-  views.forEach(k=>{
-    const el = document.getElementById('view-'+k); if(el) el.classList.toggle('hidden', k!==v);
-  });
-  document.querySelectorAll('.vtab').forEach(e=>e.classList.toggle('active', e.dataset.view===v));
-  if(v==='ai'){ document.getElementById('ai-cfg').classList.remove('hidden'); document.getElementById('ai-hist').classList.add('hidden'); document.getElementById('ai-test').classList.add('hidden'); switchAiChip('ai'); loadAiSettings(); }
-  if(v==='patients') loadPatients();
-  if(v==='patients' || v==='doctors') loadDoctors();
-  if(v==='patients' || v==='remind' || v==='devices') loadDevices();
-  if(v==='access') refreshAccess();
-  if(v==='remind'){ loadRemindHistory(); }
-  if(v==='alarms') loadAlarms();
-  if(v==='sessions') loadSessions();
-  if(v==='devices') refreshDevicesThenPatients();
-}
 async function loadAiSettings(){
   try{
     const r = await api('/api/ai/settings');
