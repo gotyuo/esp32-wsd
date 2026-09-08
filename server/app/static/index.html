@@ -721,7 +721,7 @@ function $(id){return document.getElementById(id)}
 function fmt(v,d){return (v==null||isNaN(v))?"--":Number(v).toFixed(d==null?1:d)}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function fmtTime(s){if(!s)return"--";var t=s.replace("T"," ").replace("Z","");return t.slice(0,19)+" (UTC+8)"}
-function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opt.headers||{});return fetch(path,opt).then(function(r){if(r.status===401){showLogin();throw new Error("登录已过期，请重新登录");}if(r.status===403){throw new Error("需要管理员权限");}if(!r.ok){throw new Error("接口异常("+r.status+")");}return r.json();});}
+function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opt.headers||{});return fetch(path,opt).then(function(r){if(r.status===401){showLogin();throw new Error("登录已过期，请重新登录");}if(r.status===403){throw new Error("需要管理员权限");}if(!r.ok){return r.text().then(function(t){var d;try{d=JSON.parse(t);}catch(e){}var msg=(d&&d.detail)||(d&&d.message)||("接口异常("+r.status+")");if(typeof msg==="object")msg=JSON.stringify(msg);throw new Error(msg);});}return r.json();});}
 
 function _refreshBtn(ev,fn){
   var b=(ev&&ev.currentTarget)||null;
@@ -1013,7 +1013,7 @@ function showAddDevice(){$("modalInner").innerHTML="<h2 style='font-size:14px;ma
   "<div class='kv'><label>设备 ID</label><input id='dId' placeholder='envmon-bed-001' pattern='[A-Za-z0-9_-]{1,32}'><label>名称(可选)</label><input id='dName' placeholder='如 ICU-3床'></div>"+
   "<div style='font-size:11px;color:var(--dim);margin-top:8px'>设备 ID 用于 MQTT 主题 envmon/{ID}/telemetry，请在终端配置页填写一致。</div>"+
   "<div class='actions'><button onclick='doAddDevice()'>注册</button><button class='secondary' onclick='closeModal()'>取消</button></div>";$("modalBox").classList.remove("hidden");}
-function doAddDevice(){var id=$("dId").value.trim(),name=$("dName").value.trim();if(!id){alert("请输入设备 ID");return;}if(!/^[A-Za-z0-9_-]{1,32}$/.test(id)){alert("设备 ID 仅允许字母数字下划线和连字符，1-32 字符");return;}if(name&&/<|>/.test(name)){alert("设备名称不能包含 < >");return;}api("/api/devices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device_id:id,name:name})}).then(function(){toast("已注册设备 "+id);closeModal();loadDevices();}).catch(function(){});}
+function doAddDevice(){var id=$("dId").value.trim(),name=$("dName").value.trim();if(!id){alert("请输入设备 ID");return;}if(!/^[A-Za-z0-9_-]{1,32}$/.test(id)){alert("设备 ID 仅允许字母数字下划线和连字符，1-32 字符");return;}if(name&&/<|>/.test(name)){alert("设备名称不能包含 < >");return;}api("/api/devices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device_id:id,name:name})}).then(function(d){toast(d.created?"已注册设备 "+id:"设备已存在（name 已更新）");closeModal();loadDevices();}).catch(function(){});}
 function editName(id){var cur=DEVICES.find(function(x){return x.id===id});var old=(cur&&cur.name)||"",oldIp=(cur&&cur.ip_addr)||"";
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>EDIT DEVICE · "+esc(id)+"</h2>"+
     "<div class='kv'><label>设备 ID</label><div style='color:var(--blue);font-weight:600;font-family:Consolas,monospace'>"+esc(id)+"</div>"+

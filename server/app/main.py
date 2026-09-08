@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db
@@ -828,22 +828,29 @@ def accept_new_devices(body: dict):
     if not isinstance(ids, list) or not ids:
         raise HTTPException(status_code=400, detail="device_ids 不能为空")
     snapshots = {s["device_id"]: s for s in db.list_scan_snapshots(SCAN_WINDOW_MINUTES)}
-    existing = {d["id"] for d in db.list_devices()}
-    added, skipped = 0, 0
+    existing = {str(d["id"]) for d in db.list_devices()}
+    added, skipped_existing, skipped_not_found = 0, 0, 0
     for did in ids:
         did = str(did).strip()
-        if not did or did in existing:
-            skipped += 1
+        if not did:
+            skipped_not_found += 1
+            continue
+        if did in existing:
+            skipped_existing += 1
             continue
         s = snapshots.get(did)
         if not s:
-            skipped += 1
+            skipped_not_found += 1
             continue
         db.ensure_device(did)
         db.update_device_fields(did, {"name": s.get("name") or did, "ip_addr": s.get("ip_addr")})
         existing.add(did)
         added += 1
-    return {"ok": True, "added": added, "skipped": skipped, "total": len(ids)}
+    return {"ok": True, "added": added,
+            "skipped": skipped_existing + skipped_not_found,
+            "skipped_existing": skipped_existing,
+            "skipped_not_found": skipped_not_found,
+            "total": len(ids)}
 
 
 @app.post("/api/devices/access-clear", dependencies=[Depends(require_admin)])
@@ -856,9 +863,9 @@ def clear_device_access():
 def register_device(body: RegisterDeviceIn):
     """注册设备。ip_addr 可选：外网设备可登记接入地址（域名/IP:端口）。"""
     existing = db.device_detail(body.device_id) is not None
-    db.register_device(body.device_id, body.name or None, body.ip_addr or None)
-    return {"ok": True, "created": not existing,
-            "message": "已存在" if existing else ""}
+    created = db.register_device(body.device_id, body.name or None, body.ip_addr or None)
+    return {"ok": True, "created": created,
+            "message": "" if created else "已存在（name 已更新）"}
 
 
 @app.patch("/api/devices/{device_id}", dependencies=[Depends(require_admin)])
@@ -925,7 +932,7 @@ def _batch_delete_get_405():
 @app.get("/api/devices/{device_id}", dependencies=[Depends(require_user)])
 def get_device_detail(device_id: str):
     d = db.device_detail(device_id)
-    if d is None:
+    if d is None or d.get("device", {}).get("deleted"):
         raise HTTPException(status_code=404, detail="设备不存在")
     return d
 
@@ -1120,7 +1127,11 @@ def probe_devices(body: dict = None):
     now = time.time()
     if now - _probe_last_ts < _PROBE_COOLDOWN_S:
         remaining = round(_PROBE_COOLDOWN_S - (now - _probe_last_ts), 1)
-        raise HTTPException(429, f"探测过于频繁，请 {remaining}s 后重试")
+        _probe_last_ts = now
+        return JSONResponse(
+            {"ok": False, "detail": f"探测过于频繁，请 {remaining}s 后重试"},
+            status_code=429,
+        )
     _probe_last_ts = now
     devs = db.list_devices()
     # 也包含已删除的设备，如果探测到在线则自动恢复
@@ -1225,7 +1236,7 @@ def batch_delete_devices(body: dict):
     ids = body.get("device_ids", [])
     if not isinstance(ids, list) or not ids:
         raise HTTPException(status_code=400, detail="device_ids 不能为空")
-    existing = {d["id"] for d in db.list_devices()}
+    existing = {str(d["id"]) for d in db.list_devices()}
     deleted, missing, errors = 0, 0, 0
     for raw in ids:
         did = str(raw).strip()
@@ -1241,8 +1252,8 @@ def batch_delete_devices(body: dict):
         except Exception:  # noqa: BLE001
             log.exception("batch delete device %s failed", did)
             errors += 1
-    return {"ok": True, "deleted": deleted, "missing": missing,
-            "errors": errors + missing, "total": len(ids)}
+    return {"ok": True, "deleted": deleted, "not_found": missing,
+            "errors": errors, "total": len(ids)}
 
 
 # ================================================================ 设备网络接入

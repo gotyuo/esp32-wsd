@@ -580,16 +580,22 @@ def clear_scan_snapshots() -> int:
     return execute("DELETE FROM device_scan_snapshots")
 
 
-def register_device(device_id: str, name: Optional[str] = None, ip_addr: Optional[str] = None) -> None:
-    """手动注册设备（首次未上线时可预先创建）。
+def register_device(device_id: str, name: Optional[str] = None, ip_addr: Optional[str] = None) -> bool:
+    """手动注册设备。已存在则更新 name（upsert），返回 True=新建 False=更新。
 
     ip_addr 用于人工登记外网设备的接入地址（内网设备的 IP 由遥测上报自动填充）。
     """
+    existing = query("SELECT id FROM devices WHERE id=?", (device_id,))
+    if existing:
+        if name:
+            execute("UPDATE devices SET name=? WHERE id=?", (name, device_id))
+        return False
     execute(
         "INSERT OR IGNORE INTO devices (id, name, ip_addr, first_seen, online) "
         "VALUES (?,?,?,DATETIME('now'),0)",
         (device_id, name, ip_addr),
     )
+    return True
 
 
 def update_device_fields(device_id: str, fields: dict) -> bool:
@@ -640,8 +646,10 @@ def delete_device(device_id: str) -> None:
 
     删除后设备不会再出现在列表中，也不会因遥测自动重新注册。
     只有手动探测（probe）才会恢复已删除的设备。
+    同时清理扫描快照，使设备接入页面也不再显示该设备。
     """
     execute("UPDATE devices SET deleted=1 WHERE id=?", (device_id,))
+    execute("DELETE FROM device_scan_snapshots WHERE device_id=?", (device_id,))
 
 
 def restore_device(device_id: str) -> bool:

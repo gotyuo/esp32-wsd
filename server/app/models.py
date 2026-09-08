@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ThresholdsIn(BaseModel):
@@ -18,6 +18,16 @@ class ThresholdsIn(BaseModel):
     report_interval: int = Field(10, ge=3, le=3600)
     alarm_enabled: bool = True
     alarm_sound: bool = True
+
+    @model_validator(mode="after")
+    def _check_min_max(self) -> "ThresholdsIn":
+        if self.temp_min > self.temp_max:
+            raise ValueError("temp_min 必须 ≤ temp_max")
+        if self.hum_min > self.hum_max:
+            raise ValueError("hum_min 必须 ≤ hum_max")
+        if self.pres_min > self.pres_max:
+            raise ValueError("pres_min 必须 ≤ pres_max")
+        return self
 
 
 class IngestIn(BaseModel):
@@ -47,6 +57,22 @@ DEVICE_ID_RE = r"^[A-Za-z0-9_-]{1,32}$"
 DEVICE_NAME_RE = r"^[^<>{}[\]\x00-\x1f]{1,64}$"
 
 
+def _validate_ip(v: str) -> str:
+    """IPv4/IPv6/域名校验。返回原始值或抛出 ValueError。"""
+    import ipaddress
+    v = v.strip()
+    if not v:
+        return ""
+    try:
+        ipaddress.ip_address(v)
+        return v
+    except ValueError:
+        pass
+    if re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,253}$', v):
+        return v
+    raise ValueError(f"无效的 IP 地址或域名: {v}")
+
+
 class RegisterDeviceIn(BaseModel):
     device_id: str = Field(..., pattern=DEVICE_ID_RE)
     name: str = Field(default="", max_length=64)
@@ -62,6 +88,13 @@ class RegisterDeviceIn(BaseModel):
     # 外网设备用它登记可直连的地址（如 ddns 域名或公网 IP:端口）。
     ip_addr: str = Field(default="", max_length=128)
 
+    @field_validator("ip_addr")
+    @classmethod
+    def _validate_ip(cls, v: str) -> str:
+        if not v:
+            return ""
+        return _validate_ip(v)
+
 
 class UpdateDeviceIn(BaseModel):
     """更新设备名称和/或 IP 地址。两个字段均可选，传哪个改哪个。"""
@@ -72,10 +105,21 @@ class UpdateDeviceIn(BaseModel):
     @classmethod
     def _validate_name(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
-            return None
-        if not re.match(DEVICE_NAME_RE, v or ""):
+            return None  # 不修改
+        if v == "":
+            return None  # 空字符串 = 清空
+        if not re.match(DEVICE_NAME_RE, v):
             raise ValueError("name 仅允许字母数字中文及常见标点，不含 < > { } [ ] 及控制字符")
         return v
+
+    @field_validator("ip_addr")
+    @classmethod
+    def _validate_ip(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        if v == "":
+            return None  # 清空
+        return _validate_ip(v)
 
 
 # ================================================================ 认证
