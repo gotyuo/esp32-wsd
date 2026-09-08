@@ -162,6 +162,14 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
     except Exception as e:
         _log.warning("doctor junk cleanup failed: %s", e)
 
+    # v2.9: 设备软删除。devices 表加 deleted 列，0=正常 1=已删除。
+    # 删除后设备不再出现在列表、不因遥测自动重新注册，只有手动探测才能恢复。
+    if not _has_col(conn, "devices", "deleted"):
+        conn.execute(
+            "ALTER TABLE devices ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0"
+        )
+        _log.info("migration v2.9: added devices.deleted column (soft delete)")
+
     # Issue 5: 监护记录表 — 患者在某设备上的监护时间段。
     conn.execute(
         "CREATE TABLE IF NOT EXISTS monitor_sessions ("
@@ -409,7 +417,8 @@ def execute(sql: str, params: tuple = ()) -> int:
 
 
 # ---------------------------------------------------------------- devices
-def upsert_device(device_id: str, fw_version: Optional[str] = None, ip_addr: Optional[str] = None) -> None:
+def upsert_device(device_id: str, fw_version: Optional[str] = None, ip_addr: Optional[str] = None,
+                  restore: bool = False) -> None:
     """登记/更新设备的固件版本与 IP（仅元数据）。
 
     【重要】不触碰 last_seen，也不改变 online。
@@ -417,7 +426,13 @@ def upsert_device(device_id: str, fw_version: Optional[str] = None, ip_addr: Opt
     「最近一次真实遥测」时刻。若本函数刷新 last_seen，因 envmon/{id}/status 是
     保留消息，bridge 每次重连都会重新投递而反复调用本函数，把所有设备的
     last_seen 刷成重连时刻，新鲜度判断即被彻底污染（实测误判 5 台设备在线）。
+
+    默认跳过已删除的设备（deleted=1），只有 restore=True 时才恢复。
     """
+    if not restore:
+        rows = query("SELECT deleted FROM devices WHERE id=?", (device_id,))
+        if rows and rows[0]["deleted"]:
+            return  # 已删除，不自动重新注册
     with _lock:
         conn = get_conn()
         conn.execute(
@@ -426,7 +441,8 @@ def upsert_device(device_id: str, fw_version: Optional[str] = None, ip_addr: Opt
             VALUES (?, ?, ?, ?, 0)
             ON CONFLICT(id) DO UPDATE SET
                 fw_version = COALESCE(excluded.fw_version, devices.fw_version),
-                ip_addr    = COALESCE(excluded.ip_addr, devices.ip_addr)
+                ip_addr    = COALESCE(excluded.ip_addr, devices.ip_addr),
+                deleted    = 0
             """,
             (device_id, fw_version, ip_addr, utcnow()),
         )
@@ -438,7 +454,12 @@ def ensure_device(device_id: str) -> None:
 
     只 INSERT，冲突时【什么都不更新】——不碰 last_seen，也不改 online。
     这是 status 消息的正确做法：它只说明设备曾连接过，不代表它此刻有数据。
+
+    已删除的设备（deleted=1）不会被自动恢复。
     """
+    rows = query("SELECT deleted FROM devices WHERE id=?", (device_id,))
+    if rows and rows[0]["deleted"]:
+        return  # 已删除，不自动重新注册
     with _lock:
         conn = get_conn()
         conn.execute(
@@ -470,7 +491,7 @@ def set_device_online(device_id: str, online: bool) -> None:
 
 
 def list_devices() -> List[Dict[str, Any]]:
-    rows = query("SELECT * FROM devices ORDER BY id")
+    rows = query("SELECT * FROM devices WHERE COALESCE(deleted,0)=0 ORDER BY id")
     return [dict(r) for r in rows]
 
 
@@ -609,18 +630,24 @@ def rename_device(device_id: str, new_name: str) -> None:
 
 
 def delete_device(device_id: str) -> None:
-    """软删设备：仅从 devices 表移除，不删除 vitals / telemetry_1m / alarms /
+    """软删设备：标记 deleted=1，不删除 vitals / telemetry_1m / alarms /
     patient_devices / device_patient_history。
 
     监护记录按患者（vitals.patient_id）+ 来源设备（vitals.source_device）独立
     留存，即便设备删除也必须可查——这是核心诉求，硬删 telemetry/vitals 会违反
     此约束。删除患者-设备绑定行由调用方通过 unlink_device 显式处理，本函数
     不级联删 vitals。
+
+    删除后设备不会再出现在列表中，也不会因遥测自动重新注册。
+    只有手动探测（probe）才会恢复已删除的设备。
     """
-    with _lock:
-        conn = get_conn()
-        conn.execute("DELETE FROM devices WHERE id=?", (device_id,))
-        conn.commit()
+    execute("UPDATE devices SET deleted=1 WHERE id=?", (device_id,))
+
+
+def restore_device(device_id: str) -> bool:
+    """恢复已删除的设备（deleted=1 → deleted=0）。"""
+    affected = execute("UPDATE devices SET deleted=0 WHERE id=? AND deleted=1", (device_id,))
+    return bool(affected)
 
 
 # ---------------------------------------------------------------- telemetry

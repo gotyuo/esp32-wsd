@@ -837,7 +837,14 @@ function _devCard(x,onlineFlag){
     "<div class='k'>首次上线</div><div class='v'>"+fmtTime(x.first_seen)+"</div>"+
     "<div class='k'>最后上报</div><div class='v' id='devseen-"+did+"'>"+fmtTime(x.last_seen)+"</div></div>"+
     "<div class='latest'>"+vals+"</div>"+
-    "<div class='actions'><button class='secondary small' onclick='viewDevice(\""+did+"\")'>详情</button><button class='secondary small' onclick='editName(\""+did+"\")'>编辑</button><button class='success small' onclick='showDeviceConfig(\""+did+"\")'>配置</button><button class='danger small' onclick='delDev(\""+did+"\")'>删除</button></div></div>";
+    "<div class='actions'><button class='secondary small' onclick='viewDevice(\\\"\"+did+"\\\")'>详情</button><button class='secondary small' onclick='editName(\\\"\"+did+"\\\")'>编辑</button><button class='success small' onclick='showDeviceConfig(\\\"\"+did+"\\\")'>配置</button><button class='success small' onclick='saveDeviceInfo(\\\"\"+did+"\\\")'>保存</button><button class='danger small' onclick='delDev(\\\"\"+did+"\\\")'>删除</button></div></div>";
+}
+function saveDeviceInfo(id){
+  var cur=DEVICES.find(function(x){return x.id===id});
+  if(!cur){toast("设备不在列表中","alarm");return;}
+  api("/api/devices/"+encodeURIComponent(id),{method:"PATCH",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({name:cur.name||null,ip_addr:cur.ip_addr||null})})
+  .then(function(){toast("设备已保存 "+id);}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
 }
 // 单台设备刷新：只判定这一台的在线状态并回写徽标，不重排分组。
 // 用独立的 loading 标记（而非 _refreshBtn），因为这里要自己重绘徽标与「最后上报」，
@@ -1018,7 +1025,7 @@ function doRename(id){var n=$("dRename").value.trim(),ip=$("dIp").value.trim();
   api("/api/devices/"+encodeURIComponent(id),{method:"PATCH",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({name:n||null,ip_addr:ip||null})})
   .then(function(){toast("已保存设备信息");closeModal();loadDevices();}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});}
-function delDev(id){if(!confirm("删除设备 "+id+"？将清除其全部历史数据！"))return;api("/api/devices/"+encodeURIComponent(id),{method:"DELETE"}).then(function(){toast("设备已删除");if(DEV===id)DEV=null;loadDevices();}).catch(function(){});}
+function delDev(id){if(!confirm("删除设备 "+id+"？删除后设备不会自动重新出现，直到下次主动扫描时设备上线才会恢复。"))return;api("/api/devices/"+encodeURIComponent(id),{method:"DELETE"}).then(function(){toast("设备已删除");if(DEV===id)DEV=null;loadDevices();}).catch(function(){});}
 function viewDevice(id){api("/api/devices/"+encodeURIComponent(id)).then(function(d){var dev=d.device,lt=d.latest,th=d.thresholds;
   var alarmTxt=lt?(lt.alarm_level>=2?"<span class='bad'>LV2 报警</span>":lt.alarm_level==1?"<span class='warn'>LV1 预警</span>":"<span class='ok'>正常</span>"):'';
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>DEVICE DETAIL · "+esc(dev.id)+(dev.name?" <span style='font-weight:400'>("+esc(dev.name)+")</span>":"")+"</h2>"+

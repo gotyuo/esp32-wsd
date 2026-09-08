@@ -1112,7 +1112,10 @@ def probe_devices(body: dict = None):
     """主动扫描设备在线状态：读取 broker 上每台设备的 status 保留消息。
     body 可带 {"device_ids": [...]}；缺省扫描全部设备。
     无保留消息（从未连过）且无新鲜遥测 = 离线。
-    返回 online/offline 两组 + 每台设备的 probe 标记。"""
+    返回 online/offline 两组 + 每台设备的 probe 标记。
+
+    已删除的设备（deleted=1）也会被扫描，如果检测到在线则自动恢复。
+    """
     global _probe_last_ts
     now = time.time()
     if now - _probe_last_ts < _PROBE_COOLDOWN_S:
@@ -1120,31 +1123,41 @@ def probe_devices(body: dict = None):
         raise HTTPException(429, f"探测过于频繁，请 {remaining}s 后重试")
     _probe_last_ts = now
     devs = db.list_devices()
+    # 也包含已删除的设备，如果探测到在线则自动恢复
+    deleted_rows = db.query("SELECT * FROM devices WHERE COALESCE(deleted,0)=1")
+    all_devs = devs + [dict(r) for r in deleted_rows]
     body = body or {}
     want = body.get("device_ids")
     if not isinstance(want, list) or not want:
-        ids = [d["id"] for d in devs]
+        ids = [d["id"] for d in all_devs]
     else:
         ids = [str(x) for x in want]
 
     started = time.time()
     online = _probe_status_ids(ids)
 
+    # 恢复已删除但探测到在线的设备
+    restored = []
+    for d in all_devs:
+        if d.get("deleted") and d["id"] in online:
+            db.restore_device(d["id"])
+            restored.append(d["id"])
+
     # 把新鲜度判定结果同步回 devices.online，让设备列表页与 probe 结果一致。
-    # 之前 online 只由 LWT 维护，而保留的 "online" 消息在 bridge 重连时会重新
-    # 投递，导致已死设备在列表页一直显示在线。现在列表页以「保留状态 + 遥测
-    # 新鲜度」为准，与本页 probe 结论保持同一套逻辑。
-    for d in devs:
+    for d in all_devs:
         if d["id"] not in ids:
             continue
         want_online = 1 if d["id"] in online else 0
         if d.get("online") != want_online:
             db.set_device_online(d["id"], want_online == 1)
 
+    # 只返回未删除的设备（已恢复的也包含在内）
     groups: Dict[str, list] = {"online": [], "offline": []}
-    for d in devs:
+    for d in all_devs:
         if d["id"] not in ids:
             continue
+        if d.get("deleted") and d["id"] not in restored:
+            continue  # 已删除且未恢复的设备不返回
         rec = dict(d)
         rec["latest"] = db.latest_telemetry(d["id"])
         rec["probe"] = d["id"] in online
@@ -1163,7 +1176,8 @@ def probe_devices(body: dict = None):
             "elapsed_s": round(time.time() - started, 2),
             "online": groups["online"], "offline": groups["offline"],
             "online_count": len(groups["online"]),
-            "offline_count": len(groups["offline"])}
+            "offline_count": len(groups["offline"]),
+            "restored": restored}
 
 
 @app.post("/api/devices/{device_id}/probe", dependencies=[Depends(require_user)])
