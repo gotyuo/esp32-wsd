@@ -228,9 +228,6 @@ void NetManager::buildScanCache(int n) {
     for (int i = 0; i < n && i < 30; i++) {
         if (i) _scanCache += ",";
         String ssid = WiFi.SSID(i);
-        // JSON 转义：SSID 可能包含引号或反斜杠，必须转义否则前端 JSON.parse 失败
-        ssid.replace("\\", "\\\\");
-        ssid.replace("\"", "\\\"");
         _scanCache += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + WiFi.RSSI(i)
                     + ",\"open\":" + (WiFi.encryptionType(i) == ENC_TYPE_NONE ? "true" : "false") + "}";
     }

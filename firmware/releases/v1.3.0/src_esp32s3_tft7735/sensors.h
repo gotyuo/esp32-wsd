@@ -1,0 +1,41 @@
+#pragma once
+// ============================================================
+// 传感器采集模块（引脚全部独立，不共用总线）：
+//   - AHT20 (温湿度) + BMP280 (温度/气压)   I2C0 GPIO8/9
+//   - MAX30102 (血氧 SpO2 / 脉率 HR)          I2C1 GPIO14/13 (独立)
+//   - AD8232  (心电 ECG 心率)                 ADC GPIO1 (5V 供电)
+//   - MIC     (麦克风)                        ADC GPIO4
+// 温度以 AHT20 为主，BMP280 交叉校验；气压取自 BMP280
+// ============================================================
+#include <Arduino.h>
+
+struct EnvData {
+    float temp_c   = NAN;   // ℃
+    float hum_pct  = NAN;   // %RH
+    float pres_hpa = NAN;   // hPa
+    // 体征（来自 MAX30102 / AD8232 / ESP32 ADC）
+    float sp_o2    = NAN;   // 血氧 %
+    float pr_hr    = NAN;   // 脉率 bpm (MAX30102)
+    float ecg_hr   = NAN;   // 心电图心率 bpm (AD8232)
+    float rr_bpm   = NAN;   // 呼吸频率 rpm
+    float glucose  = NAN;   // 血糖 mmol/L
+    bool  valid    = false;
+};
+
+class SensorHub {
+public:
+    bool begin();
+    bool read(EnvData &out);
+    void readVitals(EnvData &out);
+    float readMic();   // MIC 电平 0~1 (GPIO4 ADC1_CH3)
+    bool aht_ok()  const { return _aht_ok; }
+    bool bmp_ok()  const { return _bmp_ok; }
+    bool max_ok()  const { return _max_ok; }
+    bool ecg_ok()  const { return _ecg_ok; }
+
+private:
+    bool _aht_ok = false;
+    bool _bmp_ok = false;
+    bool _max_ok = false;
+    bool _ecg_ok = false;
+};
