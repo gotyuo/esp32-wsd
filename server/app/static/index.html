@@ -837,7 +837,7 @@ function _devCard(x,onlineFlag){
     "<div class='k'>首次上线</div><div class='v'>"+fmtTime(x.first_seen)+"</div>"+
     "<div class='k'>最后上报</div><div class='v' id='devseen-"+did+"'>"+fmtTime(x.last_seen)+"</div></div>"+
     "<div class='latest'>"+vals+"</div>"+
-    "<div class='actions'><button class='secondary small' onclick='viewDevice(\\\"\"+did+"\\\")'>详情</button><button class='secondary small' onclick='editName(\\\"\"+did+"\\\")'>编辑</button><button class='success small' onclick='showDeviceConfig(\\\"\"+did+"\\\")'>配置</button><button class='success small' onclick='saveDeviceInfo(\\\"\"+did+"\\\")'>保存</button><button class='danger small' onclick='delDev(\\\"\"+did+"\\\")'>删除</button></div></div>";
+    "<div class='actions'><button class='secondary small' onclick='viewDevice(\""+did+"\")'>详情</button><button class='secondary small' onclick='editName(\""+did+"\")'>编辑</button><button class='success small' onclick='showDeviceConfig(\""+did+"\")'>配置</button><button class='success small' onclick='saveDeviceInfo(\""+did+"\")'>保存</button><button class='danger small' onclick='delDev(\""+did+"\")'>删除</button></div></div>";
 }
 function saveDeviceInfo(id){
   var cur=DEVICES.find(function(x){return x.id===id});
