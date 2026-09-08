@@ -2255,7 +2255,8 @@ function _accessRow(x){
       +'<div class="k">扫描时间</div><div class="v">'+fmtTime(x.scanned_at)+'</div>'
     +'</div>'
     +'<div class="actions">'
-      +(x.online?'':'<span class="empty" style="font-size:11px">未在本窗口内探测到</span>')
+      +'<button class="success small" onclick="acceptNew(\''+esc(x.device_id)+'\')">保存</button>'
+      +'<button class="danger small" onclick="delDev(\''+esc(x.device_id)+'\')">删除</button>'
     +'</div>'
   +'</div>';
 }
@@ -2274,6 +2275,7 @@ function _accessNewRow(x){
     +'</div>'
     +'<div class="actions">'
       +'<button class="success small" onclick="acceptNew(\''+esc(x.device_id)+'\')">保存</button>'
+      +'<button class="danger small" onclick="delDev(\''+esc(x.device_id)+'\')">删除</button>'
       +'<input type="checkbox" class="access-new-cb" value="'+esc(x.device_id)+'">'
     +'</div>'
   +'</div>';
