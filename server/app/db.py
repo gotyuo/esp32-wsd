@@ -581,12 +581,18 @@ def clear_scan_snapshots() -> int:
 
 
 def register_device(device_id: str, name: Optional[str] = None, ip_addr: Optional[str] = None) -> bool:
-    """手动注册设备。已存在则更新 name（upsert），返回 True=新建 False=更新。
+    """手动注册设备。已存在则更新 name（upsert），返回 True=新建/恢复 False=更新。
 
+    P1 #12: 已删除设备(deleted=1)重新注册视为恢复，返回 True。
     ip_addr 用于人工登记外网设备的接入地址（内网设备的 IP 由遥测上报自动填充）。
     """
-    existing = query("SELECT id FROM devices WHERE id=?", (device_id,))
+    existing = query("SELECT id, deleted FROM devices WHERE id=?", (device_id,))
     if existing:
+        if existing[0]["deleted"]:
+            # 已删除设备：恢复 + 更新 name
+            execute("UPDATE devices SET deleted=0, name=COALESCE(?, name), ip_addr=COALESCE(?, ip_addr) WHERE id=?",
+                    (name or None, ip_addr or None, device_id))
+            return True
         if name:
             execute("UPDATE devices SET name=? WHERE id=?", (name, device_id))
         return False
@@ -611,6 +617,10 @@ def update_device_fields(device_id: str, fields: dict) -> bool:
     if "ip_addr" in fields:
         cols.append("ip_addr = ?")
         params.append(fields["ip_addr"] or None)
+    # BUG-18: 支持 fw_version 更新
+    if "fw_version" in fields:
+        cols.append("fw_version = ?")
+        params.append(fields["fw_version"] or None)
     if not cols:
         return False
     params.append(device_id)
@@ -666,24 +676,20 @@ def insert_telemetry(device_id: str, temp: float, hum: float, pres: float,
     effective_ts = ts or utcnow_ms()
     with _lock:
         conn = get_conn()
-        if seq is not None:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO telemetry
-                    (device_id, ts, seq, temp_c, hum_pct, pres_hpa, rssi, alarm_level, free_heap)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (device_id, effective_ts, seq, temp, hum, pres, rssi, alarm_level, free_heap),
-            )
-        else:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO telemetry
-                    (device_id, ts, temp_c, hum_pct, pres_hpa, rssi, alarm_level, free_heap)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (device_id, effective_ts, temp, hum, pres, rssi, alarm_level, free_heap),
-            )
+        # BUG-08: seq 未传时自动生成单调递增序列号
+        if seq is None:
+            cur = conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM telemetry WHERE device_id=?",
+                (device_id,)).fetchone()
+            seq = int(cur[0]) if cur else 1
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO telemetry
+                (device_id, ts, seq, temp_c, hum_pct, pres_hpa, rssi, alarm_level, free_heap)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (device_id, effective_ts, seq, temp, hum, pres, rssi, alarm_level, free_heap),
+        )
         conn.commit()
 
 

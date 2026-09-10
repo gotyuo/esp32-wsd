@@ -97,9 +97,10 @@ class RegisterDeviceIn(BaseModel):
 
 
 class UpdateDeviceIn(BaseModel):
-    """更新设备名称和/或 IP 地址。两个字段均可选，传哪个改哪个。"""
+    """更新设备名称、IP 地址和/或固件版本。传哪个改哪个。"""
     name: Optional[str] = Field(default=None, max_length=64)
     ip_addr: Optional[str] = Field(default=None, max_length=128)
+    fw_version: Optional[str] = Field(default=None, max_length=32)
 
     @field_validator("name")
     @classmethod

@@ -134,15 +134,18 @@ def device_current_binding(device_id: str) -> Optional[Dict]:
 
 
 def link_device(patient_id: int, device_id: str, role: str = "primary"):
-    """设备同时段只绑一患者。设备已被其他患者绑定时抛出 ValueError。"""
+    """设备同时段只绑一患者。设备已被其他患者绑定时抛出 ValueError。
+    重复关联同一患者为幂等操作（不报错）。"""
     cur = device_current_binding(device_id)
     if cur and cur["patient_id"] != patient_id:
         who = cur.get("name") or cur.get("pid") or ("#" + str(cur["patient_id"]))
         raise ValueError("设备 " + device_id + " 已被患者 " + who + " 绑定，请先解绑")
     if cur and cur["patient_id"] == patient_id:
-        _archive_history(device_id, patient_id)
+        # 已绑定同一患者，幂等返回
+        return
+    # 归档旧绑定记录（如果有）
     _archive_history(device_id, patient_id)
-    run("INSERT INTO patient_devices (patient_id,device_id,role,linked_at) "
+    run("INSERT OR REPLACE INTO patient_devices (patient_id,device_id,role,linked_at) "
         "VALUES (?,?,?,?)", (patient_id, device_id, role, _now()))
 
 
@@ -762,6 +765,10 @@ _AI_DEFAULTS = {
         "请用中文短句，语气克制。"
         "重要声明：以下内容仅供参考，不构成诊疗建议，临床决策须由主治医师负责。"
     ),
+    # P1 #19: AI 设置端点返回 None 的根因——这些 key 不在默认值里
+    "ai.timeout": "30",
+    "ai.max_tokens": "512",
+    "ai.system_prompt": "",
 }
 
 

@@ -2316,8 +2316,8 @@ function loadAccess(ev){
 function _selectAndAccept(newArr){
   var cbs = document.querySelectorAll('#accessNewGrid .access-new-cb');
   if(!cbs.length){ toast('没有新增设备可保存'); return; }
-  var allChecked = Array.from(cbs).every(function(x){return x.checked;});
-  Array.from(cbs).forEach(function(x){ x.checked = allChecked ? false : true; });
+  // BUG-06: 直接全选所有 checkbox，不再先取反
+  Array.from(cbs).forEach(function(x){ x.checked = true; });
   _doAccept(cbs);
 }
 function _doAccept(cbs){

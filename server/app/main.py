@@ -179,9 +179,6 @@ def _band(v: Optional[float], lo: float, hi: float) -> int:
         return 0
     if v < lo or v > hi:
         return 2
-    margin = (hi - lo) * 0.10
-    if v < lo + margin or v > hi - margin:
-        return 1
     return 0
 
 
@@ -621,12 +618,35 @@ async def lifespan(app: FastAPI):
     bridge.start()
     aggregator.start()
     start_backup_scheduler()
+
+    # BUG-07: 离线检测后台任务——定期扫描 last_seen 超时的设备，标记离线
+    async def _offline_check():
+        while True:
+            await asyncio.sleep(30)
+            try:
+                # SQLite datetime() 统一解析 ISO8601 时间戳，避免格式不一致导致字符串比较出错
+                cutoff_s = (datetime.now(timezone.utc) - timedelta(seconds=OFFLINE_TIMEOUT_S)).strftime(
+                    "%Y-%m-%dT%H:%M:%S")
+                rows = db.query(
+                    "SELECT id FROM devices WHERE online=1 AND deleted=0 "
+                    "AND last_seen IS NOT NULL "
+                    "AND datetime(replace(last_seen, 'Z', '+00:00')) < ?",
+                    (cutoff_s,))
+                for r in rows:
+                    did = r["id"]
+                    db.set_device_online(did, False)
+                    log.info("offline detected: %s", did)
+            except Exception:
+                pass
+
+    _offline_task = asyncio.create_task(_offline_check())
     log.info("EnvMon backend started")
     yield
     aggregator.stop()
     bridge.stop()
     if _backup_task:
         _backup_task.cancel()
+    _offline_task.cancel()
 
 
 app = FastAPI(title="EnvMon Backend", version="2.0.0", lifespan=lifespan)
@@ -937,9 +957,41 @@ def get_device_detail(device_id: str):
     return d
 
 
+# BUG-01: 缺少 /latest /alarms 路由，/history 返回患者分配而非遥测
+@app.get("/api/devices/{device_id}/latest", dependencies=[Depends(require_user)])
+def device_latest(device_id: str):
+    d = db.device_detail(device_id)
+    if not d or d.get("device", {}).get("deleted"):
+        raise HTTPException(404, "设备不存在")
+    return {"device_id": device_id, "latest": d["latest"]}
+
+
+@app.get("/api/devices/{device_id}/alarms", dependencies=[Depends(require_user)])
+def device_alarms(device_id: str, limit: int = Query(50, le=500)):
+    d = db.device_detail(device_id)
+    if not d or d.get("device", {}).get("deleted"):
+        raise HTTPException(404, "设备不存在")
+    return {"device_id": device_id, "alarms": db.list_alarms(device_id, limit)}
+
+
 @app.get("/api/devices/{device_id}/history", dependencies=[Depends(require_user)])
+def device_telemetry_history(device_id: str, start: Optional[str] = None, end: Optional[str] = None,
+                              limit: int = Query(5000, le=50000)):
+    """遥测历史（原返回患者分配时间线，现改为遥测数据）。
+    患者分配时间线移至 /api/devices/{id}/patient-history。"""
+    d = db.device_detail(device_id)
+    if not d or d.get("device", {}).get("deleted"):
+        raise HTTPException(404, "设备不存在")
+    if start and end:
+        rows = db.history_range(device_id, start, end, limit)
+    else:
+        rows = db.history_range(device_id, "1970-01-01", db.utcnow(), limit)
+    return {"device_id": device_id, "history": rows, "count": len(rows)}
+
+
+@app.get("/api/devices/{device_id}/patient-history", dependencies=[Depends(require_user)])
 def device_patient_timeline(device_id: str):
-    """某设备的历次患者分配时间线（同设备换患者时可追溯）。"""
+    """设备历次患者分配时间线（原 /history 的功能）。"""
     return {"device_id": device_id, "history": icu.device_patient_history(device_id)}
 
 
@@ -952,6 +1004,9 @@ def rename_device(device_id: str, name: str = Query(..., max_length=64),
 
 @app.delete("/api/devices/{device_id}", dependencies=[Depends(require_admin)])
 def delete_device(device_id: str, _: Dict = Depends(require_admin)):
+    # P1 #11: 重复删除返回 404
+    if not db.device_detail(device_id):
+        raise HTTPException(404, "设备不存在")
     db.delete_device(device_id)
     return {"ok": True}
 
@@ -1262,6 +1317,9 @@ def _network_type(ip: str | None) -> str:
     if not ip:
         return "unknown"
     ip = ip.strip()
+    # BUG-14: 0.0.0.0 是占位符，不是真实外网地址
+    if ip == "0.0.0.0":
+        return "unknown"
     try:
         parts = ip.split(".")
         if len(parts) != 4:
@@ -1302,6 +1360,8 @@ def devices_discover(refresh: bool = Query(False),
     # 旧实现 INNER JOIN telemetry —— 而 telemetry 按 RAW_RETENTION_DAYS 清理，
     # 一旦清空，本端点就返回空列表，表现为「重新扫描没有任何反应」。
     devs = db.list_devices()
+    # P1 #13: 过滤已删除设备
+    devs = [d for d in devs if not d.get("deleted")]
     db_ids = {d["id"] for d in devs}
     # devices 表里没有、但 telemetry 里出现过的（未接入设备），也列出来供注册。
     # db_ids 保持不变，只放设备表里真实存在的 ID，用于区分 registered / unregistered。
@@ -1440,24 +1500,32 @@ def send_reminder(body: Dict[str, Any]):
     ② 通过企业微信 webhook 或 应用消息 通知医生自己。
 
     body: {
-      "patient_id": "P001",
-      "doctor_id": 1,         # 可选
-      "doctor_name": "张三",   # 可选
-      "device_id": "esp-xxx", # 可选；省略则用患者第一台已绑设备
+      "patient_id": "P001",      # P1 #20: 可选；有 device_id 时可不传
+      "doctor_id": 1,            # 可选
+      "doctor_name": "张三",     # 可选
+      "device_id": "esp-xxx",    # 可选；省略则用患者第一台已绑设备
       "text": "下午 3 点复查血常规",
-      "tts": true,            # 语音播报文字内容
-      "wechat": true          # 企业微信推送
+      "tts": true,               # 语音播报文字内容
+      "wechat": true             # 企业微信推送
     }
     """
     pid = str(body.get("patient_id", "")).strip()
+    did = str(body.get("device_id", "") or "").strip() or None
+    # P1 #20: 有 device_id 但无 patient_id 时，从设备绑定反查患者
+    if not pid and did:
+        bound = db.query(
+            "SELECT pd.patient_id, p.pid FROM patient_devices pd "
+            "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=? LIMIT 1",
+            (did,))
+        if bound:
+            pid = bound[0]["pid"]
     if not pid:
-        raise HTTPException(400, "patient_id 必填")
+        raise HTTPException(400, "patient_id 或 device_id 至少传一个")
     text = str(body.get("text", "")).strip()
     if not text:
         raise HTTPException(400, "text 必填")
     if len(text) > 512:
         raise HTTPException(400, "text 长度不能超过 512 字符")
-    did = str(body.get("device_id", "") or "").strip() or None
     doctor_id = body.get("doctor_id")
     doctor_name = str(body.get("doctor_name", "") or "").strip() or None
     do_tts = bool(body.get("tts", True))
@@ -2183,9 +2251,12 @@ async def ingest(request: Request):
             if val < lo or val > hi:
                 raise HTTPException(400, f"{name}={val} 超出范围 [{lo},{hi}]")
     
-    # BUG-30: 至少提供一个测量值
+    # BUG-30: 至少提供一个测量值（HL7 仅含 vitals 时跳过此检查）
     if temp is None and hum is None and pres is None and rssi is None:
-        raise HTTPException(400, "至少提供一个测量值 (temp_c/hum_pct/pres_hpa/rssi)")
+        if source == "hl7":
+            pass  # HL7 可能只含 sp_o2/pr_hr 等 vitals，无遥测字段
+        else:
+            raise HTTPException(400, "至少提供一个测量值 (temp_c/hum_pct/pres_hpa/rssi)")
     
     # 设备不存在时自动登记（只保证记录存在，不碰 online/last_seen）
     db.ensure_device(device_id)
@@ -2420,7 +2491,11 @@ def create_patient(body: PatientCreate):
 
 @app.get("/api/patients/{pid}", dependencies=[Depends(require_user)])
 def get_patient(pid: str):
-    p = icu.patient_by_pid(pid)
+    # BUG-02: 同时支持整数 id 和字符串 pid 查询
+    if pid.isdigit():
+        p = icu.patient_by_id(int(pid))
+    else:
+        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     return p
@@ -2429,7 +2504,10 @@ def get_patient(pid: str):
 @app.put("/api/patients/{pid}", dependencies=[Depends(require_admin)])
 @app.patch("/api/patients/{pid}", dependencies=[Depends(require_admin)])
 def update_patient(pid: str, body: PatientUpdate):
-    p = icu.patient_by_pid(pid)
+    if pid.isdigit():
+        p = icu.patient_by_id(int(pid))
+    else:
+        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     icu.patient_update(p["id"], **body.model_dump())
@@ -2438,7 +2516,10 @@ def update_patient(pid: str, body: PatientUpdate):
 
 @app.delete("/api/patients/{pid}", dependencies=[Depends(require_admin)])
 def delete_patient(pid: str):
-    p = icu.patient_by_pid(pid)
+    if pid.isdigit():
+        p = icu.patient_by_id(int(pid))
+    else:
+        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     icu.patient_delete(p["id"])
@@ -2448,7 +2529,10 @@ def delete_patient(pid: str):
 # ---------- 患者-设备关联 ----------
 @app.post("/api/patients/{pid}/link/{device_id}", dependencies=[Depends(require_admin)])
 def link_device(pid: str, device_id: str, role: str = Query("primary", pattern=r"^(primary|secondary)$")):
-    p = icu.patient_by_pid(pid)
+    if pid.isdigit():
+        p = icu.patient_by_id(int(pid))
+    else:
+        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     try:
@@ -2457,18 +2541,25 @@ def link_device(pid: str, device_id: str, role: str = Query("primary", pattern=r
         raise HTTPException(409, str(e))
     except Exception as e:
         raise HTTPException(500, f"关联失败: {str(e)}")
+    # BUG-05: 关联后同步更新 device.patient_id
+    db.execute("UPDATE devices SET patient_id=? WHERE id=?", (p["id"], device_id))
     return {"ok": True}
 
 
 @app.delete("/api/patients/{pid}/unlink/{device_id}", dependencies=[Depends(require_admin)])
 @app.post("/api/patients/{pid}/unlink/{device_id}", dependencies=[Depends(require_admin)])
 def unlink_device(pid: str, device_id: str):
-    p = icu.patient_by_pid(pid)
+    if pid.isdigit():
+        p = icu.patient_by_id(int(pid))
+    else:
+        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     ok = icu.unlink_device(p["id"], device_id)
     if not ok:
         raise HTTPException(404, "未找到该患者-设备绑定")
+    # BUG-05: 解绑后清除 device.patient_id
+    db.execute("UPDATE devices SET patient_id=NULL WHERE id=?", (device_id,))
     return {"ok": True}
 
 
