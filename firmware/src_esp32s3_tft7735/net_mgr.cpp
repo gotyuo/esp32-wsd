@@ -5,7 +5,7 @@
 #include <WebServer.h>
 #include <esp_wifi.h>
 
-static WebServer web(6667);  // 非标准端口，避免冲突
+static WebServer web(8080);  // 非标准端口 8080，避免浏览器 ERR_UNSAFE_PORT
 static DNSServer dns;
 
 NetManager g_net;
@@ -544,8 +544,8 @@ void NetManager::handleSave() {
         "<p>WiFi: <code>" + c.wifi_ssid + "</code></p>" +
         "<p>服务器: " + modeStr + (detailStr.length() > 0 ? " " + detailStr : "") + "</p>" +
         "<p>热点即将关闭，请重新连回家庭 WiFi。</p>" +
-        "<p>重启后在路由器 DHCP 列表查看设备 IP，然后访问 <code>http://设备IP:6667</code></p>" +
-        "<p>数据页: <code>:6667/data</code> · 配置页: <code>:6667/</code></p></body>";
+        "<p>重启后在路由器 DHCP 列表查看设备 IP，然后访问 <code>http://设备IP:8080</code></p>" +
+        "<p>数据页: <code>:8080/data</code> · 配置页: <code>:8080/</code></p></body>";
     web.send(200, "text/html", html);
     Serial.println(F("[NET] Config saved, closing AP, rebooting in 2s"));
     delay(1000);

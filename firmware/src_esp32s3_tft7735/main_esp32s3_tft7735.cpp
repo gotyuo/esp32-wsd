@@ -346,13 +346,25 @@ void setup() {
     Serial.begin(115200);
     delay(400);
     Serial.println();
-    Serial.println(F("======================================"));
+    Serial.println(F("===================================="));
     Serial.println(F(" EnvMon ESP32-S3 (TFT7735) " FW_VERSION));
-    Serial.println(F("======================================"));
+    Serial.println(F("===================================="));
+
+    // NVS 分区修复：如果损坏则擦除重建
+    esp_err_t nvsErr = nvs_flash_init();
+    if (nvsErr == ESP_ERR_NVS_NO_FREE_PAGES || nvsErr == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        Serial.println(F("[BOOT] NVS corrupted, erasing and reinit..."));
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
 
     g_cfgStore.begin();
     bool saved = g_cfgStore.load(g_cfg);
     g_cfgStore.applyDefaults(g_cfg);
+
+    // 清除 ESP32 WiFi 层残留的旧凭证（与 NVS 配置分离，可能缓存旧 SSID）
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);   // 禁用 WiFi 层的自动重连缓存
     Serial.printf("[BOOT] config %s, device_id=%s\n",
                   saved ? "loaded" : "NOT found (first boot)", g_cfg.device_id);
 
