@@ -686,7 +686,8 @@ def assess_patient(patient_id: int, hours: int = 24) -> Dict:
     elif warn_count >= 3:
         overall = "moderate"
     elif warn_count >= 1:
-        overall = "moderate"
+        # 1~2 个预警：低风险（观察），避免与 >=3 的"中度"档位重复
+        overall = "low"
     else:
         overall = "low"
 

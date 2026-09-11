@@ -170,6 +170,15 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
         )
         _log.info("migration v2.9: added devices.deleted column (soft delete)")
 
+    # v2.6-tester: 设备当前绑定患者。link/unlink 端点会写 devices.patient_id，
+    # 但 devices 表在原始 schema.sql 中并未定义该列，导致关联/解绑设备时
+    # 触发 "no such column: patient_id" -> HTTP 500。这里补齐列，兼容既有库与全新库。
+    if not _has_col(conn, "devices", "patient_id"):
+        conn.execute(
+            "ALTER TABLE devices ADD COLUMN patient_id INTEGER DEFAULT NULL"
+        )
+        _log.info("migration: added devices.patient_id column (current bound patient)")
+
     # Issue 5: 监护记录表 — 患者在某设备上的监护时间段。
     conn.execute(
         "CREATE TABLE IF NOT EXISTS monitor_sessions ("
