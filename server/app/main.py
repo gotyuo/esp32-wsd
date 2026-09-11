@@ -976,12 +976,19 @@ def device_alarms(device_id: str, limit: int = Query(50, le=500)):
 
 @app.get("/api/devices/{device_id}/history", dependencies=[Depends(require_user)])
 def device_telemetry_history(device_id: str, start: Optional[str] = None, end: Optional[str] = None,
+                              window_minutes: Optional[int] = Query(None, ge=1, le=10080),
                               limit: int = Query(5000, le=50000)):
     """遥测历史（原返回患者分配时间线，现改为遥测数据）。
-    患者分配时间线移至 /api/devices/{id}/patient-history。"""
+    患者分配时间线移至 /api/devices/{id}/patient-history。
+    支持 window_minutes 快捷参数（自动计算 start=now-window_minutes）。"""
     d = db.device_detail(device_id)
     if not d or d.get("device", {}).get("deleted"):
         raise HTTPException(404, "设备不存在")
+    if window_minutes and not start:
+        from datetime import timedelta
+        end = db.utcnow()
+        start = (datetime.fromisoformat(end.replace("Z", "+00:00"))
+                 - timedelta(minutes=window_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
     if start and end:
         rows = db.history_range(device_id, start, end, limit)
     else:
@@ -2185,6 +2192,7 @@ async def ingest(request: Request):
     pres: Optional[float] = None
     rssi: Optional[int] = None
     source = "json"
+    vital_fields: Dict[str, Any] = {}  # P1 #17: JSON/HL7 都可能携带体征
 
     if "text/plain" in content_type or raw_body.startswith("MSH|"):
         # —— HL7 v2.x 文本格式 ——
@@ -2231,6 +2239,9 @@ async def ingest(request: Request):
         hum = data.get("hum_pct", data.get("hum"))
         pres = data.get("pres_hpa", data.get("pres"))
         rssi = data.get("rssi")
+        # P1 #17: 提取体征字段（pr_hr/sp_o2/rr_bpm/etco2 等）
+        _VITAL_KEYS = ("pr_hr", "sp_o2", "rr_bpm", "etco2", "ecg_hr", "sbp", "dbp", "map_bp")
+        vital_fields = {k: data.get(k) for k in _VITAL_KEYS if data.get(k) is not None}
 
     if not device_id:
         raise HTTPException(400, "缺少 device_id")
@@ -2246,6 +2257,11 @@ async def ingest(request: Request):
                               (hum, "hum_pct", 0, 100),
                               (pres, "pres_hpa", 300, 1300)]:
         if val is not None:
+            if isinstance(val, str):
+                try:
+                    val = float(val)
+                except (ValueError, TypeError):
+                    raise HTTPException(400, f"{name}={val} 不是有效数字")
             if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
                 raise HTTPException(400, f"{name} 不能为 NaN/Infinity")
             if val < lo or val > hi:
@@ -2267,6 +2283,20 @@ async def ingest(request: Request):
     db.set_device_online(device_id, True)
     db.set_device_seen(device_id, None)
     record_alarm_transition(device_id, level, reason, temp, hum, pres)
+
+    # P1 #17: 若携带体征字段且设备已关联患者，写入 vitals 表
+    if vital_fields and source == "json":
+        try:
+            rows = db.query_locked(
+                "SELECT patient_id FROM patient_devices WHERE device_id=?",
+                (device_id,))
+            if rows:
+                pid = int(dict(rows[0])["patient_id"])
+                icu.insert_vital(pid, db.utcnow(), "ingest",
+                                 source_device=device_id, **vital_fields)
+        except Exception as e:  # noqa: BLE001
+            log.warning("ingest: vital insert failed for %s: %s", device_id, e)
+
     hub.broadcast_threadsafe({
         "type": "telemetry", "device_id": device_id,
         "data": {"t": temp, "h": hum, "p": pres,
@@ -2451,6 +2481,101 @@ async def tts_dispatch(device_id: str, body: dict):
         "topic": topic,
         "text": text,
     }
+
+# ================================================================ P2 数据导出/时间同步/清理/AI创建
+@app.get("/api/export", dependencies=[Depends(require_user)])
+def export_data(device: Optional[str] = None, start: Optional[str] = None,
+                end: Optional[str] = None, limit: int = Query(50000, le=200000)):
+    """导出遥测数据为 CSV 下载。"""
+    if not device:
+        raise HTTPException(400, "device 参数必填")
+    end = end or db.utcnow()
+    start = start or "1970-01-01"
+    rows = db.history_range(device, start, end, limit)
+    if not rows:
+        return {"ok": True, "count": 0, "csv": ""}
+    cols = ["ts", "seq", "temp_c", "hum_pct", "pres_hpa", "rssi", "alarm_level", "free_heap"]
+    header = ",".join(cols)
+    lines = [header]
+    for r in rows:
+        d = dict(r)
+        lines.append(",".join(str(d.get(c, "")) for c in cols))
+    csv_content = "\n".join(lines)
+    return {"ok": True, "count": len(rows), "csv": csv_content}
+
+
+@app.get("/api/sync-time")
+def sync_time():
+    """返回服务器当前 UTC 时间戳（设备时间同步用，无需登录）。"""
+    return {"utc_ms": int(time.time() * 1000), "utc": db.utcnow(),
+            "local": datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}
+
+
+@app.post("/api/cleanup", dependencies=[Depends(require_admin)])
+def cleanup_data(older_than_days: int = Query(30, ge=1, le=365)):
+    """清理超过指定天数的历史遥测数据。"""
+    cutoff = (datetime.utcnow() - timedelta(days=older_than_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    deleted = db.execute("DELETE FROM telemetry WHERE ts < ?", (cutoff,))
+    log.info("cleanup: deleted %d telemetry records older than %s", deleted, cutoff)
+    return {"ok": True, "deleted": deleted, "cutoff": cutoff}
+
+
+@app.post("/api/ai/analyses", dependencies=[Depends(require_admin)])
+def create_ai_analysis(body: Dict[str, Any]):
+    """手动触发 AI 分析。body: {device_id, text?}"""
+    device_id = body.get("device_id")
+    if not device_id:
+        raise HTTPException(400, "device_id 必填")
+    text = body.get("text") or f"设备 {device_id} 的报警分析"
+
+    # 查设备最新遥测 + 关联患者
+    latest = db.latest_telemetry(device_id) or {}
+    th = db.get_thresholds(device_id) or {}
+    patient_id = None
+    patient_name = None
+    rows = db.query_locked(
+        "SELECT p.id, p.name FROM patient_devices pd "
+        "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=? "
+        "ORDER BY pd.linked_at DESC LIMIT 1", (device_id,))
+    if rows:
+        d = dict(rows[0])
+        patient_id = d.get("id")
+        patient_name = d.get("name")
+
+    # 构建分析文本
+    t = latest.get("temp_c", "-")
+    h = latest.get("hum_pct", "-")
+    p = latest.get("pres_hpa", "-")
+    alarm_level = latest.get("alarm_level", 0)
+    prompt = (f"设备 {device_id} 当前数据：温度={t}℃ 湿度={h}%RH 气压={p}hPa "
+              f"报警级别={alarm_level}\n用户请求分析：{text}")
+
+    # 调 AI
+    try:
+        from . import ai_client
+        enabled = icu.get_setting_raw("ai.enabled") or ""
+        model = icu.get_setting_raw("ai.model") or ""
+        if enabled not in ("1", "true", "True", "yes"):
+            return {"ok": False, "error": "AI 未启用 (ai.enabled 未开启)"}
+        if not model.strip():
+            return {"ok": False, "error": "AI 模型未配置 (ai.model 为空)"}
+
+        content, err, usage = ai_client.call_model(
+            ai_client._read_settings(icu),
+            [{"role": "system", "content": "你是 ICU 重症监护助理。请根据监护数据做简要的中文医学分析。"},
+             {"role": "user", "content": prompt}],
+        )
+        if err:
+            return {"ok": False, "error": f"AI 分析失败: {err}"}
+        # 落库
+        db.execute(
+            "INSERT INTO ai_analyses (device_id, ts, prompt, content, usage) "
+            "VALUES (?,?,?,?,?)",
+            (device_id, db.utcnow(), prompt, content, str(usage or {})))
+        return {"ok": True, "content": content, "usage": usage}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"AI 分析失败: {e}"}
+
 
 # ================================================================ WebSocket
 @app.websocket("/ws")

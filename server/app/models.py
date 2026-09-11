@@ -54,7 +54,7 @@ class ThresholdsOut(BaseModel):
 
 
 DEVICE_ID_RE = r"^[A-Za-z0-9_-]{1,32}$"
-DEVICE_NAME_RE = r"^[^<>{}[\]\x00-\x1f]{1,64}$"
+DEVICE_NAME_RE = r"^[^<>{}\[\]\x00-\x1f]{1,64}$"
 
 
 def _validate_ip(v: str) -> str:
@@ -80,9 +80,15 @@ class RegisterDeviceIn(BaseModel):
     @field_validator("name")
     @classmethod
     def _validate_name(cls, v: str) -> str:
-        if not re.match(DEVICE_NAME_RE, v or ""):
+        raw = (v or "").strip()
+        if not raw:
+            # 原始值非空但 strip 后为空 = 纯空格，拒绝
+            if v and v.strip() == "" and v != "":
+                raise ValueError("name 不能仅由空格组成")
+            return raw  # 空字符串 = 无名称设备
+        if not re.match(DEVICE_NAME_RE, raw):
             raise ValueError("name 仅允许字母数字中文及常见标点，不含 < > { } [ ] 及控制字符")
-        return v
+        return raw
 
     # 可选：人工登记 IP / 接入地址。内网设备通常留空（由遥测上报自动填充），
     # 外网设备用它登记可直连的地址（如 ddns 域名或公网 IP:端口）。
@@ -107,8 +113,9 @@ class UpdateDeviceIn(BaseModel):
     def _validate_name(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return None  # 不修改
+        v = v.strip()
         if v == "":
-            return None  # 空字符串 = 清空
+            return None  # 空字符串或纯空格 = 清空
         if not re.match(DEVICE_NAME_RE, v):
             raise ValueError("name 仅允许字母数字中文及常见标点，不含 < > { } [ ] 及控制字符")
         return v
