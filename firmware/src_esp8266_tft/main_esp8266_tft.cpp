@@ -289,7 +289,7 @@ void loop() {
 
     // AP 配网模式
     if (g_net.inAPMode()) {
-        if (g_tftOk && (now - g_lastTft >= 500 || g_displayDirty)) {
+        if (g_tftOk && (now - g_lastTft >= 2000 || g_displayDirty)) {
             g_lastTft = now;
             renderTft();
         }
@@ -316,7 +316,7 @@ void loop() {
     }
     AlarmLevel lvl = g_alarm.evaluate(g_last, g_cfg);
     g_alarm.update(lvl, g_cfg.alarm_sound);
-    if (g_tftOk && (now - g_lastTft >= 500 || g_displayDirty)) {
+    if (g_tftOk && (now - g_lastTft >= 2000 || g_displayDirty)) {
         g_lastTft = now;
         renderTft();
     }

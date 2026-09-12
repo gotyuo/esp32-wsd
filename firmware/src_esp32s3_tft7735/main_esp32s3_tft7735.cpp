@@ -10,6 +10,7 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <SPI.h>
+#include <nvs_flash.h>
 #include "pins_esp32s3_tft7735.h"
 #include "config_store.h"
 #include "sensors.h"
@@ -411,7 +412,10 @@ void setup() {
     });
     g_net.begin();
 
-    String _otaHost = String(g_cfg.mqtt_host) + ":" + String(g_cfg.mqtt_port);
+    // ⚠️ OTA 走 HTTP (web_port 12090)，不是 MQTT 端口 (18830)！
+    // 如果配错端口，固件永远 404，设备永远看不到新版本。
+    uint16_t _otaPort = 12090;  // 后端 Web 默认端口（容器 12090→app:12090）
+    String _otaHost = String(g_cfg.mqtt_host) + ":" + String(_otaPort);
     ota_set_server(_otaHost.length() > 1 ? _otaHost.c_str() : nullptr, nullptr);
     delay(500);
     ota_setup();
