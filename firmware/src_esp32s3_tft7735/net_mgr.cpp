@@ -5,7 +5,8 @@
 #include <WebServer.h>
 #include <esp_wifi.h>
 
-static WebServer web(8080);  // 非标准端口 8080，避免浏览器 ERR_UNSAFE_PORT
+static WebServer web(8080);   // 主 Web 服务器 (数据页/配置页)
+static WebServer web80(80);   // 端口 80: 仅用于 AP 模式 captive portal 跳转
 static DNSServer dns;
 
 NetManager g_net;
@@ -341,6 +342,24 @@ void NetManager::loop() {
     } else {
         dns.processNextRequest();
         web.handleClient();
+        if (_web80Running) web80.handleClient();
+        // ⚠️ 修复: AP 模式下定期尝试 STA 重连
+        // 旧逻辑: 一旦回退到 AP 就永远卡在热点状态, WiFi 恢复后也不会切回 STA。
+        // 新逻辑: 每 60s 尝试一次 STA 连接, 连上后自动退出 AP 回到正常上报。
+        if (_cfg->has_wifi() && (millis() - _apStaRetryAt > 60000)) {
+            _apStaRetryAt = millis();
+            Serial.println(F("[NET] AP mode: trying STA reconnect..."));
+            WiFi.softAPdisconnect(true);
+            WiFi.mode(WIFI_STA);
+            WiFi.setAutoReconnect(false);
+            WiFi.begin(_cfg->wifi_ssid, _cfg->wifi_pass);
+            _mode = MODE_STA;
+            _staStarted = true;
+            _staStartedAt = millis();
+            _staFailed = false;
+            _retryDelay = 1000;
+            _lastTry = millis();
+        }
     }
 }
 
@@ -363,6 +382,16 @@ void NetManager::startAP() {
     delay(300);
     dns.start(53, "*", WiFi.softAPIP());
     startPortalServer();
+
+    // ⚠️ 修复: Web 服务器跑在 8080, 但手机浏览器 captive portal 检测走端口 80。
+    // DNS 劫持让所有域名解析到 192.168.4.1, 手机访问 http://192.168.4.1/ (端口 80)
+    // 时若无人应答, 浏览器认为没有互联网连接, 配网页永远不弹出。
+    // 在端口 80 启动一个纯跳转服务器: 任意请求 → 302 到 http://192.168.4.1:8080/
+    web80.onNotFound([this]() {
+        web80.sendHeader("Location", "http://192.168.4.1:8080/", true);
+        web80.send(302, "text/plain", "");
+    });
+    if (!_web80Running) { web80.begin(); _web80Running = true; }
     Serial.printf("[NET] AP started: %s (http://192.168.4.1)\n", _ap_ssid.c_str());
 
     // AP 刚起、尚无客户端时扫一次填充缓存 (射频稳定后重试)
@@ -375,6 +404,7 @@ void NetManager::startAP() {
             int n = WiFi.scanComplete();
             if (n >= 0) { buildScanCache(n); WiFi.scanDelete(); break; }
             dns.processNextRequest(); web.handleClient();
+            if (_web80Running) web80.handleClient();
         }
     }
     Serial.printf("[NET] initial scan cache: %s\n", (_scanCache == "[]" ? "empty" : _scanCache.substring(0, 40).c_str()));
@@ -433,7 +463,7 @@ void NetManager::startDataServer() {
     web.on("/config", HTTP_GET, [this]() { handleConfig(); });
     web.begin();
     String ip = WiFi.localIP().toString();
-    Serial.printf("[NET] Web server started on http://%s:6667 (data=/data, config=/)\n", ip.c_str());
+    Serial.printf("[NET] Web server started on http://%s:8080 (data=/data, config=/)\n", ip.c_str());
 }
 
 void NetManager::handleData() {
@@ -569,10 +599,13 @@ void NetManager::handleTest() {
     String result = String("{");
 
     // ---- 测试 WiFi ----
-    // 先断开当前连接
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
-    delay(500);
+    // ⚠️ 不能 WiFi.mode(WIFI_STA)——那会杀掉 AP, 测试响应无法返回给手机。
+    // 保持当前模式(AP_STA), 只调用 WiFi.begin() 尝试 STA 连接。
+    // 如果当前已在 STA 模式且已连接, 先断开当前连接再重连测试目标 SSID。
+    if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != ssid) {
+        WiFi.disconnect();
+        delay(500);
+    }
 
     WiFi.begin(ssid.c_str(), pass.c_str());
     // 等待最多 10 秒

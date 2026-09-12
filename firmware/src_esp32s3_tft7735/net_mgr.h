@@ -77,11 +77,13 @@ private:
     uint32_t _staStartedAt = 0;
     uint32_t _staLastConnectAttempt = 0;
     bool     _staFailed = false;
+    uint32_t _apStaRetryAt = 0;
 
     ConfigSavedCb _onSaved;
     DataCb _onData;
     bool     _portalRunning = false;
     bool     _dataRunning = false;
+    bool     _web80Running = false;
 
     String  _scanCache;
     uint32_t _scanStartedAt = 0;

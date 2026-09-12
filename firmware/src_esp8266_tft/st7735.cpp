@@ -27,18 +27,19 @@
 #define GMCTRN1 0xE1
 
 // 软件模拟 SPI (bit-bang)
+// 4 引脚屏: CS/DC/BL 由模块内部处理, PIN=255 时不操作
+// 6 引脚屏: 每个引脚都连接 GPIO, 正常切换
 static int8_t PIN_SCK, PIN_MOSI, PIN_CS, PIN_DC, PIN_RST;
 
 #define SCK_LOW()  digitalWrite(PIN_SCK, LOW)
 #define SCK_HIGH() digitalWrite(PIN_SCK, HIGH)
 #define MOSI_LOW() digitalWrite(PIN_MOSI, LOW)
 #define MOSI_HIGH() digitalWrite(PIN_MOSI, HIGH)
-#define CS_LOW()   digitalWrite(PIN_CS, LOW)
-#define CS_HIGH()  digitalWrite(PIN_CS, HIGH)
-#define DC_LOW()   digitalWrite(PIN_DC, LOW)
-#define DC_HIGH()  digitalWrite(PIN_DC, HIGH)
-// ⚠️ RST 引脚可选：ESP8266 的 6 线 ST7735 模块 RST 悬空（内部上电自复位），
-// PIN_RST=255 时不能调用 digitalWrite(255) → pinMap[255] 越界 → 崩溃
+// ⚠️ 255 = 引脚未连接(4 引脚屏内部处理), 不能 digitalWrite(255) → pinMap 越界 → 崩溃
+#define CS_LOW()   if (PIN_CS < 255) digitalWrite(PIN_CS, LOW)
+#define CS_HIGH()  if (PIN_CS < 255) digitalWrite(PIN_CS, HIGH)
+#define DC_LOW()   if (PIN_DC < 255) digitalWrite(PIN_DC, LOW)
+#define DC_HIGH()  if (PIN_DC < 255) digitalWrite(PIN_DC, HIGH)
 #define RST_LOW()  if (PIN_RST < 255) digitalWrite(PIN_RST, LOW)
 #define RST_HIGH() if (PIN_RST < 255) digitalWrite(PIN_RST, HIGH)
 
@@ -107,10 +108,12 @@ static void sw_fill_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
 
 void ST7735::begin(int8_t cs, int8_t dc, int8_t rst, int8_t mosi, int8_t sck) {
     PIN_CS = cs; PIN_DC = dc; PIN_RST = rst; PIN_MOSI = mosi; PIN_SCK = sck;
-    pinMode(PIN_CS, OUTPUT); pinMode(PIN_DC, OUTPUT);
-    if (PIN_RST < 255) pinMode(PIN_RST, OUTPUT);  // 255=悬空，不初始化
+    if (PIN_CS < 255) pinMode(PIN_CS, OUTPUT);
+    if (PIN_DC < 255) pinMode(PIN_DC, OUTPUT);
+    if (PIN_RST < 255) pinMode(PIN_RST, OUTPUT);  // 255=悬空,不初始化
     pinMode(PIN_MOSI, OUTPUT); pinMode(PIN_SCK, OUTPUT);
-    CS_HIGH(); DC_HIGH(); SCK_HIGH(); MOSI_HIGH();
+    if (PIN_CS < 255) CS_HIGH(); if (PIN_DC < 255) DC_HIGH();
+    SCK_HIGH(); MOSI_HIGH();
 
     // 硬件复位（RST 悬空时跳过，模块内部上电自复位）
     RST_HIGH(); delay(10); RST_LOW(); delay(15); RST_HIGH(); delay(200);

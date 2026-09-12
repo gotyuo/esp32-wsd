@@ -16,16 +16,18 @@
 //   传感器 SDA->D6, SCL->D7
 // ============================================================
 
-// ---------- 6 线 SPI TFT 屏 ----------
-// 软件 SPI，引脚任意 GPIO(ESP8266 硬件 SPI 不可用)
-// RST 引脚不占用——0.96" ST7735 模块内部 RST 有上拉+电容，
-// 上电自动复位；如需要硬复位可软件 delay(200) 代替
-#define PIN_TFT_CS   16     // D0 = GPIO16
-#define PIN_TFT_DC    5     // D1 = GPIO5
-#define PIN_TFT_RST 255     // 不接 RST 引脚(模块内部上电自复位)
+// ---------- 4 线 SPI TFT 屏 (VCC/GND/MOSI/SCK) ----------
+// 4 引脚屏幕: CS/DC/RST/BL 由模块内部处理, 不占用 GPIO
+// 如使用 6 线屏(带 CS/DC/BL 引脚), 取消下方注释并改为:
+//   #define PIN_TFT_CS   16
+//   #define PIN_TFT_DC    5
+//   #define PIN_TFT_BL   14
+#define PIN_TFT_CS   255    // 4 引脚: 内部 (6 线屏改为 16/D0)
+#define PIN_TFT_DC   255    // 4 引脚: 内部 (6 线屏改为 5/D1)
+#define PIN_TFT_RST  255    // 不接 RST 引脚(模块内部上电自复位)
 #define PIN_TFT_MOSI  2     // D4 = GPIO2
 #define PIN_TFT_SCK   4     // D2 = GPIO4
-#define PIN_TFT_BL   14     // D5 = GPIO14
+#define PIN_TFT_BL   255    // 4 引脚: 内部常亮 (6 线屏改为 14/D5)
 
 // ---------- 硬件 I2C: AHT20 + BMP280 (传感器) ----------
 // Wire.begin(sda=12, scl=13)
