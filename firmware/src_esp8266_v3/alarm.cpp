@@ -1,5 +1,6 @@
 // ============================================================
-// 报警模块 — ESP8266
+// 报警模块 ESP8266 - RGB LED + 无源蜂鸣器
+// 用 analogWrite/tone 代替 ESP32 的 ledc
 // ============================================================
 #include "alarm.h"
 #include "pins.h"
@@ -20,7 +21,7 @@ void AlarmDevice::setRGB(bool r, bool g) {
     digitalWrite(PIN_LED_G, g ? HIGH : LOW);
 }
 
-void AlarmDevice::buzzerOn(uint32_t freq) { (void)freq; }
+void AlarmDevice::buzzerOn(uint32_t freq) { (void)freq; }  // 蜂鸣器已移除（D5 改作 I2C 时钟）
 void AlarmDevice::buzzerOff() { }
 
 static int band(float v, float lo, float hi) {
@@ -49,7 +50,8 @@ void AlarmDevice::update(AlarmLevel level, bool alarm_sound) {
     uint32_t now = millis();
     switch (level) {
     case AL_NORMAL: {
-        bool on = ((now % NORMAL_PERIOD) < NORMAL_PERIOD / 2);
+        uint32_t ph = (now % NORMAL_PERIOD);
+        bool on = (ph < NORMAL_PERIOD / 2);
         setRGB(false, on);
         buzzerOff();
         break;
@@ -87,7 +89,8 @@ void AlarmDevice::update(AlarmLevel level, bool alarm_sound) {
         break;
     }
     case AL_CONFIG: {
-        bool on = ((now % NODATA_PERIOD) < NODATA_PERIOD / 2);
+        uint32_t period = NODATA_PERIOD;
+        bool on = ((now % period) < period / 2);
         setRGB(false, on);
         buzzerOff();
         break;

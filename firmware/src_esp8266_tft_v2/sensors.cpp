@@ -1,6 +1,6 @@
 // ============================================================
-// 传感器采集 ESP8266 — AHT20 + BMP280 + MAX30102
-// 共用 I2C (GPIO12/13), 地址: AHT20=0x38, BMP280=0x76/0x77, MAX30102=0x57
+// 传感器采集 — AHT20 + BMP280 + MAX30102
+// MAX30102 与 OLED 共用 GPIO12/14, 与传感器总线(GPIO13/15)时分复用
 // ============================================================
 #include "sensors.h"
 #include "pins.h"
@@ -9,17 +9,15 @@
 #include "bmp280.h"
 #include "max30102.h"
 
-static AHT20    aht;
-static BMP280   bmp;
+static AHT20   aht;
+static BMP280  bmp;
 static MAX30102 max30;
 
 bool SensorHub::begin() {
+    // 传感器总线: AHT20 + BMP280 (GPIO13/15)
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     Wire.setClock(400000);
     delay(50);
-
-    // I2C 扫描日志
-    Serial.printf("[SENSOR] I2C pins: SDA=%d SCL=%d\n", PIN_I2C_SDA, PIN_I2C_SCL);
 
     if (aht.begin(&Wire)) {
         _aht_ok = true;
@@ -35,14 +33,17 @@ bool SensorHub::begin() {
         Serial.println(F("[SENSOR] BMP280 not found"));
     }
 
-    // MAX30102 共用 I2C 总线, setPins 确保 _ensureBus() 正确绑定
-    max30.setPins(PIN_I2C_SDA, PIN_I2C_SCL);
+    // MAX30102: 与 OLED 共用 GPIO12/14, 通过 setPins 时分复用
+    max30.setPins(PIN_MAX30102_SDA, PIN_MAX30102_SCL);
     if (max30.begin(&Wire)) {
         _max_ok = true;
         Serial.println(F("[SENSOR] MAX30102 OK"));
     } else {
         Serial.println(F("[SENSOR] MAX30102 not found"));
     }
+    // 切回传感器总线
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    Wire.setClock(400000);
 
     return _aht_ok || _bmp_ok || _max_ok;
 }
@@ -66,14 +67,17 @@ bool SensorHub::read(EnvData &out) {
 }
 
 void SensorHub::readVitals(EnvData &out) {
+    out.sp_o2 = NAN;
+    out.pr_hr = NAN;
+
     if (_max_ok) {
         float spo2, hr;
         if (max30.read(spo2, hr)) {
             out.sp_o2 = spo2;
             out.pr_hr = hr;
         }
-    } else {
-        out.sp_o2 = NAN;
-        out.pr_hr = NAN;
     }
+    // 切回传感器总线
+    Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+    Wire.setClock(400000);
 }

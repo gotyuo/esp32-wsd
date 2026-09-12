@@ -1,7 +1,7 @@
 // ============================================================
-// 配置管理 ESP8266 — EEPROM
+// 配置管理 — EEPROM 实现
 // ============================================================
-#include "config_store.h"
+#include "config.h"
 #include <cstring>
 #include <ESP8266WiFi.h>
 
@@ -20,6 +20,7 @@ void ConfigStore::begin() {
 bool ConfigStore::load(DeviceConfig &cfg) {
     memset(&cfg, 0, sizeof(cfg));
     cfg.mqtt_port       = 18830;
+    cfg.server_mode     = 0;
     cfg.report_interval = 10;
     cfg.temp_min = 5.0f;    cfg.temp_max = 40.0f;
     cfg.hum_min  = 20.0f;   cfg.hum_max  = 90.0f;
@@ -27,12 +28,11 @@ bool ConfigStore::load(DeviceConfig &cfg) {
     cfg.alarm_enabled = true;
     cfg.alarm_sound   = true;
 
-    // 用 MAC 生成默认设备 ID 和热点名
     uint8_t mac[6];
     WiFi.macAddress(mac);
-    snprintf(cfg.device_id, sizeof(cfg.device_id), "envmon-%02x%02x%02x",
+    snprintf(cfg.device_id, sizeof(cfg.device_id), "envmon8266-%02x%02x%02x",
              mac[3], mac[4], mac[5]);
-    snprintf(cfg.ap_ssid, sizeof(cfg.ap_ssid), "ENVMON-%02X%02X", mac[4], mac[5]);
+    snprintf(cfg.ap_ssid, sizeof(cfg.ap_ssid), "ENVMON8266-%02X%02X", mac[4], mac[5]);
     strcpy(cfg.mqtt_user, "envmon");
     strcpy(cfg.mqtt_pass, "envmon");
 

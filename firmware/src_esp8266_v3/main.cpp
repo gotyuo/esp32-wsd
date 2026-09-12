@@ -1,8 +1,10 @@
 // ============================================================
-// EnvMon ESP8266 固件主程序
+// EnvMon ESP8266 v3.0 固件主程序
 //
-// 数据流: AHT20/BMP280 -> 采样 -> 阈值判定 -> LED -> MQTT
-// OLED: 0.96" SSD1306 (u8g2 库, 软件 I2C, SDA=GPIO2/SCL=GPIO14)
+// 数据流: AHT20/BMP280 -> 采样 -> 阈值判定 -> OLED -> MQTT
+// OLED: 0.96" SSD1306 (u8g2 库, 软件 I2C, SCL=D5/SDA=D6)
+// AHT20+BMP280: 硬件 Wire I2C (SCL=D8/SDA=D7)
+// v3.0: 去掉 MAX30102
 //
 // 串口调试命令(115200):
 //   config   立即进入 AP 配网模式
@@ -12,12 +14,12 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <U8g2lib.h>
-#include "pins_esp8266.h"
-#include "config_store_esp8266.h"
-#include "sensors_esp8266.h"
-#include "alarm_esp8266.h"
-#include "net_mgr_esp8266.h"
-#include "mqtt_mgr_esp8266.h"
+#include "pins.h"
+#include "config.h"
+#include "sensors.h"
+#include "alarm.h"
+#include "net_mgr.h"
+#include "mqtt_mgr.h"
 
 // u8g2 SSD1306 128x64, 软件 I2C: (rotation, clock=SCL, data=SDA, reset)
 U8G2_SSD1306_128X64_NONAME_F_SW_I2C g_oled(U8G2_R0, /*clock=*/ PIN_OLED_SCL, /*data=*/ PIN_OLED_SDA, /*reset=*/ U8X8_PIN_NONE);
@@ -120,29 +122,6 @@ static void forceRefreshOled() {
     g_lastOled = 0;  // 让下一次正常轮询命中
 }
 
-// BOOT 键长按检测: 上电按住 D3(GPIO0) 超过 3 秒 -> factory reset
-static void checkBootKey() {
-    if (PIN_BOOT_KEY >= 255) return;  // 禁用
-    pinMode(PIN_BOOT_KEY, INPUT_PULLUP);
-    uint32_t t0 = millis();
-    while (digitalRead(PIN_BOOT_KEY) == LOW) {
-        if (millis() - t0 > 3000) {
-            Serial.println(F("[BOOT] BOOT key held 3s -> FACTORY RESET"));
-            if (g_oledOk) {
-                g_oled.clearBuffer();
-                g_oled.setFont(u8g2_font_6x10_tr);
-                g_oled.drawStr(2, 18, "FACTORY RESET");
-                g_oled.drawStr(2, 32, "Clearing config...");
-                g_oled.sendBuffer();
-            }
-            g_cfgStore.clear();
-            delay(500);
-            ESP.restart();
-        }
-        delay(50);
-    }
-}
-
 static void handleSerialCmd() {
     if (!Serial.available()) return;
     String cmd = Serial.readStringUntil('\n');
@@ -173,8 +152,6 @@ void setup() {
     Serial.println(F("======================================"));
 
     g_cfgStore.begin();
-    // BOOT 键长按 3s → factory reset（在 load 之前，清掉配置包括 device_id）
-    checkBootKey();
     bool saved = g_cfgStore.load(g_cfg);
     g_cfgStore.applyDefaults(g_cfg);
     Serial.printf("[BOOT] config %s, device_id=%s\n",
@@ -185,7 +162,7 @@ void setup() {
         Serial.println(F("[BOOT] WARNING: sensors unavailable"));
     }
 
-    // OLED: u8g2 初始化 (软件 I2C SCL=GPIO14, SDA=GPIO2)
+    // OLED: u8g2 初始化 (软件 I2C SCL=GPIO14, SDA=GPIO12)
     g_oled.begin();
     g_oled.clearBuffer();
     g_oled.setFont(u8g2_font_6x10_tr);
@@ -193,7 +170,7 @@ void setup() {
     g_oled.drawStr(2, 26, "ESP8266 v" FW_VERSION);
     g_oled.sendBuffer();
     g_oledOk = true;
-    Serial.println(F("[BOOT] OLED 0.96\" u8g2 OK (SDA=GPIO2 SCL=GPIO14)"));
+    Serial.println(F("[BOOT] OLED 0.96\" u8g2 OK (SDA=GPIO12 SCL=GPIO14)"));
 
     g_net.setConfig(&g_cfg);
     g_net.begin();
@@ -210,7 +187,7 @@ void setup() {
         String bootLine = "SSID:" + bootSsid;
         g_oled.setCursor(2, 38);
         g_oled.print(bootLine.c_str());
-        g_oled.drawStr(2, 54, "EnvMon " FW_VERSION);
+        g_oled.drawStr(2, 54, "EnvMon v" FW_VERSION);
         g_oled.sendBuffer();
     }
     Serial.printf("[BOOT] target SSID: %s\n", getCurSsid().c_str());
@@ -221,7 +198,7 @@ void setup() {
 void loop() {
     handleSerialCmd();
     g_net.loop();
-    checkSsidChanged();   // 每次循环检测 SSID 是否变化, 变化则 OLED 立即刷新
+    checkSsidChanged();
     uint32_t now = millis();
 
     // ---------- AP 配网模式 ----------
@@ -250,7 +227,6 @@ void loop() {
     if (now - g_lastRead >= 2000) {
         g_lastRead = now;
         g_sensors.read(g_last);
-        g_sensors.readVitals(g_last);
     }
     AlarmLevel lvl = g_alarm.evaluate(g_last, g_cfg);
     g_alarm.update(lvl, g_cfg.alarm_sound);

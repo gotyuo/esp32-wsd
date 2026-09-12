@@ -1,23 +1,30 @@
 #pragma once
 // ============================================================
-// 配置管理 (ESP8266) — EEPROM 存储
+// 配置管理 (ESP8266) - 使用 EEPROM 模拟 NVS
+// ESP8266 无 Preferences 库，用 EEPROM 读写配置
 // ============================================================
 #include <Arduino.h>
 #include <EEPROM.h>
 
-#define MAX_STR_LEN 64
+#define MAX_SSID_LEN   32
+#define MAX_PASS_LEN   64
+#define MAX_HOST_LEN   64
+#define MAX_USER_LEN   32
+#define MAX_DEV_LEN    24
+
 #define EEPROM_SIZE 512
 #define EEPROM_MAGIC 0xE826
 
 struct DeviceConfig {
-    char     wifi_ssid[33];
-    char     wifi_pass[65];
-    char     ap_ssid[33];
-    char     mqtt_host[65];
+    char     wifi_ssid[MAX_SSID_LEN + 1];
+    char     wifi_pass[MAX_PASS_LEN + 1];
+    char     ap_ssid[MAX_SSID_LEN + 1];
+    char     mqtt_host[MAX_HOST_LEN + 1];
     uint16_t mqtt_port;
-    char     mqtt_user[33];
-    char     mqtt_pass[65];
-    char     device_id[25];
+    char     mqtt_user[MAX_USER_LEN + 1];
+    char     mqtt_pass[MAX_PASS_LEN + 1];
+    char     device_id[MAX_DEV_LEN + 1];
+    uint8_t  server_mode;   // 0=LAN发现 1=手动
     uint16_t report_interval;
     float    temp_min, temp_max;
     float    hum_min,  hum_max;

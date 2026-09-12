@@ -1,6 +1,7 @@
 // ============================================================
-// MQTT 通信模块 ESP8266
+// MQTT 通信模块 ESP8266 v3.0
 // 复用 ESP32 版的 mqtt_client.cpp（WiFiClient 纯手写 MQTT）
+// 无 MAX30102，无 pr_hr
 // ============================================================
 #include "mqtt_mgr.h"
 #include "mqtt_client.h"
@@ -104,13 +105,12 @@ bool MqttMgr::publishVitals(const EnvData &d) {
         "{\"device_id\":\"%s\""
         ",\"ts\":\"%s\""
         ",\"t\":%s,\"h\":%s,\"p\":%s"
-        ",\"pr\":%s,\"ip\":\"%s\"}",
+        ",\"ip\":\"%s\"}",
         g_cfg.device_id,
         "",  // ts 由服务器补
         isnan(d.temp_c)   ? "null" : String(d.temp_c, 2).c_str(),
         isnan(d.hum_pct)  ? "null" : String(d.hum_pct, 2).c_str(),
         isnan(d.pres_hpa) ? "null" : String(d.pres_hpa, 2).c_str(),
-        isnan(d.pr_hr)    ? "null" : String(d.pr_hr, 1).c_str(),
         ip_str);
     return client.publish("envmon/vitals", buf, n, false, 0);
 }
