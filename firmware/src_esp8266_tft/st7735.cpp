@@ -43,7 +43,10 @@ static int8_t PIN_SCK, PIN_MOSI, PIN_CS, PIN_DC, PIN_RST;
 #define RST_HIGH() if (PIN_RST < 255) digitalWrite(PIN_RST, HIGH)
 
 // 软件 SPI 发送一字节 (MSB first, SPI Mode 3)
+// ⚠️ ESP8266 IntWDT 170ms 超时：纯 bit-bang 写 25600 字节(fillScreen) ≈ 256ms 会触发 Soft WDT reset。
+// 每写 100 字节调用 yield() 喂狗（~1ms 间隔），开销可忽略（25600/100=256 次 yield，每次 ~1µs）。
 static void sw_spi_write(uint8_t dat) {
+    static uint16_t wdt_tick = 0;
     for (int8_t i = 7; i >= 0; i--) {
         SCK_LOW();
         if (dat & (1 << i)) MOSI_HIGH(); else MOSI_LOW();
@@ -52,6 +55,7 @@ static void sw_spi_write(uint8_t dat) {
         delayMicroseconds(1);
     }
     SCK_LOW();
+    if (++wdt_tick >= 100) { wdt_tick = 0; yield(); }
 }
 
 static void sw_write_cmd(uint8_t cmd) {

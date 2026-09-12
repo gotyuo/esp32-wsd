@@ -37,11 +37,16 @@ static int8_t PIN_SCK, PIN_MOSI, PIN_CS, PIN_DC, PIN_RST;
 #define CS_HIGH()  digitalWrite(PIN_CS, HIGH)
 #define DC_LOW()   digitalWrite(PIN_DC, LOW)
 #define DC_HIGH()  digitalWrite(PIN_DC, HIGH)
-#define RST_LOW()  digitalWrite(PIN_RST, LOW)
-#define RST_HIGH() digitalWrite(PIN_RST, HIGH)
+// ⚠️ RST 引脚可选：ESP8266 的 6 线 ST7735 模块 RST 悬空（内部上电自复位），
+// PIN_RST=255 时不能调用 digitalWrite(255) → pinMap[255] 越界 → 崩溃
+#define RST_LOW()  if (PIN_RST < 255) digitalWrite(PIN_RST, LOW)
+#define RST_HIGH() if (PIN_RST < 255) digitalWrite(PIN_RST, HIGH)
 
 // 软件 SPI 发送一字节 (MSB first, SPI Mode 3)
+// ⚠️ ESP8266 IntWDT 170ms 超时：纯 bit-bang 写 25600 字节(fillScreen) ≈ 256ms 会触发 Soft WDT reset。
+// 每写 100 字节调用 yield() 喂狗（~1ms 间隔），开销可忽略（25600/100=256 次 yield，每次 ~1µs）。
 static void sw_spi_write(uint8_t dat) {
+    static uint16_t wdt_tick = 0;
     for (int8_t i = 7; i >= 0; i--) {
         SCK_LOW();
         if (dat & (1 << i)) MOSI_HIGH(); else MOSI_LOW();
@@ -50,6 +55,7 @@ static void sw_spi_write(uint8_t dat) {
         delayMicroseconds(1);
     }
     SCK_LOW();
+    if (++wdt_tick >= 100) { wdt_tick = 0; yield(); }
 }
 
 static void sw_write_cmd(uint8_t cmd) {
@@ -101,11 +107,12 @@ static void sw_fill_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
 
 void ST7735::begin(int8_t cs, int8_t dc, int8_t rst, int8_t mosi, int8_t sck) {
     PIN_CS = cs; PIN_DC = dc; PIN_RST = rst; PIN_MOSI = mosi; PIN_SCK = sck;
-    pinMode(PIN_CS, OUTPUT); pinMode(PIN_DC, OUTPUT); pinMode(PIN_RST, OUTPUT);
+    pinMode(PIN_CS, OUTPUT); pinMode(PIN_DC, OUTPUT);
+    if (PIN_RST < 255) pinMode(PIN_RST, OUTPUT);  // 255=悬空，不初始化
     pinMode(PIN_MOSI, OUTPUT); pinMode(PIN_SCK, OUTPUT);
     CS_HIGH(); DC_HIGH(); SCK_HIGH(); MOSI_HIGH();
 
-    // 硬件复位
+    // 硬件复位（RST 悬空时跳过，模块内部上电自复位）
     RST_HIGH(); delay(10); RST_LOW(); delay(15); RST_HIGH(); delay(200);
 
     Serial.println(F("[TFT] Starting init..."));
