@@ -20,6 +20,16 @@ services:
     environment:
       - MQTT_USER=${MQTT_USER:-envmon}
       - MQTT_PASS=${MQTT_PASS:-envmon}
+    # 启动前自动生成 passwd 文件（若不存在或凭据已变更）
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      sh -c '
+      if [ ! -f /mosquitto/config/passwd ] || ! grep -q "^$${MQTT_USER}:" /mosquitto/config/passwd 2>/dev/null; then
+        mosquitto_passwd -b /mosquitto/config/passwd "$${MQTT_USER}" "$${MQTT_PASS}";
+        echo "Generated passwd for $${MQTT_USER}";
+      fi;
+      exec mosquitto -c /mosquitto/config/mosquitto.conf
+      '
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u $$MQTT_USER -P $$MQTT_PASS -t '$$SYS/#' -C 1 -i healthcheck -W 3 || exit 1"]
       interval: 30s
@@ -37,15 +47,18 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Shanghai
-      # 必填：语音模型，格式 <语言>-<名称>-<质量>
       - PIPER_VOICE=${TTS_VOICE:-zh_CN-huayan-medium}
-      # 离线模式：模型已手动放入 /config，不再请求 HuggingFace
       - LOCAL_ONLY=true
     volumes:
       - ./piper-config:/config
-    # Wyoming TCP 10200，仅容器间网络访问（不对外暴露端口）
     expose:
       - "10200"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.settimeout(3); s.connect(('localhost',10200)); s.close()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   backend:
     build: .
@@ -75,8 +88,10 @@ services:
     volumes:
       - ./data:/data
     depends_on:
-      - mosquitto
-      - piper
+      mosquitto:
+        condition: service_healthy
+      piper:
+        condition: service_healthy
 
   # 局域网设备自动发现应答器（UDP 多播）
   # 设备端在 LAN 模式下广播 "ENVMON?" 到 239.255.1.1:12091，
@@ -100,6 +115,6 @@ services:
       # 显式指定监听/发送的多播网卡，避免多网卡（含 Docker 网桥）环境下
       # 默认多播路由选到 docker0 内部地址；回复给设备的 IP 也取该网卡地址。
       # 如换机器/换网卡，在 .env 里改 DISC_IFACE=你的网卡名，或用 DISC_IP 强制回复 IP。
-      - DISC_IFACE=${DISC_IFACE:-enp2s0}
+      - DISC_IFACE=${DISC_IFACE:-}
     depends_on:
       - mosquitto
