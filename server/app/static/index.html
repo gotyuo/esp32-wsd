@@ -1193,7 +1193,7 @@ function loadPatients(ev){_refreshBtn(ev,function(){
   }).catch(function(){$("pGrid").innerHTML='<div class="empty">加载失败</div>';});
 });}
 function showPatientForm(pid){
-  var fetchP = pid?api("/api/patients/"+pid):Promise.resolve({});
+  var fetchP = pid?api("/api/patients/"+encodeURIComponent(pid)):Promise.resolve({});
   // 确保医生下拉已填充（用户可能未访问过医生管理页）
   _loadDoctorsForSelects();
   fetchP.then(function(d){
@@ -1213,7 +1213,10 @@ function showPatientForm(pid){
       +"</div>"
       +"<div class='actions'><button onclick='savePatient(\""+(pid||"")+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     $("modalBox").classList.remove("hidden");
-  }).catch(function(){});
+  }).catch(function(e){
+    console.error("showPatientForm error:", e);
+    toast("加载患者数据失败: "+(e&&e.message||e||"未知错误"),"alarm");
+  });
 }
 
 function savePatient(pid){
@@ -1228,7 +1231,7 @@ function savePatient(pid){
     wechat_userid:($("pWxId")?$("pWxId").value.trim():""),
   };
   if(pid){
-    api("/api/patients/"+pid,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
+    api("/api/patients/"+encodeURIComponent(pid),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
       toast("患者已更新");closeModal();loadPatients();loadDashboardGrid();});
   }else{
     body.pid=$("pPid").value.trim();
@@ -1240,7 +1243,7 @@ function savePatient(pid){
 
 function delPatient(pid){
   if(!confirm("确定删除患者 "+pid+"？（级联删除关联体征/医嘱/检验）"))return;
-  api("/api/patients/"+pid,{method:"DELETE"}).then(function(){toast("患者已删除");loadPatients();loadDashboardGrid();});
+  api("/api/patients/"+encodeURIComponent(pid),{method:"DELETE"}).then(function(){toast("患者已删除");loadPatients();loadDashboardGrid();});
 }
 
 function linkDev(pid){
@@ -1274,7 +1277,7 @@ function linkDev(pid){
 function doLink(pid){
   var r=document.querySelector('input[name="devLink"]:checked');
   if(!r){alert("请选择设备");return;}
-  api("/api/patients/"+pid+"/link/"+encodeURIComponent(r.value),{method:"POST"})
+  api("/api/patients/"+encodeURIComponent(pid)+"/link/"+encodeURIComponent(r.value),{method:"POST"})
     .then(function(){
       toast("已关联 "+r.value);closeModal();loadPatients();
     })
@@ -1289,7 +1292,7 @@ function doLink(pid){
 }
 function unlinkDev(pid, did){
   if(!confirm("确定解除患者 "+pid+" 与设备 "+did+" 的绑定？监护记录按患者留存，解绑不影响历史查询。"))return;
-  api("/api/patients/"+pid+"/unlink/"+encodeURIComponent(did),{method:"DELETE"})
+  api("/api/patients/"+encodeURIComponent(pid)+"/unlink/"+encodeURIComponent(did),{method:"DELETE"})
     .then(function(){toast("已解绑");loadPatients();})
     .catch(function(){alert("解绑失败");});
 }
@@ -1303,12 +1306,13 @@ function refreshPatientDevices(){
   }).catch(function(e){toast("扫描失败: "+(e&&e.message||""),"alarm");});
 }
 function showPatientDetail(pid){
+  var epid=encodeURIComponent(pid);
   CURRENT_PID=pid;
   Promise.all([
-    api("/api/patients/"+pid),
-    api("/api/patients/"+pid+"/vitals?hours=6"),
-    api("/api/patients/"+pid+"/orders"),
-    api("/api/patients/"+pid+"/lab"),
+    api("/api/patients/"+epid),
+    api("/api/patients/"+epid+"/vitals?hours=6"),
+    api("/api/patients/"+epid+"/orders"),
+    api("/api/patients/"+epid+"/lab"),
     api("/api/patients/"+pid+"/devices"),
   ]).then(function(rs){
     var p=rs[0], vit=rs[1].points||[], ord=rs[2].orders||[], lab=rs[3].results||[], devs=rs[4].devices||[];
