@@ -9,7 +9,7 @@
 # ============================================================
 services:
   mosquitto:
-    image: docker.m.daocloud.io/library/eclipse-mosquitto:2
+    image: eclipse-mosquitto:2
     container_name: envmon-broker
     restart: unless-stopped
     user: root
@@ -33,7 +33,7 @@ services:
   # 文本不出内网，合成后返回 16kHz mono WAV
   # 语音模型默认 zh_CN-huayan-medium（中文），首次启动自动从 HuggingFace 下载
   piper:
-    image: docker.m.daocloud.io/linuxserver/piper:2.4.2
+    image: linuxserver/piper:2.4.2
     container_name: envmon-tts
     restart: unless-stopped
     environment:
