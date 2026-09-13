@@ -21,22 +21,14 @@ services:
     environment:
       - MQTT_USER=${MQTT_USER:-envmon}
       - MQTT_PASS=${MQTT_PASS:-envmon}
-    # 首次启动自动生成 passwd 文件；后续重启复用已有文件
-    entrypoint: ["/bin/sh", "-c"]
-    command: |
-      if [ ! -f /mosquitto/config/passwd ] || ! grep -q "^$${MQTT_USER}:" /mosquitto/config/passwd 2>/dev/null; then
-        echo "[init] Generating mosquitto passwd for $${MQTT_USER}...";
-        mosquitto_passwd -b /mosquitto/config/passwd "$${MQTT_USER}" "$${MQTT_PASS}";
-      else
-        echo "[init] passwd file exists, skipping generation.";
-      fi
-      exec mosquitto -c /mosquitto/config/mosquitto.conf
+    # 启动脚本挂载在 /mosquitto/config/start.sh，避免 YAML 引号问题
+    entrypoint: ["/bin/sh", "/mosquitto/config/start.sh"]
     healthcheck:
-      test: ["CMD-SHELL", "timeout 3 mosquitto_sub -h localhost -p 1883 -u $$MQTT_USER -P $$MQTT_PASS -t '$$SYS/#' -C 1 -W 2 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -u $$MQTT_USER -P $$MQTT_PASS -t '$$SYS/#' -C 1 -W 5 || exit 1"]
+      interval: 10s
+      timeout: 8s
+      retries: 6
+      start_period: 15s
 
   # Piper 本地神经 TTS 服务器（Wyoming 协议）
   # 文本不出内网，合成后返回 16kHz mono WAV
