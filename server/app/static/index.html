@@ -366,6 +366,26 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 TEMP</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
   <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 GLU</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
 </div>
+<!-- 体征趋势曲线图 -->
+<div class="m-panel" id="mTrendPanel" style="margin-top:8px">
+  <h4>📈 体征趋势 / 用药时间线
+    <span style="font-size:10px;color:var(--dim);font-weight:400" id="mTrendRange">最近24h</span>
+    <div style="margin-left:auto;display:flex;gap:4px">
+      <button class="secondary small" data-th="1" onclick="setTrendHours(1)">1H</button>
+      <button class="secondary small" data-th="6" onclick="setTrendHours(6)">6H</button>
+      <button class="secondary small active" data-th="24" onclick="setTrendHours(24)">24H</button>
+    </div>
+  </h4>
+  <canvas id="mTrendChart" style="width:100%;height:200px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:4px"></canvas>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--sub)">
+    <span><span style="display:inline-block;width:10px;height:2px;background:#21d07a;vertical-align:middle"></span> HR</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#3fb6ff;vertical-align:middle"></span> SpO2</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#ffd24a;vertical-align:middle"></span> RR</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#ff6b9d;vertical-align:middle"></span> TEMP</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#b48cff;vertical-align:middle"></span> GLU</span>
+    <span><span style="display:inline-block;width:6px;height:6px;background:#ff5470;border-radius:50%;vertical-align:middle"></span> 用药</span>
+  </div>
+</div>
 <div class="m-bottom">
   <div class="m-panel">
     <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新医嘱</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">📜 历史</button></h4>
@@ -1498,7 +1518,7 @@ function triggerBackup(){
 }
 
 // ==================== 实时监护 (Monitor) ====================
-var MONITOR_PID=null, MONITOR_VITALS={}, MONITOR_REFRESH_TIMER=null;
+var MONITOR_PID=null, MONITOR_VITALS={}, MONITOR_ORDERS=[], MONITOR_REFRESH_TIMER=null;
 function loadPatientsForMonitor(){
   api("/api/patients").then(function(d){
     var ps=d.patients||[];
@@ -1515,7 +1535,7 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
   MONITOR_PID=pid;
   $("mTime").textContent="患者 "+pid;
   // 加载患者体征
-  return api("/api/patients/"+pid+"/vitals?hours=6").then(function(d){
+  return api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
     // 后端 patient_vitals 按 ts ASC（升序）返回：points[0] 是最旧、末尾是最新。
     // 因此"最新一条"必须取末尾下标，不能改成 [0]（否则会取到最旧值）。
     MONITOR_VITALS=d.points||[];
@@ -1549,7 +1569,7 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
       trendEl.style.color=(ar==="↗"?"#ffa300":(ar==="↘"?"#4fc3f7":"var(--sub)"));
       paintSpark(c.querySelector(".m-spark"),vals);
     });
-    loadOrders();loadIo();loadLabs();
+    loadOrders();loadIo();loadLabs();drawMonitorTrend();
     // 加载关联设备的实时环境数据(ESP8266/ESP32 telemetry)
     api("/api/patients/"+pid+"/devices").then(function(dd){
       var devs=dd.devices||[];
@@ -1559,7 +1579,7 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
         if(mBody){
           envEl=document.createElement("div");
           envEl.id="mEnvData";
-          envEl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding:8px;background:var(--card-bg);border-radius:6px;font-size:12px";
+          envEl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;font-size:12px";
           mBody.appendChild(envEl);
         }
       }
@@ -1573,7 +1593,7 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
             loaded++;
             var chip=document.createElement("span");
             chip.className="env-chip";
-            chip.style.cssText="display:inline-flex;gap:4px;align-items:center;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px";
+            chip.style.cssText="display:inline-flex;gap:4px;align-items:center;padding:4px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:4px";
             chip.innerHTML='<b>'+esc(dv.device_id)+'</b> '
               +'<span>🌡'+fmt(L.temp_c)+'℃</span>'
               +'<span>💧'+fmt(L.hum_pct)+'%</span>'
@@ -1618,6 +1638,114 @@ function paintSpark(c,vals){
     if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
   });
   ctx.strokeStyle="#8ab4f8";ctx.lineWidth=1.5;ctx.stroke();
+}
+
+var MONITOR_TREND_HOURS = 24;
+function setTrendHours(h){
+  MONITOR_TREND_HOURS = h;
+  document.querySelectorAll('#mTrendPanel [data-th]').forEach(function(b){
+    b.classList.toggle('active', parseInt(b.dataset.th)===h);
+  });
+  document.getElementById('mTrendRange').textContent = '最近'+h+'h';
+  drawMonitorTrend();
+}
+function drawMonitorTrend(){
+  var canvas = document.getElementById('mTrendChart');
+  if(!canvas) return;
+  var pts = MONITOR_VITALS || [];
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width = canvas.clientWidth * 2;
+  var H = canvas.height = canvas.clientHeight * 2;
+  ctx.scale(2, 2);
+  var w = W/2, h = H/2;
+  ctx.clearRect(0, 0, w, h);
+  if(!pts.length){
+    ctx.fillStyle = '#6f7ba0';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无体征数据', w/2, h/2);
+    return;
+  }
+  // Time range
+  var tMin = new Date(pts[0].ts).getTime();
+  var tMax = new Date(pts[pts.length-1].ts).getTime();
+  if(tMax === tMin) tMax = tMin + 60000;
+  var padL = 44, padR = 12, padT = 10, padB = 20;
+  var pw = w - padL - padR, ph = h - padT - padB;
+  // Grid lines
+  ctx.strokeStyle = '#1a2a44';
+  ctx.lineWidth = 0.5;
+  for(var i = 0; i <= 4; i++){
+    var y = padT + (ph/4)*i;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w-padR, y); ctx.stroke();
+  }
+  // Draw curves for each vital
+  var series = [
+    {key:'ecg_hr', color:'#21d07a', label:'HR', range:[40,140]},
+    {key:'sp_o2', color:'#3fb6ff', label:'SpO2', range:[85,100]},
+    {key:'rr_bpm', color:'#ffd24a', label:'RR', range:[8,30]},
+    {key:'temp_c', color:'#ff6b9d', label:'TEMP', range:[35,39]},
+    {key:'glucose', color:'#b48cff', label:'GLU', range:[3,10]}
+  ];
+  series.forEach(function(s){
+    var vals = pts.map(function(p){return p[s.key];}).filter(function(v){return v!=null && !isNaN(v);});
+    if(!vals.length) return;
+    var lo = s.range[0], hi = s.range[1];
+    // Auto-scale if data outside range
+    var dMin = Math.min.apply(null, vals), dMax = Math.max.apply(null, vals);
+    if(dMin < lo) lo = dMin - 1;
+    if(dMax > hi) hi = dMax + 1;
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    var started = false;
+    pts.forEach(function(p){
+      if(p[s.key] == null || isNaN(p[s.key])) return;
+      var t = new Date(p.ts).getTime();
+      var x = padL + ((t - tMin) / (tMax - tMin)) * pw;
+      var y = padT + ph - ((p[s.key] - lo) / (hi - lo)) * ph;
+      if(!started){ ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+    });
+    ctx.stroke();
+    // Label
+    ctx.fillStyle = s.color;
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(s.label, padL - 4, padT + 8 + series.indexOf(s) * 12);
+  });
+  // Draw medication markers
+  var orders = MONITOR_ORDERS || [];
+  orders.forEach(function(o){
+    if(!o.start_ts) return;
+    var t = new Date(o.start_ts).getTime();
+    if(t < tMin || t > tMax) return;
+    var x = padL + ((t - tMin) / (tMax - tMin)) * pw;
+    ctx.strokeStyle = '#ff5470';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + ph); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#ff5470';
+    ctx.beginPath(); ctx.arc(x, padT, 3, 0, 2*Math.PI); ctx.fill();
+    // Drug name label (rotated)
+    if(o.drug_name){
+      ctx.save();
+      ctx.translate(x, padT + ph);
+      ctx.rotate(-Math.PI/4);
+      ctx.fillStyle = '#ff5470';
+      ctx.font = '8px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(o.drug_name.substring(0, 8), 0, 4);
+      ctx.restore();
+    }
+  });
+  // Time axis labels
+  ctx.fillStyle = '#6f7ba0';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(new Date(tMin).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), padL, h - 4);
+  ctx.textAlign = 'right';
+  ctx.fillText(new Date(tMax).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), w - padR, h - 4);
 }
 
 function showAddOrder(){
@@ -1695,7 +1823,9 @@ function loadOrders(ev){_refreshBtn(ev,function(){
   api("/api/patients/"+pid+"/orders").then(function(d){
     // 后端按 start_ts DESC 返回全部医嘱（含已停），据此分出运行中与历史两段。
     var all=d.orders||[];
+    MONITOR_ORDERS=all;
     var ord=all.filter(function(o){return o.status==="active";}).slice(0,10);
+    drawMonitorTrend();
     if(!ord.length){$("mOrders").innerHTML='<div class="empty" style="font-size:12px">无运行中医嘱</div>';}
     else{
       $("mOrders").innerHTML=ord.map(function(o){
