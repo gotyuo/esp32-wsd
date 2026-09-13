@@ -104,6 +104,9 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .devcard .latest span{color:var(--sub)} .devcard .latest b{color:var(--txt);font-weight:600}
 .devcard .actions{margin-top:10px;display:flex;gap:5px;flex-wrap:wrap}
 .devcard .name{font-size:11px;color:var(--sub);margin-left:6px;font-weight:400}
+.devcard .meta-inline{display:flex;gap:14px;font-size:10px;color:var(--sub);font-family:Consolas,monospace;flex-wrap:wrap;margin-bottom:6px}
+.devcard .dev-patient{font-size:11px;padding:4px 0;border-top:1px dashed var(--line);margin-top:6px}
+.devcard .dev-patient:empty{display:none}
 /* 设备卡片头部：左侧设备 ID/名称，右侧状态徽标 + 单台刷新按钮（按钮用 margin-left:auto 靠右） */
 .devcard .head .id{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .devcard .head .refresh{display:inline-flex;align-items:center;gap:4px;margin-left:auto}
@@ -414,15 +417,15 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <h2>🖥 设备管理 / DEVICE MANAGEMENT
         <div class="actions" style="margin-top:0">
           <button onclick="showAddDevice()">+ 注册设备</button>
-          <button class="small" id="devProbeBtn" onclick="probeDevices(event)" title="向所有设备发 MQTT 心跳探测，实时判断在线/离线">🔍 刷新状态</button>
-          <button class="secondary small" onclick="loadDevices(null,event)">📋 刷新列表</button>
+          <button class="small" id="devProbeBtn" onclick="probeDevices(event)" title="主动扫描所有设备在线状态">🔄 刷新</button>
           <span class="hint" id="devCount">0 台</span>
         </div>
       </h2>
-      <div class="sub" style="margin-top:6px;display:flex;gap:6px;margin-bottom:12px">
-        <span class="chip active" data-dtab="all" onclick="switchDeviceTab('all')">📋 全部设备</span>
-        <span class="chip" data-dtab="lan" onclick="switchDeviceTab('lan')">🏠 局域网设备</span>
-        <span class="chip" data-dtab="wan" onclick="switchDeviceTab('wan')">🌐 外网设备</span>
+      <div class="sub" style="margin-top:6px;display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <span class="chip active" data-dtab="all" onclick="switchDeviceTab('all')">📋 全部</span>
+        <span class="chip" data-dtab="lan" onclick="switchDeviceTab('lan')">🏠 局域网</span>
+        <span class="chip" data-dtab="wan" onclick="switchDeviceTab('wan')">🌐 外网</span>
+        <input id="devSearch" type="text" placeholder="🔍 搜索设备ID/名称…" style="margin-left:auto;padding:5px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;width:200px" oninput="filterDevices()">
       </div>
       <div class="hint" id="devGroupHint" style="margin-bottom:12px;font-size:11px"></div>
       <div id="devOnline" class="devgroup dg-online"></div>
@@ -844,22 +847,25 @@ function addUser(){var body={username:$("uName").value.trim(),display_name:$("uD
 function delUser(id){if(!confirm("确定删除该用户？"))return;api("/api/users/"+id,{method:"DELETE"}).then(function(){toast("用户已删除");showUsers();}).catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});}
 
 function _devCard(x,onlineFlag){
-  // onlineFlag: true=在线徽标, false=离线徽标, null=不显示徽标
   var nameRow=x.name?'<span class="name">'+esc(x.name)+'</span>':'';
   var icon=(onlineFlag==null?'':onlineFlag?'<span class="ok">● 在线</span>':'<span class="bad">○ 离线</span>');
   var latest=x.latest||null;
-  var vals=(latest?'<span>SP.T '+fmt(latest.temp_c)+'℃</span><span>HUM '+fmt(latest.hum_pct)+'%</span><span>PRESS '+fmt(latest.pres_hpa,1)+'hPa</span><span>SIG '+(latest.rssi==null?"--":latest.rssi)+'dBm</span>':'<span class="empty" style="text-align:left">无历史数据</span>');
+  var vals=(latest?'<span>🌡 '+fmt(latest.temp_c)+'℃</span><span>💧 '+fmt(latest.hum_pct)+'%</span><span>🧭 '+fmt(latest.pres_hpa,0)+'hPa</span><span>📶 '+(latest.rssi==null?"--":latest.rssi)+'dBm</span>':'<span class="empty" style="text-align:left">无历史数据</span>');
   var alarmState=(latest&&latest.alarm_level>=2?"alarm":latest&&latest.alarm_level==1?"warn":"");
-  // 状态徽标放在 id 之后（随内容流），单独刷新按钮靠右：
-  // 「刷新」只重新判定这一台的在线状态，不动其它设备，也不重排在线/离线分组。
   var did=esc(x.id);
-  return "<div class='devcard "+alarmState+"' id='devcard-"+did+"'><div class='head'><span class='id'>"+did+nameRow+"</span><span id='devst-"+did+"'>"+icon+"</span><span class='refresh'><button class='secondary small' title='只刷新这一台设备的在线状态' onclick='refreshOneDevice(\""+did+"\",event)'>⟳ 刷新</button></span></div>"+
-    "<div class='meta'><div class='k'>固件</div><div class='v'>"+esc(x.fw_version||"-")+"</div>"+
-    "<div class='k'>IP</div><div class='v'>"+esc(x.ip_addr||"-")+"</div>"+
-    "<div class='k'>首次上线</div><div class='v'>"+fmtTime(x.first_seen)+"</div>"+
-    "<div class='k'>最后上报</div><div class='v' id='devseen-"+did+"'>"+fmtTime(x.last_seen)+"</div></div>"+
+  var metaInline='<span title="固件版本">🔧 '+esc(x.fw_version||"-")+'</span><span title="IP地址">📍 '+esc(x.ip_addr||"-")+'</span><span title="最后上报" id="devseen-'+did+'">⏱ '+fmtTime(x.last_seen)+'</span>';
+  return "<div class='devcard "+alarmState+"' id='devcard-"+did+"'>"+
+    "<div class='head' style='cursor:pointer' onclick='viewDevice(\""+did+"\")'><span class='id'>"+did+nameRow+"</span><span id='devst-"+did+"'>"+icon+"</span></div>"+
+    "<div class='meta-inline'>"+metaInline+"</div>"+
     "<div class='latest'>"+vals+"</div>"+
-    "<div class='actions'><button class='secondary small' onclick='viewDevice(\""+did+"\")'>详情</button><button class='secondary small' onclick='editName(\""+did+"\")'>编辑</button><button class='success small' onclick='showDeviceConfig(\""+did+"\")'>配置</button><button class='success small' onclick='saveDeviceInfo(\""+did+"\")'>保存</button><button class='danger small' onclick='delDev(\""+did+"\")'>删除</button></div></div>";
+    "<div class='dev-patient' id='devpt-"+did+"'></div>"+
+    "<div class='actions'>"+
+    "<button class='secondary small' onclick='event.stopPropagation();refreshOneDevice(\""+did+"\",event)' title='刷新此设备'>⟳</button>"+
+    "<button class='secondary small' onclick='event.stopPropagation();editName(\""+did+"\")' title='编辑名称/IP'>✏ 编辑</button>"+
+    "<button class='success small' onclick='event.stopPropagation();showDeviceConfig(\""+did+"\")' title='配置阈值'>⚙ 配置</button>"+
+    "<button class='secondary small' onclick='event.stopPropagation();showBindPatient(\""+did+"\")' title='绑定患者'>🔗 绑定</button>"+
+    "<button class='danger small' onclick='event.stopPropagation();delDev(\""+did+"\")' title='删除设备'>🗑</button>"+
+    "</div></div>";
 }
 function saveDeviceInfo(id){
   var cur=DEVICES.find(function(x){return x.id===id});
@@ -867,6 +873,42 @@ function saveDeviceInfo(id){
   api("/api/devices/"+encodeURIComponent(id),{method:"PATCH",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({name:cur.name||null,ip_addr:cur.ip_addr||null})})
   .then(function(){toast("设备已保存 "+id);}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
+}
+function loadDevicePatients(){
+  if(!DEVICES||!DEVICES.length) return;
+  DEVICES.forEach(function(x){
+    api("/api/devices/"+encodeURIComponent(x.id)+"/active-patient").then(function(d){
+      var el=$("devpt-"+esc(x.id));
+      if(!el) return;
+      if(d&&d.patient_pid){
+        el.innerHTML='<span style="color:var(--blue)">👤 '+esc(d.patient_name||d.patient_pid)+(d.bed_no?' · 床 '+esc(d.bed_no):'')+'</span>';
+      }else{
+        el.innerHTML='<span style="color:var(--dim)">未绑定患者</span>';
+      }
+    }).catch(function(){});
+  });
+}
+function showBindPatient(id){showBindDevice(id);}
+function showBindDevice(deviceId){
+  api("/api/patients/summary").then(function(d){
+    var ps=d.patients||[];
+    var opts=ps.map(function(p){return '<option value="'+esc(p.pid)+'">'+esc(p.name||p.pid)+(p.bed_no?' · 床'+esc(p.bed_no):'')+'</option>';}).join('');
+    $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>🔗 绑定患者 · 设备 "+esc(deviceId)+"</h2>"+
+      "<div class='kv'><label>选择患者</label><select id='bindPid' style='width:100%'><option value=''>-- 解绑 --</option>"+opts+"</select></div>"+
+      "<div style='font-size:11px;color:var(--dim);margin-top:8px'>选择患者后点保存，设备将绑定到该患者。</div>"+
+      "<div class='actions'><button onclick='doBindDevice(\""+esc(deviceId)+"\")'>保存绑定</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+    $("modalBox").classList.remove("hidden");
+    api("/api/devices/"+encodeURIComponent(deviceId)+"/active-patient").then(function(ap){
+      if(ap&&ap.patient_pid){var s=$("bindPid");if(s)s.value=ap.patient_pid;}
+    }).catch(function(){});
+  }).catch(function(e){toast("加载患者列表失败: "+(e&&e.message||""),"alarm");});
+}
+function doBindDevice(deviceId){
+  var pid=$("bindPid").value;
+  if(!pid){toast("请选择患者","alarm");return;}
+  api("/api/patients/"+encodeURIComponent(pid)+"/link/"+encodeURIComponent(deviceId),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({role:"primary"})})
+  .then(function(){toast("已绑定 "+deviceId+" → "+pid);closeModal();loadDevices();})
+  .catch(function(e){toast("绑定失败: "+(e&&e.message||""),"alarm");});
 }
 // 单台设备刷新：只判定这一台的在线状态并回写徽标，不重排分组。
 // 用独立的 loading 标记（而非 _refreshBtn），因为这里要自己重绘徽标与「最后上报」，
@@ -942,12 +984,17 @@ function probeDevices(ev){
     $("devCount").textContent=DEVICES.length+" 台 · 在线 "+(d.online_count||0)+"/离线 "+(d.offline_count||0);
     var t=new Date().toLocaleTimeString();
     $("devGroupHint").textContent="主动扫描于 "+t+" 完成（耗时 "+(d.elapsed_s||0)+"s）· 共 "+(d.probed||0)+" 台 · MQTT "+(d.mqtt_connected?"已连接":"未连接");
-    loadReal();
+    loadReal();loadDevicePatients();
   }).catch(function(e){
     toast("扫描失败: "+(e&&e.message||""),"alarm");
   }).finally(function(){
     if(b){b.disabled=false;b.textContent=_o;}
   });
+}
+var DEV_TAB='all',DEV_SEARCH='';
+function filterDevices(){
+  DEV_SEARCH=(document.getElementById('devSearch').value||'').toLowerCase().trim();
+  if(typeof DEVICES!=='undefined') renderDeviceGroupsByTab(DEVICES);
 }
 var DEV_TAB='all';
 function _isLanIp(ip){
@@ -968,8 +1015,14 @@ function switchDeviceTab(tab){
 }
 function renderDeviceGroupsByTab(devs){
   var filtered=devs;
-  if(DEV_TAB==='lan') filtered=devs.filter(function(x){return _isLanIp(x.ip_addr);});
-  else if(DEV_TAB==='wan') filtered=devs.filter(function(x){return !_isLanIp(x.ip_addr);});
+  if(DEV_TAB==='lan') filtered=filtered.filter(function(x){return _isLanIp(x.ip_addr);});
+  else if(DEV_TAB==='wan') filtered=filtered.filter(function(x){return !_isLanIp(x.ip_addr);});
+  if(DEV_SEARCH){
+    filtered=filtered.filter(function(x){
+      return (x.id||'').toLowerCase().indexOf(DEV_SEARCH)>=0 ||
+             (x.name||'').toLowerCase().indexOf(DEV_SEARCH)>=0;
+    });
+  }
   renderDeviceGroups(filtered,false);
   var lanCnt=devs.filter(function(x){return _isLanIp(x.ip_addr);}).length;
   var wanCnt=devs.length-lanCnt;
@@ -980,7 +1033,7 @@ function loadDevices(pick,ev){_refreshBtn(ev,function(){return api("/api/devices
   renderDeviceGroupsByTab(devs);
   $("devCount").textContent=devs.length+" 台 · 在线 "+devs.filter(function(x){return x.online;}).length+" 台";
   $("devGroupHint").textContent="按设备 MQTT 连接状态(LWT 遗嘱)分组 · 标记可能滞后，点「🔍 刷新状态」主动扫描获取真实在线状态";
-  loadReal();loadHistory();loadTh();loadAlarms();loadDashboardGrid();return devs;}).catch(function(){return[];});});}
+  loadReal();loadHistory();loadTh();loadAlarms();loadDashboardGrid();loadDevicePatients();return devs;}).catch(function(){return[];});});}
 // 重建设备下拉框并选定当前/首台设备。pick=true 强制取第一台。
 function _syncDevSel(devs,pick){
   var sel=$("devSel");if(!sel)return;
@@ -1057,9 +1110,13 @@ function saveTh(ev){ev.preventDefault();var body={device_id:$("fDev").value||"*"
 
 
 // ====== 设备操作 ======
-function showAddDevice(){$("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>REGISTER DEVICE</h2>"+
-  "<div class='kv'><label>设备 ID</label><input id='dId' placeholder='envmon-bed-001' pattern='[A-Za-z0-9_-]{1,32}'><label>名称(可选)</label><input id='dName' placeholder='如 ICU-3床'></div>"+
-  "<div style='font-size:11px;color:var(--dim);margin-top:8px'>设备 ID 用于 MQTT 主题 envmon/{ID}/telemetry，请在终端配置页填写一致。</div>"+
+function showAddDevice(){$("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>+ 注册新设备</h2>"+
+  "<div class='kv'><label>设备 ID</label><input id='dId' placeholder='envmon-bed-001' pattern='[A-Za-z0-9_-]{1,32}' style='font-family:Consolas,monospace'><label>名称(可选)</label><input id='dName' placeholder='如 ICU-3床'></div>"+
+  "<div style='margin-top:10px;padding:10px;background:var(--panel2);border-radius:5px;font-size:11px;color:var(--sub);line-height:1.7'>"+
+  "📋 MQTT 主题: <code style='color:var(--blue)'>envmon/{设备ID}/telemetry</code><br>"+
+  "🔧 设备 ID 仅允许字母、数字、下划线、连字符（1-32字符）<br>"+
+  "💡 示例: <code>envmon-bed-001</code>, <code>icu-monitor-3</code>, <code>ward2-01</code>"+
+  "</div>"+
   "<div class='actions'><button onclick='doAddDevice()'>注册</button><button class='secondary' onclick='closeModal()'>取消</button></div>";$("modalBox").classList.remove("hidden");}
 function doAddDevice(){var id=$("dId").value.trim(),name=$("dName").value.trim();if(!id){alert("请输入设备 ID");return;}if(!/^[A-Za-z0-9_-]{1,32}$/.test(id)){alert("设备 ID 仅允许字母数字下划线和连字符，1-32 字符");return;}if(name&&/<|>/.test(name)){alert("设备名称不能包含 < >");return;}api("/api/devices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({device_id:id,name:name})}).then(function(d){toast(d.created?"已注册设备 "+id:"设备已存在（name 已更新）");closeModal();loadDevices();}).catch(function(){});}
 function editName(id){var cur=DEVICES.find(function(x){return x.id===id});var old=(cur&&cur.name)||"",oldIp=(cur&&cur.ip_addr)||"";
