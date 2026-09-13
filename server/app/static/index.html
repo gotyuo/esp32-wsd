@@ -187,6 +187,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab" data-view="remind" onclick="switchView('remind')">💬 发提醒</span>
       <span class="vtab" data-view="wechat" onclick="switchView('wechat')">🏥 企微配置</span>
       <span class="vtab" data-view="ai" onclick="switchView('ai')">🧠 AI 模型</span>
+      <span class="vtab" data-view="datasource" onclick="switchView('datasource')">🔌 数据源</span>
     </div>
   </div>
   <div class="left">
@@ -712,6 +713,23 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
   </div>
 </div>
 
+  <!-- ============= 数据源配置 ============= -->
+  <div id="view-datasource" class="hidden">
+    <div class="section">
+      <h2>🔌 数据源配置 / DATA SOURCES
+        <div class="actions" style="margin-top:0">
+          <button class="btn" onclick="saveDsSettings()">💾 保存全部</button>
+          <span id="ds-save-msg" style="margin-left:12px;color:var(--green);font-size:12px"></span>
+        </div>
+      </h2>
+      <p style="color:var(--sub);font-size:12px;margin:6px 0 14px">
+        配置外部系统数据源，实现用药/出入量/检验/检查/患者/医生数据的自动同步与交互。
+        支持 HL7 v2、HTTP REST API、数据库、WebSocket 四种接入方式。
+      </p>
+      <div id="dsCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px"></div>
+    </div>
+  </div>
+
 <div id="modalBox" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:400">
   <div style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px;width:520px;max-width:92vw;max-height:88vh;overflow-y:auto" id="modalInner"></div>
 </div>
@@ -773,8 +791,8 @@ function _refreshBtn(ev,fn){
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}}
+  ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai","datasource"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -2774,6 +2792,97 @@ function showAiAnalysis(id){
     );
   });
 }
+// ============== 数据源配置 ==============
+var DS_TYPES=[
+  {name:"medication",label:"用药",icon:"💊",desc:"同步医嘱/用药记录，支持药品名/剂量/频次/起止时间"},
+  {name:"io_balance",label:"出入量",icon:"🚰",desc:"同步出入量记录(输液/尿量/引流量等)，自动计算24h平衡"},
+  {name:"lab",label:"检验/血气",icon:"🧪",desc:"同步检验结果和血气分析，支持多项指标和参考范围"},
+  {name:"exam",label:"检查",icon:"📋",desc:"同步检查报告(影像/心电图等)，支持报告链接和结论"},
+  {name:"patient",label:"患者",icon:"🏥",desc:"同步患者基本信息(姓名/性别/年龄/床号/诊断等)"},
+  {name:"doctor",label:"医生",icon:"👨‍⚕️",desc:"同步医生信息(姓名/科室/职称/联系方式等)"}
+];
+var DS_CONN_TYPES=[
+  {v:"hl7",label:"HL7 v2"},
+  {v:"rest",label:"HTTP REST API"},
+  {v:"db",label:"数据库直连"},
+  {v:"ws",label:"WebSocket"}
+];
+var DS_AUTH_TYPES=[
+  {v:"none",label:"无认证"},
+  {v:"bearer",label:"Bearer Token"},
+  {v:"basic",label:"Basic Auth"},
+  {v:"apikey",label:"API Key (Header)"}
+];
+var DS_INTERVALS=[
+  {v:"manual",label:"手动同步"},
+  {v:"hourly",label:"每小时"},
+  {v:"daily",label:"每天"},
+  {v:"realtime",label:"实时"}
+];
+function loadDsSettings(){
+  api("/api/datasources").then(function(d){
+    var list=(d&&d.datasources)||[];
+    var html=list.map(function(ds){
+      var meta=DS_TYPES.find(function(t){return t.name===ds.name;})||{icon:"📋",desc:""};
+      var en=ds.enabled===true||ds.enabled==="true"||ds.enabled==="1";
+      var typeOpts=DS_CONN_TYPES.map(function(t){return '<option value="'+t.v+'"'+(ds.type===t.v?' selected':'')+'>'+t.label+'</option>';}).join('');
+      var authOpts=DS_AUTH_TYPES.map(function(t){return '<option value="'+t.v+'"'+(ds.auth_type===t.v?' selected':'')+'>'+t.label+'</option>';}).join('');
+      var ivOpts=DS_INTERVALS.map(function(t){return '<option value="'+t.v+'"'+(ds.sync_interval===t.v?' selected':'')+'>'+t.label+'</option>';}).join('');
+      return '<div class="devcard" style="padding:16px">'+
+        '<div class="head"><span class="id">'+meta.icon+' '+meta.label+'</span>'+
+        '<label class="switchrow" style="font-size:11px"><input type="checkbox" id="ds-en-'+ds.name+'" '+(en?'checked':'')+'><span>启用</span></label></div>'+
+        '<div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.5">'+meta.desc+'</div>'+
+        '<div class="sg"><label>连接类型</label><select id="ds-type-'+ds.name+'" style="width:100%">'+typeOpts+'</select></div>'+
+        '<div class="sg"><label>URL / 连接串</label><input id="ds-url-'+ds.name+'" value="'+esc(ds.url||'')+'" placeholder="http://his.hospital/api/medications" style="width:100%;font-family:Consolas,monospace;font-size:11px"></div>'+
+        '<div class="grid2">'+
+        '<div class="sg"><label>认证方式</label><select id="ds-auth-'+ds.name+'" style="width:100%">'+authOpts+'</select></div>'+
+        '<div class="sg"><label>同步间隔</label><select id="ds-iv-'+ds.name+'" style="width:100%">'+ivOpts+'</select></div>'+
+        '</div>'+
+        '<div class="sg"><label>认证密钥 / Token</label><input id="ds-key-'+ds.name+'" value="'+esc(ds.auth_key||'')+'" type="password" placeholder="留空=无认证" style="width:100%"></div>'+
+        '<div class="sg"><label>额外参数 (JSON)</label><input id="ds-extra-'+ds.name+'" value="'+esc(ds.extra||'')+'" placeholder=\'{"key":"value"}\' style="width:100%;font-family:Consolas,monospace;font-size:11px"></div>'+
+        '<div class="actions">'+
+        '<button class="secondary small" onclick="testDsConnection(\''+ds.name+'\')">🔌 测试连接</button>'+
+        '<span id="ds-test-'+ds.name+'" style="font-size:11px;margin-left:8px"></span>'+
+        '</div></div>';
+    }).join('');
+    $("dsCards").innerHTML=html;
+  }).catch(function(e){toast("加载数据源配置失败: "+(e&&e.message||""),"alarm");});
+}
+function saveDsSettings(){
+  var body={};
+  DS_TYPES.forEach(function(t){
+    var n=t.name;
+    body["datasource."+n+".enabled"]=$("ds-en-"+n).checked?"true":"false";
+    body["datasource."+n+".type"]=$("ds-type-"+n).value;
+    body["datasource."+n+".url"]=$("ds-url-"+n).value||"";
+    body["datasource."+n+".auth_type"]=$("ds-auth-"+n).value;
+    body["datasource."+n+".auth_key"]=$("ds-key-"+n).value||"";
+    body["datasource."+n+".sync_interval"]=$("ds-iv-"+n).value;
+    body["datasource."+n+".extra"]=$("ds-extra-"+n).value||"";
+  });
+  api("/api/datasources",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+  .then(function(r){
+    if(r&&r.ok){
+      var msg=$("ds-save-msg");msg.textContent="✅ 已保存 "+new Date().toLocaleTimeString();
+      setTimeout(function(){msg.textContent="";},3000);
+      toast("数据源配置已保存");
+    }else{toast("保存失败","alarm");}
+  }).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
+}
+function testDsConnection(name){
+  var el=$("ds-test-"+name);
+  if(el)el.textContent="⏳ 测试中…";
+  api("/api/datasources/"+name+"/test",{method:"POST"})
+  .then(function(r){
+    if(el){
+      if(r&&r.ok){el.innerHTML='<span style="color:var(--green)">✅ '+(r.msg||"连接成功")+'</span>';}
+      else{el.innerHTML='<span style="color:var(--red)">❌ '+(r&&r.error||"连接失败")+'</span>';}
+    }
+  }).catch(function(e){
+    if(el)el.innerHTML='<span style="color:var(--red)">❌ '+(e&&e.message||e)+'</span>';
+  });
+}
+
 // 注册 view-ai 的 chip 点击（在 #view-ai 的 chip 上）
 document.addEventListener('click', function(e){
   if(e.target.classList.contains('chip') && e.target.dataset.chip){

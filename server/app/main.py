@@ -2485,6 +2485,71 @@ async def tts_dispatch(device_id: str, body: dict):
         "text": text,
     }
 
+# ================================================================ 数据源配置
+# 支持6类外部数据源: medication(用药) io_balance(出入量) lab(检验/血气)
+# exam(检查) patient(患者) doctor(医生)
+# 每类可配置: enabled, type(hl7/rest/db/ws), url, auth_type, auth_key,
+#             sync_interval(manual/hourly/daily/realtime), extra(自定义参数)
+_DS_TYPES = ["medication", "io_balance", "lab", "exam", "patient", "doctor"]
+_DS_LABELS = {
+    "medication": "用药", "io_balance": "出入量", "lab": "检验/血气",
+    "exam": "检查", "patient": "患者", "doctor": "医生",
+}
+_DS_FIELDS = ["enabled", "type", "url", "auth_type", "auth_key",
+              "sync_interval", "extra"]
+
+
+@app.get("/api/datasources", dependencies=[Depends(require_user)])
+def list_datasources():
+    """列出所有数据源配置。"""
+    raw = icu.list_settings_raw()
+    result = []
+    for name in _DS_TYPES:
+        ds = {"name": name, "label": _DS_LABELS[name]}
+        for f in _DS_FIELDS:
+            key = f"datasource.{name}.{f}"
+            ds[f] = raw.get(key, "")
+        ds["enabled"] = ds["enabled"] == "true" or ds["enabled"] == "1"
+        result.append(ds)
+    return {"datasources": result}
+
+
+@app.post("/api/datasources", dependencies=[Depends(require_admin)])
+def save_datasources(body: Dict[str, Any]):
+    """批量保存数据源配置。body: { "datasource.medication.enabled": "true", ... }"""
+    for k, v in (body or {}).items():
+        if k and k.startswith("datasource."):
+            icu.set_setting(str(k), str(v) if v is not None else "")
+    return {"ok": True}
+
+
+@app.post("/api/datasources/{name}/test", dependencies=[Depends(require_admin)])
+def test_datasource(name: str):
+    """测试数据源连接。仅做 URL 可达性检查。"""
+    if name not in _DS_TYPES:
+        raise HTTPException(404, "未知数据源类型")
+    raw = icu.list_settings_raw()
+    url = raw.get(f"datasource.{name}.url", "")
+    ds_type = raw.get(f"datasource.{name}.type", "")
+    if not url:
+        return {"ok": False, "error": "URL 未配置"}
+    try:
+        import urllib.request, urllib.error as ue
+        req = urllib.request.Request(url, method="HEAD")
+        req.add_header("User-Agent", "envmon-datasource-test/1.0")
+        auth_key = raw.get(f"datasource.{name}.auth_key", "")
+        if auth_key:
+            req.add_header("Authorization", f"Bearer {auth_key}")
+        resp = urllib.request.urlopen(req, timeout=10)
+        return {"ok": True, "status": resp.status, "msg": f"连接成功 (HTTP {resp.status})"}
+    except ue.HTTPError as e:
+        return {"ok": True, "status": e.code, "msg": f"可达 (HTTP {e.code})"}
+    except ue.URLError as e:
+        return {"ok": False, "error": f"连接失败: {str(e.reason)}"}
+    except Exception as e:
+        return {"ok": False, "error": f"测试异常: {str(e)}"}
+
+
 # ================================================================ P2 数据导出/时间同步/清理/AI创建
 @app.get("/api/export", dependencies=[Depends(require_user)])
 def export_data(device: Optional[str] = None, start: Optional[str] = None,
