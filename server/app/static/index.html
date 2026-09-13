@@ -894,18 +894,33 @@ function showBindDevice(deviceId){
     var ps=d.patients||[];
     var opts=ps.map(function(p){return '<option value="'+esc(p.pid)+'">'+esc(p.name||p.pid)+(p.bed_no?' · 床'+esc(p.bed_no):'')+'</option>';}).join('');
     $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>🔗 绑定患者 · 设备 "+esc(deviceId)+"</h2>"+
-      "<div class='kv'><label>选择患者</label><select id='bindPid' style='width:100%'><option value=''>-- 解绑 --</option>"+opts+"</select></div>"+
-      "<div style='font-size:11px;color:var(--dim);margin-top:8px'>选择患者后点保存，设备将绑定到该患者。</div>"+
-      "<div class='actions'><button onclick='doBindDevice(\""+esc(deviceId)+"\")'>保存绑定</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+      "<div class='kv'><label>选择患者</label><select id='bindPid' style='width:100%'><option value=''>-- 不绑定（解绑） --</option>"+opts+"</select></div>"+
+      "<div id='bindCurInfo' style='font-size:11px;color:var(--dim);margin-top:8px'></div>"+
+      "<div class='actions'><button onclick='doBindDevice(\""+esc(deviceId)+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     $("modalBox").classList.remove("hidden");
     api("/api/devices/"+encodeURIComponent(deviceId)+"/active-patient").then(function(ap){
-      if(ap&&ap.patient_pid){var s=$("bindPid");if(s)s.value=ap.patient_pid;}
+      var info=$("bindCurInfo");
+      if(ap&&ap.patient_pid){
+        var s=$("bindPid");if(s)s.value=ap.patient_pid;
+        if(info)info.innerHTML='当前绑定: <b style="color:var(--blue)">'+esc(ap.patient_name||ap.patient_pid)+(ap.bed_no?' · 床 '+esc(ap.bed_no):'')+'</b> · 选择「不绑定」可解绑';
+      }else{
+        if(info)info.innerHTML='当前未绑定患者';
+      }
     }).catch(function(){});
   }).catch(function(e){toast("加载患者列表失败: "+(e&&e.message||""),"alarm");});
 }
 function doBindDevice(deviceId){
   var pid=$("bindPid").value;
-  if(!pid){toast("请选择患者","alarm");return;}
+  if(!pid){
+    // 解绑：先查当前绑定患者，再调 unlink
+    api("/api/devices/"+encodeURIComponent(deviceId)+"/active-patient").then(function(ap){
+      if(!ap||!ap.patient_pid){toast("该设备未绑定患者");closeModal();return;}
+      api("/api/patients/"+encodeURIComponent(ap.patient_pid)+"/unlink/"+encodeURIComponent(deviceId),{method:"DELETE"})
+      .then(function(){toast("已解绑 "+deviceId);closeModal();loadDevices();})
+      .catch(function(e){toast("解绑失败: "+(e&&e.message||""),"alarm");});
+    }).catch(function(e){toast("查询失败: "+(e&&e.message||""),"alarm");});
+    return;
+  }
   api("/api/patients/"+encodeURIComponent(pid)+"/link/"+encodeURIComponent(deviceId),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({role:"primary"})})
   .then(function(){toast("已绑定 "+deviceId+" → "+pid);closeModal();loadDevices();})
   .catch(function(e){toast("绑定失败: "+(e&&e.message||""),"alarm");});

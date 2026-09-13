@@ -2883,7 +2883,15 @@ def get_monitor_session_detail(session_id: int):
 
 @app.get("/api/devices/{device_id}/active-patient", dependencies=[Depends(require_user)])
 def get_active_patient_for_device(device_id: str):
-    """查询某设备当前活跃的监护记录对应的患者（用于切换设备时同步监护页患者）。"""
+    """查询某设备当前绑定的患者。优先查 patient_devices 绑定表，
+    其次查 monitor_sessions 活跃监护记录（兼容旧逻辑）。"""
+    # 优先：patient_devices 绑定关系
+    binding = icu.device_current_binding(device_id)
+    if binding:
+        return {"device_id": device_id, "patient_pid": binding.get("pid"),
+                "patient_id": binding.get("patient_id"),
+                "patient_name": binding.get("name"), "bed_no": binding.get("bed_no")}
+    # 兼容：活跃监护记录
     sess = icu.active_session_for_device(device_id)
     if not sess:
         return {"device_id": device_id, "patient_pid": None}

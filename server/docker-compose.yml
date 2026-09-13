@@ -20,13 +20,17 @@ services:
     environment:
       - MQTT_USER=${MQTT_USER:-envmon}
       - MQTT_PASS=${MQTT_PASS:-envmon}
-    # 启动前自动生成 passwd 文件（若不存在或凭据已变更）
+    # 首次启动自动生成 passwd 文件；后续重启复用已有文件（不会重新生成）
+    # 仅当文件不存在或用户名不在文件中时才生成（如修改了 MQTT_USER/MQTT_PASS）
+    # passwd 文件通过 volume 持久化，docker restart/down 不会丢失
     entrypoint: ["/bin/sh", "-c"]
     command: >
       sh -c '
       if [ ! -f /mosquitto/config/passwd ] || ! grep -q "^$${MQTT_USER}:" /mosquitto/config/passwd 2>/dev/null; then
+        echo "[init] Generating mosquitto passwd for $${MQTT_USER}...";
         mosquitto_passwd -b /mosquitto/config/passwd "$${MQTT_USER}" "$${MQTT_PASS}";
-        echo "Generated passwd for $${MQTT_USER}";
+      else
+        echo "[init] passwd file exists, skipping generation.";
       fi;
       exec mosquitto -c /mosquitto/config/mosquitto.conf
       '
