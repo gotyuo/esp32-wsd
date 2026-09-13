@@ -689,7 +689,21 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
       <div id="ai-test" class="hidden">
         <div class="sg" style="margin-top:8px"><label>测试 prompt</label><textarea id="ai-test-prompt" rows="3">请只回复一行：OK, 模型已就绪。</textarea></div>
         <button class="btn" onclick="aiTestConnect()">🔌 发送测试</button>
-        <pre id="ai-test-result" style="margin-top:10px;white-space:pre-wrap;word-break:break-word;background:#f6f6f6;padding:10px;min-height:60px">等待测试…</pre>
+        <pre id="ai-test-result" style="margin-top:10px;white-space:pre-wrap;word-break:break-word;background:var(--panel2);color:var(--txt);border:1px solid var(--line);padding:10px;min-height:60px;border-radius:4px">等待测试…</pre>
+        <details style="margin-top:14px;color:var(--sub);font-size:12px">
+          <summary>📖 Ollama 本地模型配置说明</summary>
+          <div style="margin-top:8px;line-height:1.8">
+            <b>1.</b> 安装并启动 Ollama: <code>ollama serve</code>（默认端口 11434）<br>
+            <b>2.</b> 拉取模型: <code>ollama pull qwen2.5:7b</code><br>
+            <b>3.</b> 在「模型配置」中设置:<br>
+            &nbsp;&nbsp;• provider = <code>ollama</code><br>
+            &nbsp;&nbsp;• base_url = <code>http://localhost:11434/v1</code>（本机）或 <code>http://&lt;IP&gt;:11434/v1</code>（远程）<br>
+            &nbsp;&nbsp;• model = <code>qwen2.5:7b</code>（已拉取的模型名）<br>
+            &nbsp;&nbsp;• api_key = 留空（Ollama 不需要）<br>
+            <b>4.</b> 打开 AI 开关，保存后回到此处点「发送测试」<br>
+            <b>注意:</b> Docker 部署时 base_url 不能用 localhost，需用宿主机 IP 或 <code>host.docker.internal:11434/v1</code>
+          </div>
+        </details>
       </div>
     </div>
   </div>
@@ -2630,28 +2644,28 @@ async function saveAiSettings(){
   }catch(e){ alert('请求失败: '+e); }
 }
 async function aiTestConnect(){
-  // 如果 AI 未启用，提示用户先开启
+  const out = document.getElementById('ai-test-result');
+  // 如果 AI 未启用，在结果区域显示提示
   var aiEn = AI_SETTINGS["ai.enabled"];
   if(aiEn!=="true" && aiEn!=="1" && aiEn!==true){
-    toast("请先在设置中启用 AI（AI 开关）","alarm");
+    out.textContent = '⚠️ 请先在「模型配置」中启用 AI（打开 AI 开关），然后再测试连接。';
     return;
   }
   const prompt = (document.getElementById('ai-test-prompt').value||'');
-  const out = document.getElementById('ai-test-result');
-  out.textContent = '发送中…';
+  out.textContent = '⏳ 发送中…';
   try{
     const r = await api('/api/ai/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({prompt})});
     if(r && r.ok){
       let s = '✅ 连接成功\n\n';
       if(r.usage){ s += 'Token 用量: '+JSON.stringify(r.usage)+'\n\n'; }
-      s += '回复:\n'+(r.content||'');
+      s += '回复:\n'+(r.content||'(空响应)');
       out.textContent = s;
     } else {
       let errMsg = (r&&r.error) || '测试失败（未收到有效响应）';
       out.textContent = '❌ ' + errMsg;
       if(r && r.content) out.textContent += '\n响应内容: '+r.content;
     }
-  }catch(e){ out.textContent = '❌ 网络错误: '+e; }
+  }catch(e){ out.textContent = '❌ 请求失败: '+(e.message||e); }
 }
 async function loadAlarmAiAnalyses(){
   try{
