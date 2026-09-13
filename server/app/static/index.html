@@ -1778,9 +1778,10 @@ function showSettings(){
     var ss=d.settings||[];
     AI_SETTINGS={};
     ss.forEach(function(x){AI_SETTINGS[x.key]=x.value;});
-    var wec=AI_SETTINGS["wechat.enabled"]==="true";
+    var wec=(AI_SETTINGS["wechat.enabled"]==="true"||AI_SETTINGS["wechat.enabled"]==="1");
     var aiEn=(AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]==="1");
     var aiProv=AI_SETTINGS["ai.provider"]||"openai";
+    var aiPushWx=(AI_SETTINGS["ai.push_wechat"]==="1"||AI_SETTINGS["ai.push_wechat"]==="true");
     $("modalInner").innerHTML=
       "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>SYSTEM SETTINGS</h2>"+
       "<div style='font-size:13px;color:var(--blue);margin-bottom:6px'>🧠 AI 模型配置</div>"+
@@ -1794,7 +1795,10 @@ function showSettings(){
         "<label>Base URL</label><input id='sAIBase' value='"+esc(AI_SETTINGS["ai.base_url"]||"")+"' placeholder='留空则按 provider 默认' maxlength='4096'>"+
         "<label>Model</label><input id='sAIMdl' value='"+esc(AI_SETTINGS["ai.model"]||"")+"' placeholder='如 deepseek-chat' maxlength='200'>"+
         "<label>API Key</label><input id='sAIKey' type='password' value='"+esc(AI_SETTINGS["ai.api_key"]||"")+"' placeholder='Bearer token' maxlength='4096'>"+
+        "<label>Timeout (秒)</label><input id='sAITimeout' type='number' value='"+esc(AI_SETTINGS["ai.timeout"]||"30")+"' placeholder='30' min='5' max='300'>"+
+        "<label>Max Tokens</label><input id='sAIMaxTokens' type='number' value='"+esc(AI_SETTINGS["ai.max_tokens"]||"512")+"' placeholder='512' min='50' max='8192'>"+
         "<label>System Prompt</label><textarea id='sAIPrompt' style='width:100%;height:60px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px' maxlength='4096'>"+esc(AI_SETTINGS["ai.system_prompt"]||AI_SETTINGS["ai.prompt"]||"")+"</textarea>"+
+        "<label>AI 结果推送企微</label><div class='switchrow'><input type='checkbox' id='sAIPushWx' "+(aiPushWx?"checked":"")+"><span>开启后 AI 分析结果自动推送到主管医生企微</span></div>"+
       "</div>"+
       "<div style='font-size:11px;color:var(--dim);margin:6px 0 14px'>AI 用于报警自动分析，结果可推送到企业微信。测试连接请到 🧠 AI 模型 标签页。</div>"+
       "<div style='border-top:1px dashed var(--line);padding-top:12px;margin-top:0;font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信提醒配置</div>"+
@@ -1805,8 +1809,10 @@ function showSettings(){
         "<label>企业 ID (corp_id)</label><input id='sWxCorp' value='"+esc(AI_SETTINGS["wechat.corp_id"]||"")+"' maxlength='200'>"+
         "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+"' maxlength='50'>"+
         "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+"' maxlength='4096'>"+
+        "<label>回调 Token</label><input id='sWxToken' value='"+esc(AI_SETTINGS["wechat.token"]||"")+"' placeholder='企微回调 Token（应用消息模式可选）' maxlength='200'>"+
+        "<label>回调 AES Key</label><input id='sWxAesKey' type='password' value='"+esc(AI_SETTINGS["wechat.aes_key"]||"")+"' placeholder='企微回调 EncodingAESKey（应用消息模式可选）' maxlength='200'>"+
       "</div>"+
-      "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信。</div>"+
+      "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信。回调 Token/AES Key 用于企微消息回调（医生→设备）。</div>"+
       "<div class='actions'><button onclick='saveSettings()'>保存全部设置</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     toggleWxKey();
     $("modalBox").classList.remove("hidden");
@@ -1815,6 +1821,7 @@ function showSettings(){
 function toggleWxKey(){
   var en=$("sWxEn")&&$("sWxEn").checked;
   $("sWxUrl").disabled=!en;$("sWxCorp").disabled=!en;$("sWxAgent").disabled=!en;$("sWxSecret").disabled=!en;
+  if($("sWxToken"))$("sWxToken").disabled=!en;if($("sWxAesKey"))$("sWxAesKey").disabled=!en;
 }
 function saveSettings(){
   var body={
@@ -1823,13 +1830,18 @@ function saveSettings(){
     "ai.base_url":$("sAIBase").value.trim(),
     "ai.model":$("sAIMdl").value.trim(),
     "ai.api_key":$("sAIKey").value,
+    "ai.timeout":$("sAITimeout").value.trim()||"30",
+    "ai.max_tokens":$("sAIMaxTokens").value.trim()||"512",
     "ai.system_prompt":$("sAIPrompt").value,
     "ai.prompt":$("sAIPrompt").value,
+    "ai.push_wechat":$("sAIPushWx")&&$("sAIPushWx").checked?"1":"0",
     "wechat.enabled":$("sWxEn").checked?"1":"0",
     "wechat.webhook_url":$("sWxUrl").value.trim(),
     "wechat.corp_id":$("sWxCorp").value.trim(),
     "wechat.agent_id":$("sWxAgent").value.trim(),
     "wechat.secret":$("sWxSecret").value,
+    "wechat.token":$("sWxToken").value.trim(),
+    "wechat.aes_key":$("sWxAesKey").value,
   };
   api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
     .then(function(){toast("设置已保存");loadSettings();closeModal();})
@@ -2574,7 +2586,7 @@ async function loadAiSettings(){
     if(!r || !r.ai_settings) return;
     const m = r.ai_settings;
     const set = (id,val)=>{ const e=document.getElementById(id); if(e){ e.value = val; }};
-    set('s-ai.enabled', m['ai.enabled']||'0');
+    set('s-ai.enabled', (m['ai.enabled']==='true'||m['ai.enabled']==='1')?'1':'0');
     set('s-ai.provider', m['ai.provider']||'openai');
     set('s-ai.base_url', m['ai.base_url']||'');
     set('s-ai.model', m['ai.model']||'');
