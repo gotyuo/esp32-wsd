@@ -65,6 +65,7 @@ private:
     bool    _scanBusy = false;
     void buildScanCache(int n);
     void requestScan();
+    void pollScan(uint32_t now);   // 轮询异步扫描结果并填充 _scanCache
 
     // LAN 自动发现状态
     WiFiUDP _udp;

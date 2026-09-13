@@ -195,6 +195,10 @@ void NetManager::loop() {
     } else {
         dns.processNextRequest();
         web.handleClient();
+        // 异步扫描轮询：requestScan() 只启动扫描，这里收结果填缓存。
+        // 否则用户点"刷新"后 _scanBusy 永远为 true、_scanCache 永远不更新，
+        // 前端一直显示"扫描中…"、列表为空（这是扫描不到 WiFi 的根因）。
+        if (_scanBusy) pollScan(millis());
     }
 }
 
@@ -277,8 +281,28 @@ void NetManager::buildScanCache(int n) {
 void NetManager::requestScan() {
     if (_scanBusy || WiFi.getMode() == WIFI_OFF) return;
     _scanBusy = true;
+    _scanStartedAt = millis();
     WiFi.scanNetworks(true, false, false, 250);
     Serial.println("[NET] on-demand scan started");
+}
+
+// 轮询异步扫描结果：scanComplete()>=0 表示完成，填充 _scanCache 并清除 _scanBusy。
+// 带超时：超过 30s 仍未完成则放弃本次扫描（避免射频卡死导致永久"扫描中"）。
+void NetManager::pollScan(uint32_t now) {
+    if (!_scanBusy) return;
+    int n = WiFi.scanComplete();
+    if (n >= 0) {
+        buildScanCache(n);
+        WiFi.scanDelete();
+        _scanBusy = false;
+        Serial.printf("[NET] scan complete: %d networks\n", n);
+    } else if (now - _scanStartedAt > 30000) {
+        // 超时兜底：标记完成并清理，允许下次重试
+        WiFi.scanDelete();
+        _scanBusy = false;
+        if (_scanCache == "") _scanCache = "[]";
+        Serial.println("[NET] scan timeout, aborted");
+    }
 }
 
 void NetManager::handleSave() {
@@ -313,9 +337,31 @@ void NetManager::handleSave() {
 
     g_cfgStore.save(c);
 
+    // 读回校验：直接读 NVS 键确认写入成功，并打印实际落盘值，便于定位"保存失败"。
+    {
+        Preferences v; v.begin("envmon", true);   // 只读校验
+        String vssid = v.getString("ssid", "(empty)");
+        String vhost = v.getString("host", "(empty)");
+        uint16_t vport = v.getUShort("port", 0);
+        uint8_t vmode = (uint8_t)v.getUShort("smode", 0);
+        v.end();
+        bool ok = (vssid.length() > 0) && vmode == c.server_mode && vport == c.mqtt_port;
+        Serial.printf("[NET] save verify: ssid=%s host=%s port=%u mode=%u => %s\n",
+                      vssid.c_str(), vhost.c_str(), (unsigned)vport,
+                      (unsigned)vmode, ok ? "OK" : "MISMATCH");
+    }
+
+    // WiFi 为空提示（避免"以为保存了但没填 SSID"）
+    String ssidWarn = (c.wifi_ssid[0] == '\0')
+        ? "<p style='color:#ef4444'>⚠️ 注意：WiFi 名称为空，设备保存后将重新进入配网热点。</p>"
+        : "";
+
     web.send(200, "text/html",
         "<meta charset='utf-8'><body style='font-family:sans-serif'>"
         "<h2>已保存！设备正在重启并连接...</h2>"
+        "<p>已配置 WiFi：<b>" + String(c.wifi_ssid) + "</b></p>"
+        "<p>服务器：" + String(c.mqtt_host) + ":" + String(c.mqtt_port) + "</p>"
+        + ssidWarn +
         "<p>请重新连回家庭 WiFi，稍后在服务器上查看数据。</p></body>");
     Serial.println(F("[NET] Config saved, rebooting in 1.5s"));
     delay(1500);
