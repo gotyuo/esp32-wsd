@@ -2620,11 +2620,10 @@ def create_patient(body: PatientCreate):
 
 @app.get("/api/patients/{pid}", dependencies=[Depends(require_user)])
 def get_patient(pid: str):
-    # BUG-02: 同时支持整数 id 和字符串 pid 查询
-    if pid.isdigit():
+    # 先按 pid 字符串查（前端传的始终是 pid），查不到再按整数 id 回退
+    p = icu.patient_by_pid(pid)
+    if not p and pid.isdigit():
         p = icu.patient_by_id(int(pid))
-    else:
-        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     return p
@@ -2633,10 +2632,9 @@ def get_patient(pid: str):
 @app.put("/api/patients/{pid}", dependencies=[Depends(require_admin)])
 @app.patch("/api/patients/{pid}", dependencies=[Depends(require_admin)])
 def update_patient(pid: str, body: PatientUpdate):
-    if pid.isdigit():
+    p = icu.patient_by_pid(pid)
+    if not p and pid.isdigit():
         p = icu.patient_by_id(int(pid))
-    else:
-        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     icu.patient_update(p["id"], **body.model_dump())
@@ -2645,10 +2643,9 @@ def update_patient(pid: str, body: PatientUpdate):
 
 @app.delete("/api/patients/{pid}", dependencies=[Depends(require_admin)])
 def delete_patient(pid: str):
-    if pid.isdigit():
+    p = icu.patient_by_pid(pid)
+    if not p and pid.isdigit():
         p = icu.patient_by_id(int(pid))
-    else:
-        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     icu.patient_delete(p["id"])
@@ -2658,10 +2655,9 @@ def delete_patient(pid: str):
 # ---------- 患者-设备关联 ----------
 @app.post("/api/patients/{pid}/link/{device_id}", dependencies=[Depends(require_admin)])
 def link_device(pid: str, device_id: str, role: str = Query("primary", pattern=r"^(primary|secondary)$")):
-    if pid.isdigit():
+    p = icu.patient_by_pid(pid)
+    if not p and pid.isdigit():
         p = icu.patient_by_id(int(pid))
-    else:
-        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     try:
@@ -2678,10 +2674,9 @@ def link_device(pid: str, device_id: str, role: str = Query("primary", pattern=r
 @app.delete("/api/patients/{pid}/unlink/{device_id}", dependencies=[Depends(require_admin)])
 @app.post("/api/patients/{pid}/unlink/{device_id}", dependencies=[Depends(require_admin)])
 def unlink_device(pid: str, device_id: str):
-    if pid.isdigit():
+    p = icu.patient_by_pid(pid)
+    if not p and pid.isdigit():
         p = icu.patient_by_id(int(pid))
-    else:
-        p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
     ok = icu.unlink_device(p["id"], device_id)
