@@ -757,7 +757,7 @@ function _refreshBtn(ev,fn){
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
   ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai")loadSettings();}
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -1760,7 +1760,7 @@ function saveWechatSettings(){
     "wechat.secret": $("wcSecret").value,
   };
   api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-    .then(function(){toast("企微配置已保存");})
+    .then(function(){toast("企微配置已保存");loadSettings();loadAiSettings();})
     .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
 }
 function testWechat(){
@@ -1844,7 +1844,7 @@ function saveSettings(){
     "wechat.aes_key":$("sWxAesKey").value,
   };
   api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-    .then(function(){toast("设置已保存");loadSettings();closeModal();})
+    .then(function(){toast("设置已保存");loadSettings();loadAiSettings();loadWechatTab();closeModal();})
     .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
 }
 
@@ -2615,6 +2615,8 @@ async function saveAiSettings(){
       setTimeout(()=>{ msg.textContent=''; }, 3000);
       // 刷新 AI_SETTINGS 缓存，使测试连接能读到最新值
       await loadSettings();
+      // 同步刷新企微标签页表单，保持三处设置一致
+      loadWechatTab();
     } else { alert('保存失败: '+(r&&r.error||'')); }
   }catch(e){ alert('请求失败: '+e); }
 }
