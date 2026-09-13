@@ -17,7 +17,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--font);min-height:10
 
 /* 顶栏 */
 .top{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:10px;background:linear-gradient(180deg,#0a1828 0%,var(--panel) 100%);position:sticky;top:0;z-index:50;box-shadow:0 2px 12px rgba(0,0,0,.6)}
-.top .left{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.top .left{display:flex;align-items:center;gap:16px;flex-wrap:wrap;flex:1 1 auto;min-width:0}
 .top h1{font-size:17px;font-weight:700;letter-spacing:1px}
 .top h1 .sub{color:var(--sub);font-size:11px;font-weight:400;margin-left:8px;letter-spacing:0}
 .badge{font-size:11px;color:var(--sub);background:var(--panel);border:1px solid var(--line);padding:3px 10px;border-radius:4px;white-space:nowrap;font-family:Consolas,monospace}
@@ -37,8 +37,8 @@ button.small{padding:4px 9px;font-size:11px}
 button:disabled{opacity:.5;cursor:not-allowed}
 
 /* 视图 tab */
-.viewtabs{display:flex;flex-wrap:wrap;gap:2px;background:var(--panel2);padding:2px;border-radius:5px}
-.vtab{padding:6px 14px;border-radius:4px;font-size:12px;color:var(--sub);cursor:pointer;border:1px solid transparent}
+.viewtabs{display:flex;flex-wrap:wrap;gap:2px;background:var(--panel2);padding:2px;border-radius:5px;flex-basis:100%;min-width:0}
+.vtab{padding:6px 14px;border-radius:4px;font-size:12px;color:var(--sub);cursor:pointer;border:1px solid transparent;white-space:nowrap}
 .vtab.active{background:var(--blue);color:#00141f;font-weight:600}
 
 .container{padding:16px;max-width:1400px;margin:0 auto}
