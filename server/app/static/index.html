@@ -523,21 +523,24 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
         每次"主动扫描"都会生成一条设备接入快照；当前窗口 <b id="accessWindow">5</b> 分钟，
         窗口外自动清空，避免历史积压。新增的设备不会自动入库，需要手动"批量保存"。
       </div>
-      <div style="margin-bottom:14px">
-        <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--orange)">🆕 新增设备（尚未保存）</h3>
+      <div class="sub" style="margin-top:6px;display:flex;gap:6px;margin-bottom:12px">
+        <span class="chip active" data-atab="new" onclick="switchAccessTab('new')">🆕 新增设备</span>
+        <span class="chip" data-atab="lan" onclick="switchAccessTab('lan')">🏠 内网接入</span>
+        <span class="chip" data-atab="wan" onclick="switchAccessTab('wan')">🌐 外网接入</span>
+        <span class="chip" data-atab="unknown" onclick="switchAccessTab('unknown')">❓ 未分类</span>
+      </div>
+      <div id="access-tab-new">
         <div class="devgrid" id="accessNewGrid"><div class="empty" style="font-size:12px">点"🔍 刷新接入"主动扫描</div></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-        <div>
-          <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--green)">🏠 内网接入（LAN）</h3>
-          <div class="devgrid" id="accessLanGrid"><div class="empty" style="font-size:12px">-</div></div>
-        </div>
-        <div>
-          <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--blue)">🌐 外网接入（WAN）</h3>
-          <div class="devgrid" id="accessWanGrid"><div class="empty" style="font-size:12px">-</div></div>
-        </div>
+      <div id="access-tab-lan" class="hidden">
+        <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--green)">🏠 内网接入（LAN）</h3>
+        <div class="devgrid" id="accessLanGrid"><div class="empty" style="font-size:12px">-</div></div>
       </div>
-      <div>
+      <div id="access-tab-wan" class="hidden">
+        <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--blue)">🌐 外网接入（WAN）</h3>
+        <div class="devgrid" id="accessWanGrid"><div class="empty" style="font-size:12px">-</div></div>
+      </div>
+      <div id="access-tab-unknown" class="hidden">
         <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--sub)">❓ 未分类（无 IP）</h3>
         <div class="devgrid" id="accessUnknownGrid"><div class="empty" style="font-size:12px">-</div></div>
       </div>
@@ -2302,6 +2305,12 @@ function _renderAccess(d){
   render('accessLanGrid', d.lan || [], _accessRow);
   render('accessWanGrid', d.wan || [], _accessRow);
   render('accessUnknownGrid', d.unknown || [], _accessRow);
+}
+function switchAccessTab(tab){
+  ["new","lan","wan","unknown"].forEach(function(n){
+    var pane=$("access-tab-"+n); if(pane) pane.classList.toggle("hidden",n!==tab);
+  });
+  document.querySelectorAll('[data-atab]').forEach(function(e){e.classList.toggle('active',e.dataset.atab===tab);});
 }
 function loadAccess(ev){
   var b = (ev && ev.currentTarget) || null;
