@@ -801,7 +801,7 @@ function doLogin(ev){ev.preventDefault();var u=$("lgUser").value.trim(),p=$("lgP
   var btn=ev.submitter||ev.target.querySelector("button[type=submit]");
   var btnText=btn?btn.textContent:"";btn&& (btn.disabled=true);$("loginErr").textContent="";
   fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})}).then(function(r){if(!r.ok){if(r.status===429){return r.text().then(function(t){throw new Error(t||"登录尝试过于频繁，请稍后重试");});}if(r.status===401||r.status===403){throw new Error("用户名或密码错误");}return r.text().then(function(t){throw new Error("登录失败("+r.status+")"+(t?": "+t:""));});}return r.json();}).then(function(d){TOKEN=d.token;localStorage.setItem("envmon_token",TOKEN);ME=d.user;$("loginErr").textContent="";if(btn){btn.disabled=false;btn.textContent=btnText;}enterApp();}).catch(function(e){if(btn){btn.disabled=false;btn.textContent=btnText;}$("loginErr").textContent=String(e&&e.message?e.message:"网络错误：后端未响应，请确认服务已启动后再试");}).finally(function(){});}
-function enterApp(){$("loginView").classList.add("hidden");$("mainView").classList.remove("hidden");$("userName").textContent=(ME&&(ME.display_name||ME.username))||"-";$("mSound").textContent="🔔 报警声音："+(ME&&ME.sound_alarm?"开":"关");SOUND=!(ME&&ME.sound_alarm===0);loadSettings();loadSettingsForMenu();loadAll();loadUsers();loadPatients();connectWS();}
+function enterApp(){$("loginView").classList.add("hidden");$("mainView").classList.remove("hidden");$("userName").textContent=(ME&&(ME.display_name||ME.username))||"-";$("mSound").textContent="🔔 报警声音："+(ME&&ME.sound_alarm?"开":"关");SOUND=!(ME&&ME.sound_alarm===0);loadSettings();loadSettingsForMenu();loadAll();loadUsers();loadPatients();_loadDoctorsForSelects();connectWS();}
 function doLogout(){api("/api/logout",{method:"POST"}).then(function(){showLogin();}).catch(function(){showLogin();});}
 function toggleMenu(ev){ev.stopPropagation();$("userMenu").classList.toggle("hidden");}
 document.addEventListener("click",function(){var m=$("userMenu");if(m&&!m.classList.contains("hidden"))m.classList.add("hidden");});
@@ -1158,6 +1158,8 @@ function loadPatients(ev){_refreshBtn(ev,function(){
 });}
 function showPatientForm(pid){
   var fetchP = pid?api("/api/patients/"+pid):Promise.resolve({});
+  // 确保医生下拉已填充（用户可能未访问过医生管理页）
+  _loadDoctorsForSelects();
   fetchP.then(function(d){
     var p=pid?d:({});
     $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"
@@ -1171,7 +1173,7 @@ function showPatientForm(pid){
         +"<label>主管医生</label><select id='pDoc'><option value=''>-- 无 --</option></select>"
         +"<label>诊断</label><input id='pDiag' value='" + esc(p.diagnosis||"") + "' maxlength='512'>"
         +"<label>联系电话</label><input id='pPhone' value='" + esc(p.phone||"") + "' maxlength='20'>"
-        +"<label>企业微信 userid (可选)</label><input id='pWxId' value='" + esc(p.wechat_userid||"") + "' maxlength='128' placeholder='Wechat 账号，如 zhangsan'>"
+        +"<label>企业微信 userid（推送地址，可选）</label><input id='pWxId' value='" + esc(p.wechat_userid||"") + "' maxlength='128' placeholder='企微账号ID，如 zhangsan。提醒会推送到此账号'>"
       +"</div>"
       +"<div class='actions'><button onclick='savePatient(\""+(pid||"")+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     $("modalBox").classList.remove("hidden");
@@ -2341,6 +2343,12 @@ function acceptNew(did){
 
 
 // ==================== 医生管理 ====================
+// 轻量加载医生列表，仅填充下拉框（不渲染表格），供患者表单/发提醒页调用
+function _loadDoctorsForSelects(){
+  return api("/api/doctors").then(function(d){
+    _refreshDoctorSelects(d.doctors||[]);
+  }).catch(function(){});
+}
 function loadDoctorsView(){
   api("/api/doctors").then(function(d){
     var list=d.doctors||[];
@@ -2387,7 +2395,7 @@ function showDoctorForm(did){
         "<label>职称</label><input id='dTitle' value='"+esc(doc.title||"")+"' maxlength='48'>"+
         "<label>科室</label><input id='dDept' value='"+esc(doc.department||"")+"' maxlength='48'>"+
         "<label>电话</label><input id='dPhone' value='"+esc(doc.phone||doc.contact||"")+"' maxlength='20'>"+
-        "<label>企微 userid</label><input id='dWxId' value='"+esc(doc.wechat_userid||"")+"' maxlength='128' placeholder='企业微信账号，用于推送异常提醒'>"+
+        "<label>企业微信 userid（推送地址）</label><input id='dWxId' value='"+esc(doc.wechat_userid||"")+"' maxlength='128' placeholder='企微账号ID，如 zhangsan。报警/AI分析结果通过企微应用消息推送到此账号'>"+
         "<label>备注</label><input id='dNote' value='"+esc(doc.note||"")+"' maxlength='256'>"+
       "</div>"+
       "<div class='actions'><button onclick='saveDoctor("+did+")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
@@ -2425,6 +2433,8 @@ function delDoctor(did){
 // ==================== 发提醒 ====================
 var REMIND_DOCTORS=[];
 function loadPatientsForRemind(){
+  // 确保医生下拉已填充
+  _loadDoctorsForSelects();
   api("/api/patients/summary").then(function(d){
     var ps=d.patients||[];
     var html="<option value=''>-- 选择患者 --</option>";
