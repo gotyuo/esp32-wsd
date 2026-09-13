@@ -1371,10 +1371,13 @@ def devices_discover(refresh: bool = Query(False),
     db_ids = {d["id"] for d in devs}
     # devices 表里没有、但 telemetry 里出现过的（未接入设备），也列出来供注册。
     # db_ids 保持不变，只放设备表里真实存在的 ID，用于区分 registered / unregistered。
+    # 排除已软删除的设备: 它们的 telemetry 记录仍在, 但不应在发现页重新出现
+    deleted_ids = {r["id"] for r in db.query(
+        "SELECT id FROM devices WHERE COALESCE(deleted,0)=1")}
     extra_ids = [r["device_id"] for r in db.query(
         "SELECT DISTINCT device_id FROM telemetry LIMIT 500")]
     for eid in extra_ids:
-        if eid not in db_ids:
+        if eid not in db_ids and eid not in deleted_ids:
             devs.append({"id": eid, "name": None, "fw_version": None,
                          "ip_addr": None, "online": 0,
                          "first_seen": None, "last_seen": None})

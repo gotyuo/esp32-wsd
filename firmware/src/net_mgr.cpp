@@ -63,7 +63,7 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 <label>MQTT 用户名</label>
 <input name="user" value="envmon">
 <label>MQTT 密码</label>
-<input name="mpass" type="password">
+<input name="mpass" type="password" value="envmon">
 <label>设备编号</label>
 <input name="devid" placeholder="留空自动生成"><input type="hidden" name="smode" id="m_smode" value="0">
 <label>上报间隔（秒）</label>

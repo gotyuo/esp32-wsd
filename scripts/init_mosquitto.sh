@@ -2,13 +2,13 @@
 # ============================================================
 # 初始化 Mosquitto 账号密码文件（首次部署执行一次）
 # 用法: bash scripts/init_mosquitto.sh [用户名] [密码]
-# 默认: envmon / envmon-secret（强烈建议修改）
+# 默认: envmon / envmon（与 docker-compose 和固件一致，强烈建议修改）
 # ============================================================
 set -e
 cd "$(dirname "$0")/.."
 
 USER="${1:-envmon}"
-PASS="${2:-envmon-secret}"
+PASS="${2:-envmon}"
 CONF_DIR="$(pwd)/mosquitto/config"
 mkdir -p "$CONF_DIR" "$(pwd)/mosquitto/data"
 
