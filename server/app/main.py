@@ -2046,6 +2046,8 @@ def ai_test_connection(user: Dict = Depends(require_admin)):
                 err_msg = "AI 服务响应超时"
             else:
                 err_msg = "AI 连接失败: " + err
+        if not err_msg and not content:
+            err_msg = "AI 返回空响应，请检查 model 名称、api_key 和 base_url 是否正确"
         return {
             "ok": bool(content),
             "content": content[:500],

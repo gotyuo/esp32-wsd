@@ -2591,7 +2591,10 @@ async function loadAiSettings(){
     set('s-ai.provider', m['ai.provider']||'openai');
     set('s-ai.base_url', m['ai.base_url']||'');
     set('s-ai.model', m['ai.model']||'');
-    set('s-ai.api_key', m['ai.api_key']||'');
+    // api_key 被后端脱敏为 ******，不覆盖表单中已有的真实值
+    if (m['ai.api_key'] && m['ai.api_key'] !== '******') {
+      set('s-ai.api_key', m['ai.api_key']);
+    }
     set('s-ai.timeout', m['ai.timeout']||'30');
     set('s-ai.max_tokens', m['ai.max_tokens']||'512');
     set('s-ai.system_prompt', m['ai.system_prompt']||'');
@@ -2639,7 +2642,9 @@ async function aiTestConnect(){
       s += '回复:\n'+(r.content||'');
       out.textContent = s;
     } else {
-      out.textContent = '❌ '+((r&&r.error)||'测试失败');
+      let errMsg = (r&&r.error) || '测试失败（未收到有效响应）';
+      out.textContent = '❌ ' + errMsg;
+      if(r && r.content) out.textContent += '\n响应内容: '+r.content;
     }
   }catch(e){ out.textContent = '❌ 网络错误: '+e; }
 }
