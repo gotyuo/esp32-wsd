@@ -764,7 +764,7 @@ function $(id){return document.getElementById(id)}
 function fmt(v,d){return (v==null||isNaN(v))?"--":Number(v).toFixed(d==null?1:d)}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function fmtTime(s){if(!s)return"--";var t=s.replace("T"," ").replace("Z","");return t.slice(0,19)+" (UTC+8)"}
-function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opt.headers||{});return fetch(path,opt).then(function(r){if(r.status===401){showLogin();throw new Error("登录已过期，请重新登录");}if(r.status===403){throw new Error("需要管理员权限");}if(!r.ok){return r.text().then(function(t){var d;try{d=JSON.parse(t);}catch(e){}var msg=(d&&d.detail)||(d&&d.message)||("接口异常("+r.status+")");if(typeof msg==="object")msg=JSON.stringify(msg);throw new Error(msg);});}return r.json();});}
+function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opt.headers||{});opt.cache='no-store';return fetch(path,opt).then(function(r){if(r.status===401){showLogin();throw new Error("登录已过期，请重新登录");}if(r.status===403){throw new Error("需要管理员权限");}if(!r.ok){return r.text().then(function(t){var d;try{d=JSON.parse(t);}catch(e){}var msg=(d&&d.detail)||(d&&d.message)||("接口异常("+r.status+")");if(typeof msg==="object")msg=JSON.stringify(msg);throw new Error(msg);});}return r.json();});}
 
 function _refreshBtn(ev,fn){
   var b=(ev&&ev.currentTarget)||null;
@@ -1300,6 +1300,7 @@ function loadPatients(ev){_refreshBtn(ev,function(){
         +'<div class="v">'
           +'<button class="secondary small" onclick="event.stopPropagation();showPatientForm(\''+esc(p.pid)+'\')">✏ 编辑</button>'
           +'<button class="secondary small" onclick="event.stopPropagation();linkDev(\''+esc(p.pid)+'\')">🔗 关联设备</button>'
+          +(devs.length?'<button class="warn small" onclick="event.stopPropagation();showPatientDetail(\''+esc(p.pid)+'\')">🔓 解绑</button>':'')
           +'<button class="danger small" onclick="event.stopPropagation();delPatient(\''+esc(p.pid)+'\')">删除</button>'
         +'</div>'
       +'</div>';
@@ -1514,7 +1515,7 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
   MONITOR_PID=pid;
   $("mTime").textContent="患者 "+pid;
   // 加载患者体征
-  api("/api/patients/"+pid+"/vitals?hours=6").then(function(d){
+  return api("/api/patients/"+pid+"/vitals?hours=6").then(function(d){
     // 后端 patient_vitals 按 ts ASC（升序）返回：points[0] 是最旧、末尾是最新。
     // 因此"最新一条"必须取末尾下标，不能改成 [0]（否则会取到最旧值）。
     MONITOR_VITALS=d.points||[];
