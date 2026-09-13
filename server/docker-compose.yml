@@ -42,6 +42,8 @@ services:
       - TZ=Asia/Shanghai
       - PIPER_VOICE=${TTS_VOICE:-zh_CN-huayan-medium}
       - LOCAL_ONLY=true
+      # 国内镜像加速 HuggingFace 模型下载（首次约100-200MB）
+      - HF_ENDPOINT=https://hf-mirror.com
     volumes:
       - ./piper-config:/config
     expose:
