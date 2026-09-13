@@ -416,10 +416,14 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
           <button onclick="showAddDevice()">+ 注册设备</button>
           <button class="small" id="devProbeBtn" onclick="probeDevices(event)" title="向所有设备发 MQTT 心跳探测，实时判断在线/离线">🔍 刷新状态</button>
           <button class="secondary small" onclick="loadDevices(null,event)">📋 刷新列表</button>
-          <button class="secondary small" onclick="showDeviceDiscover()">📡 局域网发现</button>
           <span class="hint" id="devCount">0 台</span>
         </div>
       </h2>
+      <div class="sub" style="margin-top:6px;display:flex;gap:6px;margin-bottom:12px">
+        <span class="chip active" data-dtab="all" onclick="switchDeviceTab('all')">📋 全部设备</span>
+        <span class="chip" data-dtab="lan" onclick="switchDeviceTab('lan')">🏠 局域网设备</span>
+        <span class="chip" data-dtab="wan" onclick="switchDeviceTab('wan')">🌐 外网设备</span>
+      </div>
       <div class="hint" id="devGroupHint" style="margin-bottom:12px;font-size:11px"></div>
       <div id="devOnline" class="devgroup dg-online"></div>
       <div id="devOffline" class="devgroup dg-offline"></div>
@@ -931,9 +935,35 @@ function probeDevices(ev){
     if(b){b.disabled=false;b.textContent=_o;}
   });
 }
+var DEV_TAB='all';
+function _isLanIp(ip){
+  if(!ip) return true; // 无IP归入局域网(与后端一致)
+  ip=String(ip).trim();
+  try{var p=ip.split('.');if(p.length!=4)return false;
+    var a=parseInt(p[0]),b=parseInt(p[1]);
+    if(a==10)return true;if(a==172&&b>=16&&b<=31)return true;
+    if(a==192&&b==168)return true;if(a==127)return true;
+    if(a==169&&b==254)return true;return false;
+  }catch(e){return false;}
+}
+function switchDeviceTab(tab){
+  DEV_TAB=tab;
+  document.querySelectorAll('[data-dtab]').forEach(function(e){e.classList.toggle('active',e.dataset.dtab===tab);});
+  // 重新渲染当前设备列表(按tab过滤)
+  if(typeof DEVICES!=='undefined') renderDeviceGroupsByTab(DEVICES);
+}
+function renderDeviceGroupsByTab(devs){
+  var filtered=devs;
+  if(DEV_TAB==='lan') filtered=devs.filter(function(x){return _isLanIp(x.ip_addr);});
+  else if(DEV_TAB==='wan') filtered=devs.filter(function(x){return !_isLanIp(x.ip_addr);});
+  renderDeviceGroups(filtered,false);
+  var lanCnt=devs.filter(function(x){return _isLanIp(x.ip_addr);}).length;
+  var wanCnt=devs.length-lanCnt;
+  $("devCount").textContent=filtered.length+" 台 · 局域网 "+lanCnt+" · 外网 "+wanCnt+" · 在线 "+filtered.filter(function(x){return x.online;}).length+" 台";
+}
 function loadDevices(pick,ev){_refreshBtn(ev,function(){return api("/api/devices").then(function(d){var devs=d.devices||[];DEVICES=devs;
   _syncDevSel(devs,pick);
-  renderDeviceGroups(devs,false);
+  renderDeviceGroupsByTab(devs);
   $("devCount").textContent=devs.length+" 台 · 在线 "+devs.filter(function(x){return x.online;}).length+" 台";
   $("devGroupHint").textContent="按设备 MQTT 连接状态(LWT 遗嘱)分组 · 标记可能滞后，点「🔍 刷新状态」主动扫描获取真实在线状态";
   loadReal();loadHistory();loadTh();loadAlarms();loadDashboardGrid();return devs;}).catch(function(){return[];});});}
