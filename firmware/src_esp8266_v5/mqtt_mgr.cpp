@@ -13,13 +13,15 @@ static WiFiClient net;
 static char topicTele[64];
 static char topicStat[64];
 static char topicCfg[80];
+static char topicVitals[80];
 
 MqttMgr g_mqtt;
 
 void MqttMgr::begin() {
-    snprintf(topicTele, sizeof(topicTele), "envmon/%s/telemetry", g_cfg.device_id);
-    snprintf(topicStat, sizeof(topicStat), "envmon/%s/status",    g_cfg.device_id);
-    snprintf(topicCfg,  sizeof(topicCfg),  "envmon/%s/config",   g_cfg.device_id);
+    snprintf(topicTele,   sizeof(topicTele),   "envmon/%s/telemetry", g_cfg.device_id);
+    snprintf(topicStat,   sizeof(topicStat),   "envmon/%s/status",    g_cfg.device_id);
+    snprintf(topicCfg,    sizeof(topicCfg),    "envmon/%s/config",    g_cfg.device_id);
+    snprintf(topicVitals, sizeof(topicVitals), "envmon/%s/vitals",    g_cfg.device_id);
 
     client.setClient(&net);
     client.setCallback([](const char *topic, const uint8_t *payload, size_t len) {
@@ -44,6 +46,7 @@ bool MqttMgr::doConnect() {
         Serial.println(F("[MQTT] Connected"));
         client.publish(topicStat, "online", 6, true, 0);
         client.subscribe(topicCfg, 1);
+        _retryDelay = 2000;  // 重置重连间隔
     } else {
         Serial.printf("[MQTT] Failed, state=%d\n", client.state());
     }
@@ -112,7 +115,7 @@ bool MqttMgr::publishVitals(const EnvData &d) {
         isnan(d.hum_pct)  ? "null" : String(d.hum_pct, 2).c_str(),
         isnan(d.pres_hpa) ? "null" : String(d.pres_hpa, 2).c_str(),
         ip_str);
-    return client.publish("envmon/vitals", buf, n, false, 0);
+    return client.publish(topicVitals, buf, n, false, 0);
 }
 
 void MqttMgr::applyConfigPayload(const String &json) {

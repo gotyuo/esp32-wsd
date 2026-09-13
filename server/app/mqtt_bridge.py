@@ -5,6 +5,9 @@
     envmon/+/status      设备在线状态 (LWT 遗嘱)
     envmon/+/config/req  设备请求下发配置
     envmon/+/config/ack  设备配置回执
+    envmon/+/vitals      设备生命体征数据
+    envmon/+/order       医嘱数据
+    envmon/+/lab         检验结果数据
 
 发布主题:
     envmon/{id}/config   下发阈值/参数配置
@@ -71,6 +74,9 @@ class MqttBridge:
             client.subscribe("envmon/+/status", qos=1)
             client.subscribe("envmon/+/config/req", qos=1)
             client.subscribe("envmon/+/config/ack", qos=1)
+            client.subscribe("envmon/+/vitals", qos=1)
+            client.subscribe("envmon/+/order", qos=1)
+            client.subscribe("envmon/+/lab", qos=1)
             log.info("MQTT connected, topics subscribed")
         else:
             log.warning("MQTT connect rc=%s", rc)
@@ -82,9 +88,11 @@ class MqttBridge:
 
     def _on_message(self, client, userdata, msg):
         parts = msg.topic.split("/")
-        if len(parts) != 3 or parts[0] != "envmon":
+        if len(parts) < 3 or parts[0] != "envmon":
             return
-        device_id, kind = parts[1], parts[2]
+        device_id = parts[1]
+        # 支持 3 段 (envmon/{id}/telemetry) 和 4 段 (envmon/{id}/config/req) 主题
+        kind = "/".join(parts[2:])
         try:
             if kind == "telemetry":
                 payload = json.loads(msg.payload.decode("utf-8", "ignore"))

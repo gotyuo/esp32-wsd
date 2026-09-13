@@ -2514,7 +2514,7 @@ def sync_time():
 @app.post("/api/cleanup", dependencies=[Depends(require_admin)])
 def cleanup_data(older_than_days: int = Query(30, ge=1, le=365)):
     """清理超过指定天数的历史遥测数据。"""
-    cutoff = (datetime.utcnow() - timedelta(days=older_than_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     deleted = db.execute("DELETE FROM telemetry WHERE ts < ?", (cutoff,))
     log.info("cleanup: deleted %d telemetry records older than %s", deleted, cutoff)
     return {"ok": True, "deleted": deleted, "cutoff": cutoff}
