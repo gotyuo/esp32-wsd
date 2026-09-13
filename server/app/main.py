@@ -1552,6 +1552,7 @@ def send_reminder(body: Dict[str, Any]):
     sent_dev = 0
     sent_wx = 0
     tts_ok = True
+    tts_err = ""
     wx_err = ""
     if do_tts and did:
         try:
@@ -1560,8 +1561,10 @@ def send_reminder(body: Dict[str, Any]):
                 sent_dev = 1
             else:
                 tts_ok = False
+                tts_err = (resp and resp.get("error")) or "未知错误"
         except Exception as e:  # noqa: BLE001
             tts_ok = False
+            tts_err = str(e)
         # 无论 TTS 是否成功，都推送到设备屏幕 topic（供患者端屏幕显示）
         _broadcast_reminder_text(did, text)
     if do_wechat:
@@ -1575,7 +1578,7 @@ def send_reminder(body: Dict[str, Any]):
     return {
         "ok": True, "reminder_id": mid,
         "patient_id": pid, "device_id": did,
-        "tts": sent_dev == 1, "tts_error": None if tts_ok else "设备未连接或推送失败",
+        "tts": sent_dev == 1, "tts_error": None if tts_ok else (tts_err or "设备未连接或推送失败"),
         "wechat": sent_wx == 1, "wechat_error": wx_err or None,
     }
 
@@ -1587,21 +1590,17 @@ def list_reminders(patient_id: str = Query("", max_length=32),
 
 
 def _dispatch_reminder_to_device(device_id: str, text: str, patient_id: str):
-    """通过 TTS dispatch 让设备语音播报文字，同时推送文字到设备屏幕 topic。"""
-    import urllib.request, urllib.error as ue
-    url = "http://127.0.0.1:12090/api/tts/dispatch/" + _urllib_quote(device_id, safe="")
+    """直接通过 MQTT 向设备下发语音播报文本（不再 HTTP 自调用，避免鉴权问题）。"""
+    if not bridge.client or not bridge.connected:
+        return {"ok": False, "error": "MQTT 未连接"}
     try:
-        resp = urllib.request.urlopen(
-            urllib.request.Request(
-                url,
-                data=json.dumps({"text": text, "for": "reminder"}).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
-            ),
-            timeout=15,
-        )
-        body = json.loads(resp.read().decode("utf-8") or "{}")
-        return body
-    except (ue.URLError, ValueError) as e:
+        import paho.mqtt.client as mqtt
+        payload = json.dumps({"text": text, "level": 0, "device_id": device_id}, ensure_ascii=False)
+        topic = f"envmon/{device_id}/tts"
+        res = bridge.client.publish(topic, payload, qos=1)
+        ok = res.rc == mqtt.MQTT_ERR_SUCCESS
+        return {"ok": ok, "topic": topic, "error": None if ok else f"MQTT publish rc={res.rc}"}
+    except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
