@@ -45,6 +45,7 @@ EnvData            g_last;
 uint32_t           g_lastRead = 0;
 uint32_t           g_lastPub  = 0;
 bool               g_mqttReady = false;
+bool               g_discActive = false;
 uint32_t           g_lastOled = 0;
 uint32_t           g_lastHist = 0;
 char               g_lastSsid[33] = "";
@@ -418,6 +419,23 @@ void loop() {
         }
         delay(10);
         return;
+    }
+
+    // ---------- UDP 自动发现 (server_mode=0 且无 mqtt_host) ----------
+    if (g_cfg.server_mode == 0 && !g_cfg.has_mqtt() && g_net.wifiConnected()) {
+        if (!g_discActive) {
+            g_net.startDiscover();
+        } else {
+            int dr = g_net.discoverLoop(now);
+            if (dr == 1) {
+                Serial.println(F("[MAIN] discovery success, rebooting"));
+                delay(500);
+                ESP.restart();
+            } else if (dr == -1) {
+                Serial.println(F("[MAIN] discovery failed -> entering AP portal"));
+                g_net.startAP();
+            }
+        }
     }
 
     // ---------- MQTT ----------

@@ -1,13 +1,13 @@
 #pragma once
 // ============================================================
-// 网络管理模块 (ESP8266)
-// STA 连接 + AP 配网（ESP8266WebServer + DNSServer captive portal）
-// 与 ESP32 版功能一致：异步扫描、刷新按钮弹窗
+// 网络管理模块 (ESP8266) v3.0
+// STA 连接 + AP 配网 + UDP 自动发现
 // ============================================================
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
+#include <WiFiUdp.h>
 #include "config.h"
 
 enum NetMode : uint8_t { MODE_STA, MODE_AP };
@@ -22,6 +22,11 @@ public:
     bool staHasConfig() const { return _cfg->has_wifi(); }
     String apSSID() const { return _ap_ssid; }
     void setConfig(DeviceConfig *cfg) { _cfg = cfg; }
+
+    // UDP 局域网自动发现
+    void startDiscover();
+    void stopDiscover();
+    int  discoverLoop(uint32_t now);
 
 private:
     void startSTA();
@@ -41,6 +46,13 @@ private:
     bool     _portalRunning = false;
     String  _scanCache;
     bool    _scanBusy = false;
+
+    // UDP 发现
+    WiFiUDP  _udp;
+    bool     _udpBound = false;
+    bool     _discActive = false;
+    uint32_t _discLastSent = 0;
+    uint32_t _discStartAt = 0;
 
     ESP8266WebServer web;
     DNSServer dns;

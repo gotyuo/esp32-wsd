@@ -481,7 +481,12 @@ void NetManager::handleSave() {
     web.arg("pass").toCharArray(c.wifi_pass, sizeof(c.wifi_pass));
     c.server_mode = (uint8_t)web.arg("smode").toInt();
     String _h = web.arg("host");
-    if (_h.length() > 0) _h.toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
+    if (c.server_mode == 0) {
+        // 自动发现模式: 清空 mqtt_host, 连上 WiFi 后用 UDP 多播找服务器
+        memset(c.mqtt_host, 0, sizeof(c.mqtt_host));
+    } else if (_h.length() > 0) {
+        _h.toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
+    }
     c.mqtt_port = (uint16_t)web.arg("port").toInt();
     if (c.mqtt_port == 0) c.mqtt_port = 18830;
     web.arg("user").toCharArray(c.mqtt_user, sizeof(c.mqtt_user));
@@ -498,4 +503,121 @@ void NetManager::handleSave() {
     Serial.println(F("[NET] Config saved, rebooting in 1.5s"));
     delay(1500);
     ESP.restart();
+}
+
+// ---------- JSON 转义 ----------
+String NetManager::jsonEscape(const String &s) {
+    String out;
+    out.reserve(s.length() + 8);
+    for (unsigned i = 0; i < s.length(); i++) {
+        char c = s.charAt(i);
+        switch (c) {
+            case '"':  out += F("\\\""); break;
+            case '\\': out += F("\\\\"); break;
+            case '\n': out += F("\\n");  break;
+            case '\r': out += F("\\r");  break;
+            case '\t': out += F("\\t");  break;
+            default:   out += c;         break;
+        }
+    }
+    return out;
+}
+
+// =================== 局域网自动发现（UDP 多播 beacon） ===================
+// 服务器端 UDP 12091 监听；ESP8266 在 LAN 发现模式下周期广播 "ENVMON?"，
+// 收到服务端 JSON 应答后立即保存配置并重启，进入正常 MQTT 上报。
+// 应答 JSON: {"ip":"192.168.1.100","port":18830,"user":"envmon","pass":"envmon"}
+static const int DISC_PORT = 12091;
+static const char DISC_REQ[] = "ENVMON?";
+static const uint32_t DISC_SEND_INTERVAL = 4000;   // 每 4s 发一次
+static const uint32_t DISC_TIMEOUT = 45000;        // 45s 超时回 AP
+
+void NetManager::startDiscover() {
+    if (_udpBound) _udp.stop();
+    if (_udp.beginMulticast(IPAddress(239, 255, 1, 1), DISC_PORT) == 0) {
+        Serial.println(F("[DISC] UDP multicast begin failed"));
+        _udpBound = false;
+        return;
+    }
+    _udpBound = true;
+    _discLastSent = 0;
+    _discStartAt  = millis();
+    _discActive   = true;
+    Serial.printf("[DISC] mode=LAN discover, send every %us, timeout %us\n",
+                  DISC_SEND_INTERVAL / 1000, DISC_TIMEOUT / 1000);
+}
+
+void NetManager::stopDiscover() {
+    if (_udpBound) { _udp.stop(); _udpBound = false; }
+    _discActive = false;
+}
+
+// 抠出 "key":"value" 或 "key":number
+static bool jsonPop(const String &j, const char *key, String &val) {
+    String tgt = "\"" + String(key) + "\"";
+    int p = 0;
+    while (true) {
+        int i = j.indexOf(tgt, p);
+        if (i < 0) return false;
+        if (i > 0) {
+            char b = j.charAt(i - 1);
+            if (b != '{' && b != ',') { p = i + 1; continue; }
+        }
+        int c = j.indexOf(':', i + 1);
+        if (c < 0) return false;
+        int start = j.indexOf('"', c);
+        if (start >= 0 && start < (int)j.length()) {
+            int end = j.indexOf('"', start + 1);
+            if (end < 0) return false;
+            val = j.substring(start + 1, end);
+            return true;
+        }
+        int s2 = c + 1;
+        while (s2 < (int)j.length() && (j[s2] == ' ' || j[s2] == '\t')) s2++;
+        int e2 = s2;
+        while (e2 < (int)j.length() && j[e2] != ',' && j[e2] != '}') e2++;
+        val = j.substring(s2, e2);
+        return true;
+    }
+}
+
+int NetManager::discoverLoop(uint32_t now) {
+    if (!_discActive) return 0;
+    // 超时 -> 回到 AP 配网
+    if (now - _discStartAt > DISC_TIMEOUT) {
+        Serial.println(F("[DISC] timeout -> back to AP portal"));
+        stopDiscover();
+        return -1;
+    }
+    // 周期 beacon
+    if ((now - _discLastSent) > DISC_SEND_INTERVAL) {
+        _discLastSent = now;
+        _udp.beginPacket(IPAddress(239, 255, 1, 1), DISC_PORT);
+        _udp.print(DISC_REQ);
+        _udp.endPacket();
+    }
+    int n = _udp.parsePacket();
+    if (n <= 0) return 0;
+    String buf; buf.reserve(n + 1);
+    while (_udp.available()) buf += (char)_udp.read();
+    Serial.printf("[DISC] reply len=%d: %s\n", buf.length(), buf.c_str());
+
+    String ip, port, user, psw;
+    if (!jsonPop(buf, "ip", ip) || ip.length() == 0) return 0;
+    jsonPop(buf, "port", port);
+    if (port.isEmpty()) port = "18830";
+    jsonPop(buf, "user", user);
+    jsonPop(buf, "pass", psw);
+
+    strcpy(_cfg->mqtt_host, ip.c_str());
+    _cfg->mqtt_port = (uint16_t)port.toInt();
+    if (_cfg->mqtt_port == 0) _cfg->mqtt_port = 18830;
+    if (user.length() > 0) strcpy(_cfg->mqtt_user, user.c_str());
+    if (psw.length() > 0)  strcpy(_cfg->mqtt_pass, psw.c_str());
+    _cfg->server_mode = 1;   // 发现成功后标记为手动，避免重启再扫
+    stopDiscover();
+    Serial.printf("[DISC] got server %s:%d, saving & rebooting\n",
+                  _cfg->mqtt_host, _cfg->mqtt_port);
+    g_cfgStore.save(*_cfg);
+    return 1;
 }

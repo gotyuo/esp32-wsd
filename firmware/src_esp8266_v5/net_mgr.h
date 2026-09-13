@@ -1,24 +1,26 @@
 #pragma once
 // ============================================================
-// 网络管理模块 (ESP8266) v4.0
-// STA 连接 + AP 配网 + Web 数据页 (实时数据 + 历史曲线)
+// 网络管理模块 (ESP8266) v5.0
+// STA 连接 + AP 配网 + Web 数据页 + UDP 自动发现
 //
 // 默认行为:
 //   - 无 WiFi 配置: 直接进 AP 配网
-//   - 有 WiFi 配置: 先试 STA (同时开 AP 兜底), STA 成功后关 AP 跑数据页
+//   - 有 WiFi 配置: 先试 STA (同时开 AP 兜底), STA 成功后关 AP
 //     STA 15s 超时未连 -> 切回纯 AP 重新配网
+//   - STA 连上但 server_mode=0(自动发现) 且无 mqtt_host:
+//     启动 UDP 多播发现, 收到服务器应答后保存配置并重启
 // ============================================================
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
+#include <WiFiUdp.h>
 #include "config.h"
 #include "sensors.h"
 #include "history.h"
 #include "alarm.h"
 
 // main.cpp 暴露的全局对象
-// (config.h 已声明 ConfigStore g_cfgStore / DeviceConfig g_cfg / SensorHub 类)
 extern EnvData      g_last;
 extern HistoryStore g_hist;
 extern AlarmDevice  g_alarm;
@@ -35,6 +37,11 @@ public:
     bool staHasConfig() const { return _cfg->has_wifi(); }
     String apSSID() const { return _ap_ssid; }
     void setConfig(DeviceConfig *cfg) { _cfg = cfg; }
+
+    // UDP 局域网自动发现
+    void startDiscover();
+    void stopDiscover();
+    int  discoverLoop(uint32_t now);  // 0=继续, 1=发现成功, -1=超时
 
 private:
     void startSTA();
@@ -54,6 +61,9 @@ private:
 
     void buildScanCache(int n);
 
+    // JSON 工具: 转义字符串中的特殊字符
+    static String jsonEscape(const String &s);
+
     DeviceConfig *_cfg = nullptr;
     NetMode _mode = MODE_STA;
     String  _ap_ssid;
@@ -67,6 +77,13 @@ private:
     bool     _dataServerRunning = false;
     String  _scanCache;
     bool    _scanBusy = false;
+
+    // UDP 发现
+    WiFiUDP  _udp;
+    bool     _udpBound = false;
+    bool     _discActive = false;
+    uint32_t _discLastSent = 0;
+    uint32_t _discStartAt = 0;
 
     ESP8266WebServer web;
     DNSServer dns;

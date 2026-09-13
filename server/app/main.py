@@ -1189,7 +1189,6 @@ def probe_devices(body: dict = None):
     now = time.time()
     if now - _probe_last_ts < _PROBE_COOLDOWN_S:
         remaining = round(_PROBE_COOLDOWN_S - (now - _probe_last_ts), 1)
-        _probe_last_ts = now
         return JSONResponse(
             {"ok": False, "detail": f"探测过于频繁，请 {remaining}s 后重试"},
             status_code=429,
@@ -1373,7 +1372,7 @@ def devices_discover(refresh: bool = Query(False),
     # devices 表里没有、但 telemetry 里出现过的（未接入设备），也列出来供注册。
     # db_ids 保持不变，只放设备表里真实存在的 ID，用于区分 registered / unregistered。
     extra_ids = [r["device_id"] for r in db.query(
-        "SELECT DISTINCT device_id FROM telemetry")]
+        "SELECT DISTINCT device_id FROM telemetry LIMIT 500")]
     for eid in extra_ids:
         if eid not in db_ids:
             devs.append({"id": eid, "name": None, "fw_version": None,
@@ -1404,7 +1403,7 @@ def devices_discover(refresh: bool = Query(False),
         })
     # 上面追加的 telemetry-only 设备其实没接入过，改回 unregistered 供勾选注册。
     for x in items:
-        if x["device_id"] not in {d["id"] for d in db.list_devices()}:
+        if x["device_id"] not in db_ids:
             x["status"] = "unregistered"
 
     # 网络分类过滤（前端按 内网/外网 分别扫描）。

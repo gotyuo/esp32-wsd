@@ -30,6 +30,7 @@ static EnvData     g_last;
 static uint32_t    g_lastRead = 0;
 static uint32_t    g_lastPub  = 0;
 static bool        g_mqttReady = false;
+static bool        g_discActive = false;
 static uint32_t    g_lastOled = 0;
 static char        g_lastSsid[33] = "";
 static bool        g_displayDirty = false;
