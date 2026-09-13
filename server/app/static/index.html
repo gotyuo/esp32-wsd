@@ -1699,7 +1699,7 @@ function loadSettings(){
   api("/api/settings").then(function(d){
     var ss=d.settings||[];AI_SETTINGS={};
     ss.forEach(function(x){AI_SETTINGS[x.key]=x.value;});
-    AI_ASSESS=(AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]===true);
+    AI_ASSESS=(AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]==="1"||AI_SETTINGS["ai.enabled"]===true);
   }).catch(function(){});
 }
 // 加载企微配置到独立 tab 表单
@@ -1747,7 +1747,7 @@ function showSettings(){
       "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>SYSTEM SETTINGS</h2>"+
       "<div style='font-size:13px;color:var(--blue);margin-bottom:6px'>AI 解读配置</div>"+
       "<div class='kv'>"+
-        "<label>AI 开关</label><div class='switchrow'><input type='checkbox' id='sAIEn' "+(AI_SETTINGS["ai.enabled"]==="true"?"checked":"")+" onchange='toggleAiKey()'><span>启用联网 AI 解读（需要 API Key）</span></div>"+
+        "<label>AI 开关</label><div class='switchrow'><input type='checkbox' id='sAIEn' "+((AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]==="1")?"checked":"")+" onchange='toggleAiKey()'><span>启用联网 AI 解读（需要 API Key）</span></div>"+
         "<label>Provider</label><select id='sAIProv'><option value='openai' "+(AI_SETTINGS["ai.provider"]=="openai"?"selected":"")+">openai / 兼容</option><option value='deepseek' "+(AI_SETTINGS["ai.provider"]=="deepseek"?"selected":"")+">deepseek</option><option value='other' "+(AI_SETTINGS["ai.provider"]=="other"?"selected":"")+">other</option></select>"+
         "<label>Base URL</label><input id='sAIBase' value='"+esc(AI_SETTINGS["ai.base_url"]||"")+"' placeholder='https://api.deepseek.com/v1' maxlength='4096'>"+
         "<label>Model</label><input id='sAIMdl' value='"+esc(AI_SETTINGS["ai.model"]||"")+"' placeholder='deepseek-v3.2' maxlength='200'>"+
@@ -2196,7 +2196,7 @@ function endMonitorSession(sid, pid){
 function assessPatient(){
   var pid=MONITOR_PID;if(!pid){toast("请先选择患者","alarm");return;}
   // 从设置同步 AI 开关（默认关），按钮切换与设置页一致
-  if(AI_SETTINGS["ai.enabled"]==="true"||AI_ASSESS){AI_ASSESS=true;}
+  if(AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]==="1"||AI_ASSESS){AI_ASSESS=true;}
   $("mAssessBtn").textContent="⏳ AI 评估中…";
   var url="/api/patients/"+pid+"/assessment?hours=24";
   if(AI_ASSESS)url=url+"&ai=true";
@@ -2540,18 +2540,23 @@ async function saveAiSettings(){
   const body = {};
   ids.forEach(id=>{ body['ai.'+id] = (document.getElementById('s-ai.'+id).value || ''); });
   body['ai.api_key'] = (document.getElementById('s-ai.api_key').value || '');
+  // ai.enabled 统一存为 'true'/'false'，与设置菜单 saveSettings() 和所有检查逻辑一致
+  body['ai.enabled'] = (document.getElementById('s-ai.enabled').value === '1') ? 'true' : 'false';
   try{
     const r = await api('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     if(r && r.ok){
       const msg = document.getElementById('ai-save-msg');
       msg.textContent = '✅ 已保存 '+new Date().toLocaleTimeString();
       setTimeout(()=>{ msg.textContent=''; }, 3000);
+      // 刷新 AI_SETTINGS 缓存，使测试连接能读到最新值
+      await loadSettings();
     } else { alert('保存失败: '+(r&&r.error||'')); }
   }catch(e){ alert('请求失败: '+e); }
 }
 async function aiTestConnect(){
   // 如果 AI 未启用，提示用户先开启
-  if(AI_SETTINGS["ai.enabled"]!=="true"){
+  var aiEn = AI_SETTINGS["ai.enabled"];
+  if(aiEn!=="true" && aiEn!=="1" && aiEn!==true){
     toast("请先在设置中启用 AI（AI 开关）","alarm");
     return;
   }
