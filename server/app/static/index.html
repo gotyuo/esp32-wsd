@@ -1187,7 +1187,8 @@ function loadPatients(ev){_refreshBtn(ev,function(){
           +'<button class="secondary small" onclick="event.stopPropagation();showPatientForm(\''+esc(p.pid)+'\')">✏ 编辑</button>'
           +'<button class="secondary small" onclick="event.stopPropagation();linkDev(\''+esc(p.pid)+'\')">🔗 关联设备</button>'
           +'<button class="danger small" onclick="event.stopPropagation();delPatient(\''+esc(p.pid)+'\')">删除</button>'
-        +'</div>';
+        +'</div>'
+      +'</div>';
     }).join("");
   }).catch(function(){$("pGrid").innerHTML='<div class="empty">加载失败</div>';});
 });}
