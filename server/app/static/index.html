@@ -882,7 +882,8 @@ function _devCard(x,onlineFlag){
     "<button class='secondary small' onclick='event.stopPropagation();editName(\""+did+"\")' title='编辑名称/IP'>✏ 编辑</button>"+
     "<button class='success small' onclick='event.stopPropagation();showDeviceConfig(\""+did+"\")' title='配置阈值'>⚙ 配置</button>"+
     "<button class='secondary small' onclick='event.stopPropagation();showBindPatient(\""+did+"\")' title='绑定患者'>🔗 绑定</button>"+
-    "<button class='danger small' onclick='event.stopPropagation();delDev(\""+did+"\")' title='删除设备'>🗑</button>"+
+    "<button class='secondary small' onclick='event.stopPropagation();unbindDevice(\""+did+"\")' title='解绑患者'>🔓 解绑</button>"+
+    "<button class='danger small' onclick='event.stopPropagation();delDev(\""+did+"\")' title='删除设备'>删除</button>"+
     "</div></div>";
 }
 function saveDeviceInfo(id){
@@ -942,6 +943,15 @@ function doBindDevice(deviceId){
   api("/api/patients/"+encodeURIComponent(pid)+"/link/"+encodeURIComponent(deviceId),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({role:"primary"})})
   .then(function(){toast("已绑定 "+deviceId+" → "+pid);closeModal();loadDevices();})
   .catch(function(e){toast("绑定失败: "+(e&&e.message||""),"alarm");});
+}
+function unbindDevice(deviceId){
+  api("/api/devices/"+encodeURIComponent(deviceId)+"/active-patient").then(function(ap){
+    if(!ap||!ap.patient_pid){toast("该设备未绑定患者");return;}
+    if(!confirm("确定解绑设备 "+deviceId+" 与患者 "+(ap.patient_name||ap.patient_pid)+" 的绑定？"))return;
+    api("/api/patients/"+encodeURIComponent(ap.patient_pid)+"/unlink/"+encodeURIComponent(deviceId),{method:"DELETE"})
+    .then(function(){toast("已解绑 "+deviceId);loadDevices();})
+    .catch(function(e){toast("解绑失败: "+(e&&e.message||""),"alarm");});
+  }).catch(function(e){toast("查询失败: "+(e&&e.message||""),"alarm");});
 }
 // 单台设备刷新：只判定这一台的在线状态并回写徽标，不重排分组。
 // 用独立的 loading 标记（而非 _refreshBtn），因为这里要自己重绘徽标与「最后上报」，
