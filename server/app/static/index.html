@@ -1747,17 +1747,9 @@ function showSettings(){
     var wec=AI_SETTINGS["wechat.enabled"]==="true";
     $("modalInner").innerHTML=
       "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>SYSTEM SETTINGS</h2>"+
-      "<div style='font-size:13px;color:var(--blue);margin-bottom:6px'>AI 解读配置</div>"+
-      "<div class='kv'>"+
-        "<label>AI 开关</label><div class='switchrow'><input type='checkbox' id='sAIEn' "+((AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]==="1")?"checked":"")+" onchange='toggleAiKey()'><span>启用联网 AI 解读（需要 API Key）</span></div>"+
-        "<label>Provider</label><select id='sAIProv'><option value='openai' "+(AI_SETTINGS["ai.provider"]=="openai"?"selected":"")+">openai / 兼容</option><option value='deepseek' "+(AI_SETTINGS["ai.provider"]=="deepseek"?"selected":"")+">deepseek</option><option value='other' "+(AI_SETTINGS["ai.provider"]=="other"?"selected":"")+">other</option></select>"+
-        "<label>Base URL</label><input id='sAIBase' value='"+esc(AI_SETTINGS["ai.base_url"]||"")+"' placeholder='https://api.deepseek.com/v1' maxlength='4096'>"+
-        "<label>Model</label><input id='sAIMdl' value='"+esc(AI_SETTINGS["ai.model"]||"")+"' placeholder='deepseek-v3.2' maxlength='200'>"+
-        "<label>API Key</label><input id='sAIKey' type='password' value='"+esc(AI_SETTINGS["ai.api_key"]||"")+"' placeholder='Bearer token' maxlength='4096'>"+
-        "<label>System Prompt</label><textarea id='sAIPrompt' style='width:100%;height:80px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px' maxlength='4096'>"+esc(AI_SETTINGS["ai.prompt"]||"")+"</textarea>"+
-      "</div>"+
-      "<div style='font-size:11px;color:var(--dim);margin:6px 0 14px'>AI 解读仅用于临床辅助，不构成诊疗建议。</div>"+
-      "<div style='border-top:1px dashed var(--line);padding-top:12px;margin-top:12px;font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信提醒配置（医生接收异常、患者端屏幕 + 语音播报）</div>"+
+      "<div style='font-size:13px;color:var(--blue);margin-bottom:6px'>🧠 AI 模型配置</div>"+
+      "<div style='font-size:12px;color:var(--dim);margin-bottom:14px'>AI 配置已移至左侧 <b>🧠 AI 模型</b> 标签页统一管理（含 provider/model/api_key/测试连接等）。</div>"+
+      "<div style='border-top:1px dashed var(--line);padding-top:12px;margin-top:0;font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信提醒配置（医生接收异常、患者端屏幕 + 语音播报）</div>"+
       "<div class='kv'>"+
         "<label>企微开关</label><div class='switchrow'><input type='checkbox' id='sWxEn' "+(wec?"checked":"")+" onchange='toggleWxKey()'><span>启用企业微信推送提醒</span></div>"+
         "<label>模式</label><div style='font-size:11px;color:var(--dim);margin-bottom:4px'>任选其一：<b>webhook_url</b>（群机器人，最简单）或 <b>corp_id + agent_id + secret</b>（应用消息）</div>"+
@@ -1768,13 +1760,10 @@ function showSettings(){
       "</div>"+
       "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信；同时通过 TTS 下发到患者设备语音播报，并在患者端屏幕 topic 显示。</div>"+
       "<div class='actions'><button onclick='saveSettings()'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
-    toggleAiKey(); toggleWxKey();
+    toggleWxKey();
     $("modalBox").classList.remove("hidden");
   }).catch(function(){});
 }
-function toggleAiKey(){
-  var en=$("sAIEn")&&$("sAIEn").checked;
-  $("sAIBase").disabled=!en;$("sAIMdl").disabled=!en;$("sAIKey").disabled=!en;$("sAIPrompt").disabled=!en;
 }
 function toggleWxKey(){
   var en=$("sWxEn")&&$("sWxEn").checked;
@@ -1782,12 +1771,6 @@ function toggleWxKey(){
 }
 function saveSettings(){
   var keys=[
-    ["ai.enabled",$("sAIEn").checked?"true":"false"],
-    ["ai.provider",$("sAIProv").value],
-    ["ai.base_url",$("sAIBase").value.trim()],
-    ["ai.model",$("sAIMdl").value.trim()],
-    ["ai.api_key",$("sAIKey").value],
-    ["ai.prompt",$("sAIPrompt").value],
     ["wechat.enabled",$("sWxEn").checked?"1":"0"],
     ["wechat.webhook_url",$("sWxUrl").value.trim()],
     ["wechat.corp_id",$("sWxCorp").value.trim()],
@@ -2552,6 +2535,8 @@ async function saveAiSettings(){
   body['ai.api_key'] = (document.getElementById('s-ai.api_key').value || '');
   // ai.enabled 统一存为 'true'/'false'，与设置菜单 saveSettings() 和所有检查逻辑一致
   body['ai.enabled'] = (document.getElementById('s-ai.enabled').value === '1') ? 'true' : 'false';
+  // 同步 ai.prompt = ai.system_prompt，兼容后端 icu.py 的 assess_with_ai
+  body['ai.prompt'] = body['ai.system_prompt'] || '';
   try{
     const r = await api('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     if(r && r.ok){
