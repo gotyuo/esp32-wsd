@@ -40,6 +40,9 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .viewtabs{display:flex;flex-wrap:wrap;gap:2px;background:var(--panel2);padding:2px;border-radius:5px;flex-basis:100%;min-width:0}
 .vtab{padding:6px 14px;border-radius:4px;font-size:12px;color:var(--sub);cursor:pointer;border:1px solid transparent;white-space:nowrap}
 .vtab.active{background:var(--blue);color:#00141f;font-weight:600}
+.chip{display:inline-block;padding:4px 12px;border-radius:4px;font-size:12px;color:var(--sub);cursor:pointer;border:1px solid var(--line);background:var(--panel2);user-select:none;white-space:nowrap;transition:all .15s}
+.chip:hover{border-color:var(--blue);color:var(--txt)}
+.chip.active{background:var(--blue);color:#00141f;font-weight:600;border-color:var(--blue)}
 
 .container{padding:16px;max-width:1400px;margin:0 auto}
 .section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
