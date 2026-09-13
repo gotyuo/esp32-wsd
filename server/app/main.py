@@ -537,9 +537,80 @@ def handle_vitals(device_id: str, payload: dict):
     target = next((r for r in rows if r["role"] == "primary"), rows[0])
     ts = _insert_vital_from_payload(target["patient_id"], device_id, payload)
     if ts:
+        # 自动创建监护记录（若该患者无活跃会话）
+        try:
+            _ensure_monitor_session(target["patient_id"], device_id)
+        except Exception:
+            pass
+        # 检查体征异常并记录报警
+        try:
+            _check_vital_alarms(device_id, target["pid"], payload)
+        except Exception:
+            pass
         hub.broadcast_threadsafe({"type": "vital", "patient_id": target["patient_id"],
                                   "pid": target["pid"], "ts": ts,
                                   "source": payload.get("source", "esp32")})
+
+
+def _ensure_monitor_session(patient_id: int, device_id: str):
+    """设备上报体征时自动创建监护记录（若无活跃会话）。"""
+    from .icu import _get_conn
+    conn = _get_conn()
+    open_sess = conn.execute(
+        "SELECT id FROM monitor_sessions WHERE patient_id=? AND end_ts IS NULL ORDER BY start_ts DESC LIMIT 1",
+        (patient_id,),
+    ).fetchone()
+    if not open_sess:
+        now = icu._now()
+        conn.execute(
+            "INSERT INTO monitor_sessions (patient_id, device_id, start_ts, created_at) VALUES (?,?,?,?)",
+            (patient_id, device_id, now, now),
+        )
+        conn.commit()
+
+
+# 体征正常范围（用于自动报警）
+VITAL_NORMAL_RANGES = {
+    "ecg_hr": (50, 120, "心率"),
+    "sp_o2": (94, 100, "血氧"),
+    "rr_bpm": (12, 25, "呼吸频率"),
+    "sbp": (90, 160, "收缩压"),
+    "dbp": (50, 100, "舒张压"),
+    "temp_c": (35.5, 38.0, "体温"),
+    "glucose": (3.9, 11.1, "血糖"),
+}
+
+
+def _check_vital_alarms(device_id: str, pid: str, payload: dict):
+    """检查体征值是否超出正常范围，超限时写入 alarms 表。"""
+    for key, (lo, hi, label) in VITAL_NORMAL_RANGES.items():
+        v = payload.get(key)
+        if v is None:
+            continue
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if v < lo or v > hi:
+            level = 2 if (v < lo * 0.85 or v > hi * 1.15) else 1
+            reason = f"{label} {v} 超出正常范围 [{lo}, {hi}] (患者 {pid})"
+            # 避免重复报警：同一设备同一级别 60 秒内不重复记录
+            import sqlite3 as _sqlite3
+            conn = icu._get_conn()
+            recent = conn.execute(
+                "SELECT 1 FROM alarms WHERE device_id=? AND level=? AND reason LIKE ? AND ts >= datetime('now','-60 seconds') LIMIT 1",
+                (device_id, level, f"{label}%" ),
+            ).fetchone()
+            if not recent:
+                now = icu._now()
+                conn.execute(
+                    "INSERT INTO alarms (device_id, ts, level, reason, cleared_at) VALUES (?,?,?,NULL)",
+                    (device_id, now, level, reason),
+                )
+                conn.commit()
+                hub.broadcast_threadsafe({"type": "alarm", "device_id": device_id,
+                                          "level": level, "reason": reason})
+                log.warning("VITAL ALARM [%s] lv%d %s", device_id, level, reason)
 
 
 def handle_order(device_id: str, payload: dict):
