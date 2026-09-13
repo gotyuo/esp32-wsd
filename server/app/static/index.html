@@ -1746,11 +1746,25 @@ function showSettings(){
     AI_SETTINGS={};
     ss.forEach(function(x){AI_SETTINGS[x.key]=x.value;});
     var wec=AI_SETTINGS["wechat.enabled"]==="true";
+    var aiEn=(AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]==="1");
+    var aiProv=AI_SETTINGS["ai.provider"]||"openai";
     $("modalInner").innerHTML=
       "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>SYSTEM SETTINGS</h2>"+
       "<div style='font-size:13px;color:var(--blue);margin-bottom:6px'>🧠 AI 模型配置</div>"+
-      "<div style='font-size:12px;color:var(--dim);margin-bottom:14px'>AI 配置已移至左侧 <b>🧠 AI 模型</b> 标签页统一管理（含 provider/model/api_key/测试连接等）。</div>"+
-      "<div style='border-top:1px dashed var(--line);padding-top:12px;margin-top:0;font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信提醒配置（医生接收异常、患者端屏幕 + 语音播报）</div>"+
+      "<div class='kv'>"+
+        "<label>AI 开关</label><div class='switchrow'><input type='checkbox' id='sAIEn' "+(aiEn?"checked":"")+"><span>启用 AI 报警分析</span></div>"+
+        "<label>Provider</label><select id='sAIProv'>"+
+          ["openai","ollama","deepseek","qwen","gemini","custom"].map(function(p){
+            return "<option value='"+p+"'"+(aiProv===p?" selected":"")+">"+p+"</option>";
+          }).join("")+
+        "</select>"+
+        "<label>Base URL</label><input id='sAIBase' value='"+esc(AI_SETTINGS["ai.base_url"]||"")+"' placeholder='留空则按 provider 默认' maxlength='4096'>"+
+        "<label>Model</label><input id='sAIMdl' value='"+esc(AI_SETTINGS["ai.model"]||"")+"' placeholder='如 deepseek-chat' maxlength='200'>"+
+        "<label>API Key</label><input id='sAIKey' type='password' value='"+esc(AI_SETTINGS["ai.api_key"]||"")+"' placeholder='Bearer token' maxlength='4096'>"+
+        "<label>System Prompt</label><textarea id='sAIPrompt' style='width:100%;height:60px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px' maxlength='4096'>"+esc(AI_SETTINGS["ai.system_prompt"]||AI_SETTINGS["ai.prompt"]||"")+"</textarea>"+
+      "</div>"+
+      "<div style='font-size:11px;color:var(--dim);margin:6px 0 14px'>AI 用于报警自动分析，结果可推送到企业微信。测试连接请到 🧠 AI 模型 标签页。</div>"+
+      "<div style='border-top:1px dashed var(--line);padding-top:12px;margin-top:0;font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信提醒配置</div>"+
       "<div class='kv'>"+
         "<label>企微开关</label><div class='switchrow'><input type='checkbox' id='sWxEn' "+(wec?"checked":"")+" onchange='toggleWxKey()'><span>启用企业微信推送提醒</span></div>"+
         "<label>模式</label><div style='font-size:11px;color:var(--dim);margin-bottom:4px'>任选其一：<b>webhook_url</b>（群机器人，最简单）或 <b>corp_id + agent_id + secret</b>（应用消息）</div>"+
@@ -1759,29 +1773,33 @@ function showSettings(){
         "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+"' maxlength='50'>"+
         "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+"' maxlength='4096'>"+
       "</div>"+
-      "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信；同时通过 TTS 下发到患者设备语音播报，并在患者端屏幕 topic 显示。</div>"+
-      "<div class='actions'><button onclick='saveSettings()'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+      "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信。</div>"+
+      "<div class='actions'><button onclick='saveSettings()'>保存全部设置</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     toggleWxKey();
     $("modalBox").classList.remove("hidden");
   }).catch(function(){});
-}
 }
 function toggleWxKey(){
   var en=$("sWxEn")&&$("sWxEn").checked;
   $("sWxUrl").disabled=!en;$("sWxCorp").disabled=!en;$("sWxAgent").disabled=!en;$("sWxSecret").disabled=!en;
 }
 function saveSettings(){
-  var keys=[
-    ["wechat.enabled",$("sWxEn").checked?"1":"0"],
-    ["wechat.webhook_url",$("sWxUrl").value.trim()],
-    ["wechat.corp_id",$("sWxCorp").value.trim()],
-    ["wechat.agent_id",$("sWxAgent").value.trim()],
-    ["wechat.secret",$("sWxSecret").value],
-  ];
-  var body={};
-  keys.forEach(function(kv){body[kv[0]]=kv[1];});
+  var body={
+    "ai.enabled":$("sAIEn").checked?"true":"false",
+    "ai.provider":$("sAIProv").value,
+    "ai.base_url":$("sAIBase").value.trim(),
+    "ai.model":$("sAIMdl").value.trim(),
+    "ai.api_key":$("sAIKey").value,
+    "ai.system_prompt":$("sAIPrompt").value,
+    "ai.prompt":$("sAIPrompt").value,
+    "wechat.enabled":$("sWxEn").checked?"1":"0",
+    "wechat.webhook_url":$("sWxUrl").value.trim(),
+    "wechat.corp_id":$("sWxCorp").value.trim(),
+    "wechat.agent_id":$("sWxAgent").value.trim(),
+    "wechat.secret":$("sWxSecret").value,
+  };
   api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-    .then(function(){toast("设置已保存");closeModal();})
+    .then(function(){toast("设置已保存");loadSettings();closeModal();})
     .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
 }
 
