@@ -60,6 +60,8 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 <input name="host" id="m_host" placeholder="例如 192.168.1.100"></div>
 <label>MQTT 端口</label>
 <input name="port" type="number" value="18830">
+<label>HTTP 端口</label>
+<input name="hport" type="number" value="12090">
 <label>MQTT 用户名</label>
 <input name="user" value="envmon">
 <label>MQTT 密码</label>
@@ -440,6 +442,8 @@ void NetManager::handleSave() {
     if (host.length() > 0) host.toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
     c.mqtt_port = (uint16_t)web.arg("port").toInt();
     if (c.mqtt_port == 0) c.mqtt_port = 18830;
+    c.http_port = (uint16_t)web.arg("hport").toInt();
+    if (c.http_port == 0) c.http_port = 12090;
     // MQTT 凭据：留空时保留默认 envmon/envmon，避免空串覆盖导致下次登录显示空
     String muser = web.arg("user");
     if (muser.length() > 0) { memset(c.mqtt_user, 0, sizeof(c.mqtt_user)); muser.toCharArray(c.mqtt_user, sizeof(c.mqtt_user)); }
