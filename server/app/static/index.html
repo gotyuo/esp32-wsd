@@ -369,24 +369,6 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 TEMP</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
   <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 GLU</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
 </div>
-<!-- 体征趋势曲线图 -->
-<div class="m-panel" id="mTrendPanel" style="margin-top:8px">
-  <h4>📈 体征趋势 / 用药时间线
-    <span style="font-size:10px;color:var(--dim);font-weight:400" id="mTrendRange">最近24h</span>
-    <div style="margin-left:auto;display:flex;gap:4px">
-      <button class="secondary small" data-th="1" onclick="setTrendHours(1)">1H</button>
-      <button class="secondary small" data-th="6" onclick="setTrendHours(6)">6H</button>
-      <button class="secondary small active" data-th="24" onclick="setTrendHours(24)">24H</button>
-    </div>
-  </h4>
-  <canvas id="mTrendChart" style="width:100%;height:200px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:4px"></canvas>
-  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--sub)">
-    <span><span style="display:inline-block;width:10px;height:2px;background:#21d07a;vertical-align:middle"></span> HR</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#3fb6ff;vertical-align:middle"></span> SpO2</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#ffd24a;vertical-align:middle"></span> RR</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#ff6b9d;vertical-align:middle"></span> TEMP</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#b48cff;vertical-align:middle"></span> GLU</span>
-    <span><span style="display:inline-block;width:6px;height:6px;background:#ff5470;border-radius:50%;vertical-align:middle"></span> 用药</span>
   </div>
 </div>
 <div class="m-bottom">
@@ -419,6 +401,24 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="a-actions" id="mActions"></div>
   <div class="a-disclaimer">⚠️ <span id="mDisclaimer"></span></div>
 </div>
+<!-- 体征趋势曲线图 -->
+<div class="m-panel" id="mTrendPanel" style="margin-top:8px">
+  <h4>📈 体征趋势 / 用药时间线
+    <span style="font-size:10px;color:var(--dim);font-weight:400" id="mTrendRange">最近24h</span>
+    <div style="margin-left:auto;display:flex;gap:4px">
+      <button class="secondary small" data-th="1" onclick="setTrendHours(1)">1H</button>
+      <button class="secondary small" data-th="6" onclick="setTrendHours(6)">6H</button>
+      <button class="secondary small active" data-th="24" onclick="setTrendHours(24)">24H</button>
+    </div>
+  </h4>
+  <canvas id="mTrendChart" style="width:100%;height:200px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:4px"></canvas>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--sub)">
+    <span><span style="display:inline-block;width:10px;height:2px;background:#21d07a;vertical-align:middle"></span> HR</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#3fb6ff;vertical-align:middle"></span> SpO2</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#ffd24a;vertical-align:middle"></span> RR</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#ff6b9d;vertical-align:middle"></span> TEMP</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#b48cff;vertical-align:middle"></span> GLU</span>
+    <span><span style="display:inline-block;width:6px;height:6px;background:#ff5470;border-radius:50%;vertical-align:middle"></span> 用药</span>
 </div>
   <!-- ============= 患者管理 ============= -->
   <div id="view-patients" class="hidden">
