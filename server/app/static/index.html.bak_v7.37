@@ -753,8 +753,8 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
     <div class="section">
       <h2>🔌 数据源配置 / DATA SOURCES
         <div class="actions" style="margin-top:0">
-          <span style="font-size:11px;color:var(--dim)">每个数据源独立配置并保存，互不影响</span>
-        </div>
+          <button class="btn" onclick="saveDsSettings()">💾 保存全部</button>
+          <span id="ds-save-msg" style="margin-left:12px;color:var(--green);font-size:12px"></span>
         </div>
       </h2>
       <p style="color:var(--sub);font-size:12px;margin:6px 0 14px">
@@ -2099,72 +2099,53 @@ function showSettings(){
     var aiPushWx=(AI_SETTINGS["ai.push_wechat"]==="1"||AI_SETTINGS["ai.push_wechat"]==="true");
     $("modalInner").innerHTML=
       "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>SYSTEM SETTINGS</h2>"+
-      // ---- Main tabs ----
-      "<div style='margin-bottom:14px'>"+
-        "<span class=\"chip active\" data-mstab=\"ai\" onclick=\"switchModalTab('ai')\" style='margin-right:6px'>🧠 AI 模型配置</span>"+
-        "<span class=\"chip\" data-mstab=\"wx\" onclick=\"switchModalTab('wx')\">🏥 企业微信配置</span>"+
+      "<div style='font-size:13px;color:var(--blue);margin-bottom:6px'>🧠 AI 模型配置</div>"+
+      "<div class='kv'>"+
+        "<label>AI 开关</label><div class='switchrow'><input type='checkbox' id='sAIEn' "+(aiEn?"checked":"")+"><span>启用 AI 报警分析</span></div>"+
+        "<label>Provider</label><select id='sAIProv'>"+
+          ["openai","ollama","deepseek","qwen","gemini","custom"].map(function(p){
+            return "<option value='"+p+"'"+(aiProv===p?" selected":"")+">"+p+"</option>";
+          }).join("")+
+        "</select>"+
+        "<label>Base URL</label><input id='sAIBase' value='"+esc(AI_SETTINGS["ai.base_url"]||"")+"' placeholder='留空则按 provider 默认' maxlength='4096'>"+
+        "<label>Model</label><input id='sAIMdl' value='"+esc(AI_SETTINGS["ai.model"]||"")+"' placeholder='如 deepseek-chat' maxlength='200'>"+
+        "<label>API Key</label><input id='sAIKey' type='password' value='"+esc(AI_SETTINGS["ai.api_key"]||"")+"' placeholder='Bearer token' maxlength='4096'>"+
+        "<label>Timeout (秒)</label><input id='sAITimeout' type='number' value='"+esc(AI_SETTINGS["ai.timeout"]||"30")+"' placeholder='30' min='5' max='300'>"+
+        "<label>Max Tokens</label><input id='sAIMaxTokens' type='number' value='"+esc(AI_SETTINGS["ai.max_tokens"]||"512")+"' placeholder='512' min='50' max='8192'>"+
+        "<label>System Prompt</label><textarea id='sAIPrompt' style='width:100%;height:60px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px' maxlength='4096'>"+esc(AI_SETTINGS["ai.system_prompt"]||AI_SETTINGS["ai.prompt"]||"")+"</textarea>"+
+        "<label>AI 结果推送企业微信</label><div class='switchrow'><input type='checkbox' id='sAIPushWx' "+(aiPushWx?"checked":"")+"><span>开启后 AI 分析结果自动推送到主管医生企业微信</span></div>"+
       "</div>"+
-      // ---- Tab: AI 模型配置 ----
-      "<div id='mstab-ai'>"+
-        "<div style='font-size:13px;color:var(--blue);margin-bottom:6px'>🧠 AI 模型配置</div>"+
+      "<div style='font-size:11px;color:var(--dim);margin:6px 0 14px'>AI 用于报警自动分析，结果可推送到企业微信。测试连接请到 🧠 AI 模型 标签页。</div>"+
+      "<div style='border-top:1px dashed var(--line);padding-top:12px;margin-top:0;font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信提醒配置</div>"+
+      "<div class='kv' style='margin-bottom:10px'>"+
+        "<label>企业微信开关</label><div class='switchrow'><input type='checkbox' id='sWxEn' "+(wec?"checked":"")+" onchange='toggleWxKey()'><span>启用企业微信推送提醒</span></div>"+
+      "</div>"+
+      "<div style='margin-bottom:6px'>"+
+        "<span class=\"chip active\" data-mwtab=\"webhook\" onclick=\"switchModalWxTab('webhook')\" style='margin-right:6px'>🔗 群机器人</span>"+
+        "<span class=\"chip\" data-mwtab=\"app\" onclick=\"switchModalWxTab('app')\">📱 应用消息</span>"+
+      "</div>"+
+      "<div id='mw-tab-webhook' class='m-panel'>"+
+        "<div style='font-size:12px;color:var(--blue);margin-bottom:8px'>🔗 模式 A：Webhook 群机器人（推荐，无需企业号）</div>"+
         "<div class='kv'>"+
-          "<label>AI 开关</label><div class='switchrow'><input type='checkbox' id='sAIEn' "+(aiEn?"checked":"")+"><span>启用 AI 报警分析</span></div>"+
-          "<label>Provider</label><select id='sAIProv'>"+
-            ["openai","ollama","deepseek","qwen","gemini","custom"].map(function(p){
-              return "<option value='"+p+"'"+(aiProv===p?" selected":"")+">"+p+"</option>";
-            }).join("")+
-          "</select>"+
-          "<label>Base URL</label><input id='sAIBase' value='"+esc(AI_SETTINGS["ai.base_url"]||"")+"' placeholder='留空则按 provider 默认' maxlength='4096'>"+
-          "<label>Model</label><input id='sAIMdl' value='"+esc(AI_SETTINGS["ai.model"]||"")+"' placeholder='如 deepseek-chat' maxlength='200'>"+
-          "<label>API Key</label><input id='sAIKey' type='password' value='"+esc(AI_SETTINGS["ai.api_key"]||"")+"' placeholder='Bearer token' maxlength='4096'>"+
-          "<label>Timeout (秒)</label><input id='sAITimeout' type='number' value='"+esc(AI_SETTINGS["ai.timeout"]||"30")+"' placeholder='30' min='5' max='300'>"+
-          "<label>Max Tokens</label><input id='sAIMaxTokens' type='number' value='"+esc(AI_SETTINGS["ai.max_tokens"]||"512")+"' placeholder='512' min='50' max='8192'>"+
-          "<label>System Prompt</label><textarea id='sAIPrompt' style='width:100%;height:60px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px' maxlength='4096'>"+esc(AI_SETTINGS["ai.system_prompt"]||AI_SETTINGS["ai.prompt"]||"")+"</textarea>"+
-          "<label>AI 结果推送企业微信</label><div class='switchrow'><input type='checkbox' id='sAIPushWx' "+(aiPushWx?"checked":"")+"><span>开启后 AI 分析结果自动推送到主管医生企业微信</span></div>"+
+          "<label>Webhook URL</label><input id='sWxUrl' value='"+esc(AI_SETTINGS["wechat.webhook_url"]||"")+"' placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' maxlength='2048'>"+
         "</div>"+
-        "<div style='font-size:11px;color:var(--dim);margin:6px 0 14px'>AI 用于报警自动分析，结果可推送到企业微信。测试连接请到 🧠 AI 模型 标签页。</div>"+
-        "<div class='actions'><button onclick='saveSettingsAI()'>💾 保存 AI 配置</button><button class='secondary' onclick='closeModal()'>取消</button></div>"+
+        "<div style='font-size:11px;color:var(--dim);margin-top:6px'>在企业微信群中添加群机器人，复制 Webhook URL 填入即可。消息将推送到该群。</div>"+
       "</div>"+
-      // ---- Tab: 企业微信配置 ----
-      "<div id='mstab-wx' class='hidden'>"+
-        "<div style='font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信配置 / WECHAT</div>"+
-        "<div style='font-size:12px;color:var(--sub);margin-bottom:10px'>患者异常/医生发提醒时，自动推送企业微信。支持两种模式（任选其一）：<b>webhook_url</b>（群机器人，最简单）或 <b>corp_id + agent_id + secret</b>（应用消息，可定向发到某位医生）。</div>"+
-        "<div class='kv' style='margin-bottom:10px'>"+
-          "<label>企业微信开关</label><div class='switchrow'><input type='checkbox' id='sWxEn' "+(wec?"checked":"")+" onchange='toggleWxKey()'><span>启用企业微信推送提醒</span></div>"+
+      "<div id='mw-tab-app' class='m-panel hidden'>"+
+        "<div style='font-size:12px;color:var(--orange);margin-bottom:8px'>📱 模式 B：应用消息（需企业管理员授权，可定向发到某位医生）</div>"+
+        "<div class='kv'>"+
+          "<label>企业 ID (corp_id)</label><input id='sWxCorp' value='"+esc(AI_SETTINGS["wechat.corp_id"]||"")+"' maxlength='200'>"+
+          "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+"' maxlength='50'>"+
+          "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+"' maxlength='4096'>"+
+          "<label>回调 Token</label><input id='sWxToken' value='"+esc(AI_SETTINGS["wechat.token"]||"")+"' placeholder='企业微信回调 Token（可选）' maxlength='200'>"+
+          "<label>回调 AES Key</label><input id='sWxAesKey' type='password' value='"+esc(AI_SETTINGS["wechat.aes_key"]||"")+"' placeholder='企业微信回调 EncodingAESKey（可选）' maxlength='200'>"+
         "</div>"+
-        "<div style='margin-bottom:6px'>"+
-          "<span class=\"chip active\" data-mwtab=\"webhook\" onclick=\"switchModalWxTab('webhook')\" style='margin-right:6px'>🔗 群机器人</span>"+
-          "<span class=\"chip\" data-mwtab=\"app\" onclick=\"switchModalWxTab('app')\">📱 应用消息</span>"+
-        "</div>"+
-        "<div id='mw-tab-webhook' class='m-panel'>"+
-          "<div style='font-size:12px;color:var(--blue);margin-bottom:8px'>🔗 模式 A：Webhook 群机器人（推荐，无需企业号）</div>"+
-          "<div class='kv'>"+
-            "<label>Webhook URL</label><input id='sWxUrl' value='"+esc(AI_SETTINGS["wechat.webhook_url"]||"")+"' placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' maxlength='2048'>"+
-          "</div>"+
-          "<div style='font-size:11px;color:var(--dim);margin-top:6px'>在企业微信群中添加群机器人，复制 Webhook URL 填入即可。消息将推送到该群。</div>"+
-        "</div>"+
-        "<div id='mw-tab-app' class='m-panel hidden'>"+
-          "<div style='font-size:12px;color:var(--orange);margin-bottom:8px'>📱 模式 B：应用消息（需企业管理员授权，可定向发到某位医生）</div>"+
-          "<div class='kv'>"+
-            "<label>企业 ID (corp_id)</label><input id='sWxCorp' value='"+esc(AI_SETTINGS["wechat.corp_id"]||"")+"' maxlength='200'>"+
-            "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+"' maxlength='50'>"+
-            "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+"' maxlength='4096'>"+
-            "<label>回调 Token</label><input id='sWxToken' value='"+esc(AI_SETTINGS["wechat.token"]||"")+"' placeholder='企业微信回调 Token（可选）' maxlength='200'>"+
-            "<label>回调 AES Key</label><input id='sWxAesKey' type='password' value='"+esc(AI_SETTINGS["wechat.aes_key"]||"")+"' placeholder='企业微信回调 EncodingAESKey（可选）' maxlength='200'>"+
-          "</div>"+
-          "<div style='font-size:11px;color:var(--dim);margin-top:6px'>医生表 wechat_userid 字段对应 touser（定向推送）；留空则推送给 @all。回调 Token/AES Key 用于消息回调（医生→设备）。</div>"+
-        "</div>"+
-        "<div class='actions'><button onclick='saveSettingsWx()'>💾 保存企业微信配置</button><button class='secondary' onclick='testWechat()'>📤 发送测试消息</button><button class='secondary' onclick='closeModal()'>取消</button></div>"+
-      "</div>";
+        "<div style='font-size:11px;color:var(--dim);margin-top:6px'>医生表 wechat_userid 字段对应 touser（定向推送）；留空则推送给 @all。回调 Token/AES Key 用于消息回调（医生→设备）。</div>"+
+      "</div>"+
+      "<div class='actions'><button onclick='saveSettings()'>保存全部设置</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     toggleWxKey();
     $("modalBox").classList.remove("hidden");
   }).catch(function(){});
-}
-function switchModalTab(t){
-  document.querySelectorAll('[data-mstab]').forEach(function(e){e.classList.toggle('active',e.dataset.mstab===t);});
-  var ai=$("mstab-ai"),wx=$("mstab-wx");
-  if(ai)ai.classList.toggle('hidden',t!=='ai');
-  if(wx)wx.classList.toggle('hidden',t!=='wx');
 }
 function toggleWxKey(){
   var en=$("sWxEn")&&$("sWxEn").checked;
@@ -2181,7 +2162,7 @@ function switchModalWxTab(t){
   if(w)w.classList.toggle('hidden',t!=='webhook');
   if(a)a.classList.toggle('hidden',t!=='app');
 }
-function saveSettingsAI(){
+function saveSettings(){
   var body={
     "ai.enabled":$("sAIEn").checked?"true":"false",
     "ai.provider":$("sAIProv").value,
@@ -2193,13 +2174,6 @@ function saveSettingsAI(){
     "ai.system_prompt":$("sAIPrompt").value,
     "ai.prompt":$("sAIPrompt").value,
     "ai.push_wechat":$("sAIPushWx")&&$("sAIPushWx").checked?"1":"0",
-  };
-  api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-    .then(function(){toast("AI 配置已保存");loadSettings();loadAiSettings();closeModal();})
-    .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
-}
-function saveSettingsWx(){
-  var body={
     "wechat.enabled":$("sWxEn").checked?"1":"0",
     "wechat.webhook_url":$("sWxUrl").value.trim(),
     "wechat.corp_id":$("sWxCorp").value.trim(),
@@ -2209,7 +2183,7 @@ function saveSettingsWx(){
     "wechat.aes_key":$("sWxAesKey").value,
   };
   api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-    .then(function(){toast("企业微信配置已保存");loadSettings();loadWechatTab();closeModal();})
+    .then(function(){toast("设置已保存");loadSettings();loadAiSettings();loadWechatTab();closeModal();})
     .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
 }
 
@@ -3083,99 +3057,46 @@ function loadDsSettings(){
       var typeOpts=DS_CONN_TYPES.map(function(t){return '<option value="'+t.v+'"'+(ds.type===t.v?' selected':'')+'>'+t.label+'</option>';}).join('');
       var authOpts=DS_AUTH_TYPES.map(function(t){return '<option value="'+t.v+'"'+(ds.auth_type===t.v?' selected':'')+'>'+t.label+'</option>';}).join('');
       var ivOpts=DS_INTERVALS.map(function(t){return '<option value="'+t.v+'"'+(ds.sync_interval===t.v?' selected':'')+'>'+t.label+'</option>';}).join('');
-      var n=ds.name;
       return '<div class="devcard" style="padding:16px">'+
         '<div class="head"><span class="id">'+meta.icon+' '+meta.label+'</span>'+
-        '<label class="switchrow" style="font-size:11px"><input type="checkbox" id="ds-en-'+n+'" '+(en?'checked':'')+'><span>启用</span></label></div>'+
+        '<label class="switchrow" style="font-size:11px"><input type="checkbox" id="ds-en-'+ds.name+'" '+(en?'checked':'')+'><span>启用</span></label></div>'+
         '<div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.5">'+meta.desc+'</div>'+
-        '<div class="sg"><label>连接类型</label><select id="ds-type-'+n+'" onchange="dsToggleFields(\''+n+'\')" style="width:100%">'+typeOpts+'</select></div>'+
-        // --- Common: URL (for hl7/rest/ws) ---
-        '<div class="sg ds-url-row-'+n+'"><label>URL / 连接串</label><input id="ds-url-'+n+'" value="'+esc(ds.url||'')+'" placeholder="http://his.hospital/api/medications" style="width:100%;font-family:Consolas,monospace;font-size:11px"></div>'+
-        // --- DB-specific fields ---
-        '<div class="ds-db-row-'+n+'" style="display:none">'+
-          '<div class="grid2">'+
-            '<div class="sg"><label>数据库 IP / 主机</label><input id="ds-dbhost-'+n+'" value="'+esc(ds.db_host||'')+'" placeholder="192.168.1.100" style="width:100%"></div>'+
-            '<div class="sg"><label>端口</label><input id="ds-dbport-'+n+'" value="'+esc(ds.db_port||'3306')+'" placeholder="3306" style="width:100%"></div>'+
-          '</div>'+
-          '<div class="sg"><label>数据库名</label><input id="ds-dbname-'+n+'" value="'+esc(ds.db_name||'')+'" placeholder="his_db" style="width:100%"></div>'+
-          '<div class="grid2">'+
-            '<div class="sg"><label>数据库用户名</label><input id="ds-dbuser-'+n+'" value="'+esc(ds.db_user||'')+'" placeholder="root" style="width:100%"></div>'+
-            '<div class="sg"><label>数据库密码</label><input id="ds-dbpass-'+n+'" type="password" value="'+esc(ds.db_pass||'')+'" placeholder="密码" style="width:100%"></div>'+
-          '</div>'+
+        '<div class="sg"><label>连接类型</label><select id="ds-type-'+ds.name+'" style="width:100%">'+typeOpts+'</select></div>'+
+        '<div class="sg"><label>URL / 连接串</label><input id="ds-url-'+ds.name+'" value="'+esc(ds.url||'')+'" placeholder="http://his.hospital/api/medications" style="width:100%;font-family:Consolas,monospace;font-size:11px"></div>'+
+        '<div class="grid2">'+
+        '<div class="sg"><label>认证方式</label><select id="ds-auth-'+ds.name+'" style="width:100%">'+authOpts+'</select></div>'+
+        '<div class="sg"><label>同步间隔</label><select id="ds-iv-'+ds.name+'" style="width:100%">'+ivOpts+'</select></div>'+
         '</div>'+
-        // --- Auth (for hl7/rest/ws) ---
-        '<div class="ds-auth-row-'+n+'">'+
-          '<div class="grid2">'+
-            '<div class="sg"><label>认证方式</label><select id="ds-auth-'+n+'" style="width:100%">'+authOpts+'</select></div>'+
-            '<div class="sg"><label>同步间隔</label><select id="ds-iv-'+n+'" style="width:100%">'+ivOpts+'</select></div>'+
-          '</div>'+
-          '<div class="sg"><label>认证密钥 / Token</label><input id="ds-key-'+n+'" value="'+esc(ds.auth_key||'')+'" type="password" placeholder="留空=无认证" style="width:100%"></div>'+
-        '</div>'+
-        // --- DB sync interval (shown only for db) ---
-        '<div class="ds-dbiv-row-'+n+'" style="display:none">'+
-          '<div class="sg"><label>同步间隔</label><select id="ds-iv-'+n+'-db" style="width:100%">'+ivOpts+'</select></div>'+
-        '</div>'+
-        '<div class="sg"><label>额外参数 (JSON)</label><input id="ds-extra-'+n+'" value="'+esc(ds.extra||'')+'" placeholder=\'{"key":"value"}\' style="width:100%;font-family:Consolas,monospace;font-size:11px"></div>'+
+        '<div class="sg"><label>认证密钥 / Token</label><input id="ds-key-'+ds.name+'" value="'+esc(ds.auth_key||'')+'" type="password" placeholder="留空=无认证" style="width:100%"></div>'+
+        '<div class="sg"><label>额外参数 (JSON)</label><input id="ds-extra-'+ds.name+'" value="'+esc(ds.extra||'')+'" placeholder=\'{"key":"value"}\' style="width:100%;font-family:Consolas,monospace;font-size:11px"></div>'+
         '<div class="actions">'+
-        '<button class="btn small" onclick="saveDsOne(\''+n+'\')">💾 启动并保存</button>'+
-        '<button class="secondary small" onclick="testDsConnection(\''+n+'\')">🔌 测试连接</button>'+
-        '<span id="ds-test-'+n+'" style="font-size:11px;margin-left:8px"></span>'+
+        '<button class="secondary small" onclick="testDsConnection(\''+ds.name+'\')">🔌 测试连接</button>'+
+        '<span id="ds-test-'+ds.name+'" style="font-size:11px;margin-left:8px"></span>'+
         '</div></div>';
     }).join('');
     $("dsCards").innerHTML=html;
-    // Initialize field visibility for each datasource
-    list.forEach(function(ds){dsToggleFields(ds.name);});
   }).catch(function(e){var box=$("dsCards");if(box)box.innerHTML='<div class="empty">数据源配置加载失败，请检查数据库</div>';});
 }
-function dsToggleFields(n){
-  var type=$("ds-type-"+n)?$("ds-type-"+n).value:"rest";
-  var isDb=(type==="db");
-  // URL row: hide for db
-  document.querySelectorAll(".ds-url-row-"+n).forEach(function(e){e.style.display=isDb?"none":"";});
-  // Auth row: hide for db
-  document.querySelectorAll(".ds-auth-row-"+n).forEach(function(e){e.style.display=isDb?"none":"";});
-  // DB-specific rows: show only for db
-  document.querySelectorAll(".ds-db-row-"+n).forEach(function(e){e.style.display=isDb?"":"none";});
-  // DB sync interval row: show only for db
-  document.querySelectorAll(".ds-dbiv-row-"+n).forEach(function(e){e.style.display=isDb?"":"none";});
-}
-function saveDsOne(n){
-  var type=$("ds-type-"+n).value;
+function saveDsSettings(){
   var body={};
-  body["datasource."+n+".enabled"]=$("ds-en-"+n).checked?"true":"false";
-  body["datasource."+n+".type"]=type;
-  body["datasource."+n+".extra"]=$("ds-extra-"+n).value||"";
-  if(type==="db"){
-    body["datasource."+n+".db_host"]=$("ds-dbhost-"+n).value||"";
-    body["datasource."+n+".db_port"]=$("ds-dbport-"+n).value||"";
-    body["datasource."+n+".db_name"]=$("ds-dbname-"+n).value||"";
-    body["datasource."+n+".db_user"]=$("ds-dbuser-"+n).value||"";
-    body["datasource."+n+".db_pass"]=$("ds-dbpass-"+n).value||"";
-    body["datasource."+n+".sync_interval"]=$("ds-iv-"+n+"-db")?$("ds-iv-"+n+"-db").value:"manual";
-    body["datasource."+n+".url"]="";
-    body["datasource."+n+".auth_type"]="none";
-    body["datasource."+n+".auth_key"]="";
-  }else{
+  DS_TYPES.forEach(function(t){
+    var n=t.name;
+    body["datasource."+n+".enabled"]=$("ds-en-"+n).checked?"true":"false";
+    body["datasource."+n+".type"]=$("ds-type-"+n).value;
     body["datasource."+n+".url"]=$("ds-url-"+n).value||"";
     body["datasource."+n+".auth_type"]=$("ds-auth-"+n).value;
     body["datasource."+n+".auth_key"]=$("ds-key-"+n).value||"";
     body["datasource."+n+".sync_interval"]=$("ds-iv-"+n).value;
-    body["datasource."+n+".db_host"]="";
-    body["datasource."+n+".db_port"]="";
-    body["datasource."+n+".db_name"]="";
-    body["datasource."+n+".db_user"]="";
-    body["datasource."+n+".db_pass"]="";
-  }
+    body["datasource."+n+".extra"]=$("ds-extra-"+n).value||"";
+  });
   api("/api/datasources",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
   .then(function(r){
     if(r&&r.ok){
-      toast(meta_label(n)+" 配置已保存");
+      var msg=$("ds-save-msg");msg.textContent="✅ 已保存 "+new Date().toLocaleTimeString();
+      setTimeout(function(){msg.textContent="";},3000);
+      toast("数据源配置已保存");
     }else{toast("保存失败","alarm");}
   }).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
-}
-function meta_label(n){
-  var t=DS_TYPES.find(function(x){return x.name===n;});
-  return t?(t.icon+" "+t.label):n;
 }
 function testDsConnection(name){
   var el=$("ds-test-"+name);

@@ -2921,8 +2921,7 @@ _DS_LABELS = {
     "exam": "检查", "patient": "患者", "doctor": "医生",
 }
 _DS_FIELDS = ["enabled", "type", "url", "auth_type", "auth_key",
-              "sync_interval", "extra",
-              "db_host", "db_port", "db_name", "db_user", "db_pass"]
+              "sync_interval", "extra"]
 
 
 @app.get("/api/datasources", dependencies=[Depends(require_user)])
@@ -2949,40 +2948,14 @@ def save_datasources(body: Dict[str, Any]):
     return {"ok": True}
 
 
-
-@app.put("/api/datasources/{name}", dependencies=[Depends(require_admin)])
-def save_one_datasource(name: str, body: Dict[str, Any]):
-    """保存单个数据源配置。body: { "enabled": "true", "type": "db", ... }"""
-    if name not in _DS_TYPES:
-        raise HTTPException(404, "未知数据源类型")
-    for k, v in (body or {}).items():
-        if k in _DS_FIELDS:
-            icu.set_setting(f"datasource.{name}.{k}", str(v) if v is not None else "")
-    return {"ok": True, "name": name}
 @app.post("/api/datasources/{name}/test", dependencies=[Depends(require_admin)])
 def test_datasource(name: str):
-    """测试数据源连接。根据连接类型做不同的可达性检查。"""
+    """测试数据源连接。仅做 URL 可达性检查。"""
     if name not in _DS_TYPES:
         raise HTTPException(404, "未知数据源类型")
     raw = icu.list_settings_raw()
-    ds_type = raw.get(f"datasource.{name}.type", "")
-
-    # --- 数据库直连：尝试 TCP 端口连通 ---
-    if ds_type == "db":
-        db_host = raw.get(f"datasource.{name}.db_host", "")
-        db_port = raw.get(f"datasource.{name}.db_port", "3306")
-        if not db_host:
-            return {"ok": False, "error": "数据库 IP/主机 未配置"}
-        try:
-            import socket
-            port = int(db_port) if db_port else 3306
-            with socket.create_connection((db_host, port), timeout=5):
-                return {"ok": True, "msg": f"数据库端口可达 {db_host}:{port}"}
-        except Exception as e:
-            return {"ok": False, "error": f"数据库连接失败: {str(e)}"}
-
-    # --- HL7 / REST / WS：URL 可达性检查 ---
     url = raw.get(f"datasource.{name}.url", "")
+    ds_type = raw.get(f"datasource.{name}.type", "")
     if not url:
         return {"ok": False, "error": "URL 未配置"}
     try:
@@ -3001,6 +2974,11 @@ def test_datasource(name: str):
     except Exception as e:
         return {"ok": False, "error": f"测试异常: {str(e)}"}
 
+
+# ================================================================ P2 数据导出/时间同步/清理/AI创建
+@app.get("/api/export", dependencies=[Depends(require_user)])
+def export_data(device: Optional[str] = None, start: Optional[str] = None,
+                end: Optional[str] = None, limit: int = Query(50000, le=200000)):
     """导出遥测数据为 CSV 下载。"""
     if not device:
         raise HTTPException(400, "device 参数必填")
