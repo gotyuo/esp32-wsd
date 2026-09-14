@@ -2883,6 +2883,11 @@ def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
     field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
     rows = icu.patient_vitals(p["id"], start or "1970-01-01T00:00:00Z",
                               end or "9999-12-31T00:00:00Z", field_list)
+    # 回退：如果时间窗口查询无结果，但数据库中有体征数据（可能因设备时钟偏差
+    # 或时区格式不一致导致 ts 落在窗口外），则不按时间过滤取最新 100 条，
+    # 确保实时监护界面与监护屏一致地展示数据。
+    if not rows and hours:
+        rows = icu.patient_vitals_latest(p["id"], limit=100, fields=field_list)
     return {"patient_id": p["id"], "count": len(rows), "points": rows}
 
 

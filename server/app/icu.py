@@ -280,10 +280,22 @@ def patient_vitals(patient_id: int, start: str, end: str,
                    fields: Optional[List[str]] = None) -> List[Dict]:
     if not fields:
         fields = VITAL_FIELDS
-    cols = ", ".join(["ts"] + [f for f in fields if f in VITAL_FIELDS])
+    cols = ", ".join([f for f in fields if f in VITAL_FIELDS])
     sql = (f"SELECT ts, {cols}, source, alarm_flag "
            f"FROM vitals WHERE patient_id=? AND ts>=? AND ts<=? ORDER BY ts ASC")
     return fetchall(sql, (patient_id, start, end))
+
+def patient_vitals_latest(patient_id: int, limit: int = 100,
+                          fields: Optional[List[str]] = None) -> List[Dict]:
+    """回退查询：不按时间过滤，直接取最新 N 条体征（与监护屏 summary 一致）。"""
+    if not fields:
+        fields = VITAL_FIELDS
+    cols = ", ".join([f for f in fields if f in VITAL_FIELDS])
+    sql = (f"SELECT ts, {cols}, source, alarm_flag "
+           f"FROM vitals WHERE patient_id=? ORDER BY ts DESC LIMIT ?")
+    rows = fetchall(sql, (patient_id, limit))
+    rows.reverse()  # ASC 顺序，与 patient_vitals 一致
+    return rows
 
 
 def vitals_recent(patient_id: int, hours: int = 24,
