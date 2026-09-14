@@ -23,6 +23,8 @@ struct DeviceConfig {
     uint16_t mqtt_port;
     char     mqtt_user[MAX_USER_LEN + 1];
     char     mqtt_pass[MAX_PASS_LEN + 1];
+    // HTTP POST 上报端口(与MQTT同一服务器,默认12090)
+    uint16_t http_port;
     char     device_id[MAX_DEV_LEN + 1];
     // 服务器接入模式: 0=局域网自动发现(LAN beacon), 1=手动指定(填入 mqtt_host)
     uint8_t  server_mode;

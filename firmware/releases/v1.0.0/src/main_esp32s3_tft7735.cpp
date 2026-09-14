@@ -8,6 +8,8 @@
 // ============================================================
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClient.h>
+#include <HTTPClient.h>
 #include <Wire.h>
 #include <SPI.h>
 #include "pins_esp32s3_tft7735.h"
@@ -31,6 +33,7 @@ static EnvData  g_last;
 static uint32_t g_lastRead = 0;
 static uint32_t g_lastTft  = 0;
 static uint32_t g_lastPub  = 0;
+static uint32_t g_lastHttp = 0;  // HTTP POST 上次上报时间
 static bool     g_mqttReady = false;
 static bool     g_displayDirty = false;
 static uint8_t  g_pageIdx = 0;      // 轮播页索引 0=WiFi 1=体征 2=血氧
@@ -48,6 +51,49 @@ static String getCurSsid() {
     if (g_net.inAPMode()) return "AP-CONFIG";
     if (g_cfg.has_wifi()) return String(g_cfg.wifi_ssid);
     return "";
+}
+
+// HTTP POST 遥测上报到服务器 /api/telemetry（无需鉴权）
+static bool httpPostTelemetry(const EnvData &d, int alarmLevel) {
+    if (!g_cfg.has_mqtt() || !g_net.wifiConnected()) return false;
+    if (g_cfg.http_port == 0) return false;
+
+    WiFiClient client;
+    HTTPClient http;
+    String url = String("http://") + String(g_cfg.mqtt_host)
+               + ":" + String((int)g_cfg.http_port) + "/api/telemetry";
+    http.begin(client, url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(5000);
+
+    // JSON payload: 与 MQTT 遥测格式一致
+    String json = String("{\"device_id\":\"") + g_cfg.device_id + "\","
+                "\"t\":"  + String(d.temp_c, 1) + ","
+                "\"h\":"  + String(d.hum_pct, 1) + ","
+                "\"p\":"  + String(d.pres_hpa, 0) + ","
+                "\"rssi\":" + String((int)WiFi.RSSI()) + ","
+                "\"uptime\":" + String((uint32_t)(millis() / 1000)) + ","
+                "\"alarm\":" + String((int)alarmLevel) + ","
+                "\"fw\":\"1.0.0\""
+                + ",\"heap\":" + String((unsigned long)ESP.getFreeHeap()) + ","
+                "\"ip\":\"" + WiFi.localIP().toString() + "\"";
+    // 体征数据（非零时附带）
+    if (d.sp_o2 > 0) json += ",\"sp_o2\":" + String((int)d.sp_o2);
+    if (d.pr_hr > 0) json += ",\"pr_hr\":" + String((int)d.pr_hr);
+    if (d.ecg_hr > 0) json += ",\"ecg_hr\":" + String((int)d.ecg_hr);
+    json += "}";
+
+    int code = http.POST(json);
+    http.end();
+
+    if (code == 200) {
+        Serial.printf("[HTTP] telemetry OK (t=%.1f h=%.1f p=%.0f)\n",
+                      d.temp_c, d.hum_pct, d.pres_hpa);
+        return true;
+    } else {
+        Serial.printf("[HTTP] telemetry FAIL code=%d\n", code);
+        return false;
+    }
 }
 
 static void renderTft() {
@@ -386,6 +432,13 @@ void loop() {
             Serial.printf("[MAIN] telemetry published (t=%.1f h=%.1f p=%.1f)\n",
                           g_last.temp_c, g_last.hum_pct, g_last.pres_hpa);
         }
+    }
+
+    // HTTP POST 上报（与 MQTT 并行，独立触发）
+    if (g_cfg.has_mqtt() && g_net.wifiConnected() &&
+        now - g_lastHttp >= (uint32_t)g_cfg.report_interval * 1000UL) {
+        g_lastHttp = now;
+        httpPostTelemetry(g_last, (int)lvl);
     }
     delay(5);
 }
