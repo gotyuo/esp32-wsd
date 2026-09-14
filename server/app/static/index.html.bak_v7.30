@@ -362,12 +362,12 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <button class="secondary small" id="mAssessBtn" onclick="assessPatient()">🤖 AI 评估</button>
 </div>
 <div class="m-grid" id="mVitals">
-  <div class="m-card" data-param="ecg_hr"><div class="m-head"><span>💓 心率</span><span class="t">bpm</span></div><div class="m-val"><span class="v">--</span><span class="u">bpm</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
-  <div class="m-card" data-param="sp_o2"><div class="m-head"><span>🩸 血氧</span><span class="t">%</span></div><div class="m-val"><span class="v">--</span><span class="u">%</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
-  <div class="m-card" data-param="rr_bpm"><div class="m-head"><span>🫁 呼吸</span><span class="t">rpm</span></div><div class="m-val"><span class="v">--</span><span class="u">rpm</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
-  <div class="m-card" data-param="sbp"><div class="m-head"><span>🩺 血压</span><span class="t">mmHg</span></div><div class="m-val"><span class="v">--/--</span><span class="u">mmHg</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
-  <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 体温</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
-  <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 血糖</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="ecg_hr"><div class="m-head"><span>💓 HR / ECG</span><span class="t">bpm</span></div><div class="m-val"><span class="v">--</span><span class="u">bpm</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="sp_o2"><div class="m-head"><span>🩸 SpO2</span><span class="t">%</span></div><div class="m-val"><span class="v">--</span><span class="u">%</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="rr_bpm"><div class="m-head"><span>🫁 RR</span><span class="t">rpm</span></div><div class="m-val"><span class="v">--</span><span class="u">rpm</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="sbp"><div class="m-head"><span>🩺 NIBP</span><span class="t">mmHg</span></div><div class="m-val"><span class="v">--/--</span><span class="u">mmHg</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 TEMP</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
+  <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 GLU</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
 </div>
 <div class="m-bottom">
   <div class="m-panel">
@@ -472,7 +472,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <!-- ============= 报警 ============= -->
   <div id="view-alarms" class="hidden">
     <div class="section">
-      <h2>🚨 报警记录 <button class="secondary small" onclick="loadAlarms(event)">刷新报警</button> <span style="font-size:11px;color:var(--dim);font-weight:400">含环境报警 + 体征报警</span></h2>
+      <h2>🚨 报警记录 / ALARM LOG <button class="secondary small" onclick="loadAlarms(event)">刷新报警</button> <span style="font-size:11px;color:var(--dim);font-weight:400">含环境报警 + 体征报警</span></h2>
       <table><thead><tr><th>时间</th><th>设备</th><th>级别</th><th>原因</th><th>数值</th><th>状态</th></tr></thead>
         <tbody id="alarmBody"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody></table>
     </div>
@@ -1238,7 +1238,7 @@ function saveDeviceTh(id){var body={device_id:id,temp_min:+$("mTmin").value,temp
   api("/api/thresholds",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(d){$("saveMsg").textContent=d.ok?("已保存"+(d.pushed_to&&d.pushed_to.length?"，已下发: "+d.pushed_to.join(","):"（设备离线，上线后同步）")):"保存失败";toast("配置已保存");}).catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});}
 function showDeviceAlarm(id){api("/api/alarms?limit=20").then(function(d){var a=(d.alarms||[]).filter(function(x){return x.device_id===id});
   var rows=a.length?a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+st+"</td></tr>";}).join(""):'<tr><td colspan="4" class="empty">暂无报警</td></tr>';
-  $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>报警记录 · "+esc(id)+"</h2><table><thead><tr><th>时间</th><th>级别</th><th>原因</th><th>状态</th></tr></thead><tbody>"+rows+"</tbody></table><div class='actions'><button class='secondary' onclick='closeModal()'>关闭</button></div>";$("modalBox").classList.remove("hidden");
+  $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>ALARM LOG · "+esc(id)+"</h2><table><thead><tr><th>时间</th><th>级别</th><th>原因</th><th>状态</th></tr></thead><tbody>"+rows+"</tbody></table><div class='actions'><button class='secondary' onclick='closeModal()'>关闭</button></div>";$("modalBox").classList.remove("hidden");
 }).catch(function(){});}
 
 // ====== 绘图 ======
@@ -1538,10 +1538,10 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
   MONITOR_PID=pid;
   $("mTime").textContent="患者 "+pid;
   // 加载患者体征
-  // 各数据源独立加载，互不阻塞——有啥数据刷啥数据
   loadOrders();loadIo();loadLabs();
-  // 1) 体征数据（独立加载，失败不影响其他面板）
-  api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
+  return api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
+    // 后端 patient_vitals 按 ts ASC（升序）返回：points[0] 是最旧、末尾是最新。
+    // 因此"最新一条"必须取末尾下标，不能改成 [0]（否则会取到最旧值）。
     MONITOR_VITALS=d.points||[];
     var latest=MONITOR_VITALS.length?MONITOR_VITALS[MONITOR_VITALS.length-1]:null;
     var cards=document.querySelectorAll("#mVitals .m-card");
@@ -1574,46 +1574,46 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
       paintSpark(c.querySelector(".m-spark"),vals);
     });
     drawMonitorTrend();
-  }).catch(function(){});
-  // 2) 环境数据（独立加载，不依赖体征API成功）
-  api("/api/patients/"+pid+"/devices").then(function(dd){
-    var devs=dd.devices||[];
-    var envEl=document.getElementById('mEnvData');
-    if(!envEl){
-      var mBody=document.getElementById('view-monitor');
-      if(mBody){
-        envEl=document.createElement("div");
-        envEl.id="mEnvData";
-        envEl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;font-size:12px";
-        mBody.appendChild(envEl);
-      }
-    }
-    if(envEl){envEl.innerHTML="";}
-    var loaded=0;
-    devs.forEach(function(dv){
-      api("/api/realtime?device="+encodeURIComponent(dv.device_id)).then(function(rd){
-        var list=rd.devices||[];
-        list.forEach(function(x){
-          var L=x.latest;if(!L)return;
-          loaded++;
-          var chip=document.createElement("span");
-          chip.className="env-chip";
-          chip.style.cssText="display:inline-flex;gap:4px;align-items:center;padding:4px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:4px";
-          chip.innerHTML='<b>'+esc(dv.device_id)+'</b> '
-            +'<span>🌡'+fmt(L.temp_c)+'℃</span>'
-            +'<span>💧'+fmt(L.hum_pct)+'%</span>'
-            +'<span>🧭'+fmt(L.pres_hpa,0)+'hPa</span>'
-            +(x.device.online?' <span style="color:var(--green)">●</span>':' <span style="color:var(--red)">○</span>');
-          if(envEl)envEl.appendChild(chip);
-        });
-        if(envEl&&!envEl.children.length&&loaded===0){
-          envEl.innerHTML='<span style="color:var(--dim)">关联设备暂无实时数据</span>';
+    // 加载关联设备的实时环境数据(ESP8266/ESP32 telemetry)
+    api("/api/patients/"+pid+"/devices").then(function(dd){
+      var devs=dd.devices||[];
+      var envEl=document.getElementById('mEnvData');
+      if(!envEl){
+        var mBody=document.getElementById('view-monitor');
+        if(mBody){
+          envEl=document.createElement("div");
+          envEl.id="mEnvData";
+          envEl.style.cssText="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;font-size:12px";
+          mBody.appendChild(envEl);
         }
-      }).catch(function(){});
-    });
-    if(envEl&&!envEl.children.length){
-      envEl.innerHTML='<span style="color:var(--dim)">关联设备暂无实时数据</span>';
-    }
+      }
+      if(envEl){envEl.innerHTML="";}
+      var loaded=0;
+      devs.forEach(function(dv){
+        api("/api/realtime?device="+encodeURIComponent(dv.device_id)).then(function(rd){
+          var list=rd.devices||[];
+          list.forEach(function(x){
+            var L=x.latest;if(!L)return;
+            loaded++;
+            var chip=document.createElement("span");
+            chip.className="env-chip";
+            chip.style.cssText="display:inline-flex;gap:4px;align-items:center;padding:4px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:4px";
+            chip.innerHTML='<b>'+esc(dv.device_id)+'</b> '
+              +'<span>🌡'+fmt(L.temp_c)+'℃</span>'
+              +'<span>💧'+fmt(L.hum_pct)+'%</span>'
+              +'<span>🧭'+fmt(L.pres_hpa,0)+'hPa</span>'
+              +(x.device.online?' <span style="color:var(--green)">●</span>':' <span style="color:var(--red)">○</span>');
+            if(envEl)envEl.appendChild(chip);
+          });
+          if(envEl&&!envEl.children.length&&loaded===0){
+            envEl.innerHTML='<span style="color:var(--dim)">关联设备暂无实时数据</span>';
+          }
+        }).catch(function(){});
+      });
+      if(envEl&&!envEl.children.length){
+        envEl.innerHTML='<span style="color:var(--dim)">关联设备暂无实时数据</span>';
+      }
+    }).catch(function(){});
   }).catch(function(){});
   // 评估自动刷新
   assessPatient();

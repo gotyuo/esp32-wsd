@@ -469,6 +469,11 @@ def _vital_values(payload: dict) -> dict:
             out[k] = float(v)
         except (TypeError, ValueError):
             pass
+    # 设备只发 pr_hr(脉率) 时，回填 ecg_hr(心电图心率) 让心率卡片有值
+    if 'pr_hr' in out and 'ecg_hr' not in out:
+        out['ecg_hr'] = out['pr_hr']
+    if 'ecg_hr' in out and 'pr_hr' not in out:
+        out['pr_hr'] = out['ecg_hr']
     return out
 
 
