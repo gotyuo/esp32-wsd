@@ -1540,29 +1540,27 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
   // 加载患者体征
   // 各数据源独立加载，互不阻塞——有啥数据刷啥数据
   loadOrders();loadIo();loadLabs();
-  // 1) 体征数据 — 逐指标独立取最新非空值 + 遥测回退
-  //    先调 latest-signs 拿每个指标的最新值（谁有数据就显示谁）
-  //    再调 vitals 拿历史数据画趋势线（两调用并行，互不阻塞）
-  api("/api/patients/"+pid+"/latest-signs").then(function(d){
-    var signs=d.signs||{};
+  // 1) 体征数据（独立加载，失败不影响其他面板）
+  api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
+    MONITOR_VITALS=d.points||[];
+    var latest=MONITOR_VITALS.length?MONITOR_VITALS[MONITOR_VITALS.length-1]:null;
     var cards=document.querySelectorAll("#mVitals .m-card");
     var bands={ecg_hr:[60,100],sp_o2:[95,100],rr_bpm:[12,25],sbp:[100,140],temp_c:[36.0,37.5],glucose:[3.9,6.1]};
     cards.forEach(function(c){
       var param=c.dataset.param;
+      var v=latest?latest[param]:null;
+      var vals=(MONITOR_VITALS||[]).map(function(x){return x[param];}).filter(function(x){return x!=null;}).slice(-60);
       var valEl=c.querySelector(".v");
       var trendEl=c.querySelector(".trend");
       c.classList.remove("warn","crit");
       if(param==="sbp"){
-        var sbpS=signs["sbp"],dbpS=signs["dbp"];
-        var sv=sbpS?sbpS.value:null, dv=dbpS?dbpS.value:null;
-        valEl.textContent=(sv!=null&&dv!=null)?sv.toFixed(0)+"/"+dv.toFixed(0):"--";
-        if(sv!=null){
+        valEl.textContent=(latest&&latest.sbp!=null&&latest.dbp!=null)?latest.sbp.toFixed(0)+"/"+latest.dbp.toFixed(0):"--";
+        if(latest&&latest.sbp!=null){
+          var sv=latest.sbp;
           if(sv<90||sv>180)c.classList.add("crit");
           else if(sv<100||sv>140)c.classList.add("warn");
         }
       }else{
-        var s=signs[param];
-        var v=s?s.value:null;
         valEl.textContent=v==null||isNaN(v)?"--":v.toFixed(1);
         if(v!=null&&bands[param]){
           var b=bands[param];
@@ -1570,17 +1568,6 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
           else if(v<b[0]||v>b[1])c.classList.add("warn");
         }
       }
-      trendEl.textContent="";
-    });
-  }).catch(function(){});
-  // 1b) 历史体征数据 — 仅用于趋势线/sparkline，不影响卡片数值
-  api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
-    MONITOR_VITALS=d.points||[];
-    var cards=document.querySelectorAll("#mVitals .m-card");
-    cards.forEach(function(c){
-      var param=c.dataset.param;
-      var vals=(MONITOR_VITALS||[]).map(function(x){return x[param];}).filter(function(x){return x!=null;}).slice(-60);
-      var trendEl=c.querySelector(".trend");
       var ar=trendArrow(vals);
       trendEl.textContent=ar;
       trendEl.style.color=(ar==="↗"?"#ffa300":(ar==="↘"?"#4fc3f7":"var(--sub)"));

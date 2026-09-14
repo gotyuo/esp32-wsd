@@ -451,31 +451,15 @@ def handle_telemetry(device_id: str, payload: dict):
 
 
 def _looks_like_vitals(payload: dict) -> bool:
-    """检查载荷是否包含生命体征字段（标准名或固件别名）。"""
-    if any(k in payload for k in VITAL_KEYS):
-        return True
-    # 固件别名：t/h/p 是环境数据但也作为体征回退，spo2/hr 是体征
-    return any(k in payload for k in ("spo2", "hr"))
+    return any(k in payload for k in VITAL_KEYS)
 
 
 VITAL_KEYS = ("sp_o2", "pr_hr", "ecg_hr", "ecg_st", "rr_bpm", "etco2",
               "sbp", "dbp", "map_bp", "ibp", "temp_c", "glucose")
 
 
-# 固件实际使用的字段别名 → vitals 标准字段名
-FIRMWARE_ALIASES = {
-    "t": "temp_c",      # 温度
-    "h": "hum_pct",     # 湿度
-    "p": "pres_hpa",    # 气压
-    "spo2": "sp_o2",    # 血氧（小写）
-    "hr": "pr_hr",      # 心率/脉率
-}
-
 def _vital_values(payload: dict) -> dict:
-    """把载荷中的数值型体征字段转为 float 后挑出，供 insert_vital 使用。
-
-    同时兼容固件别名（t/h/p/spo2/hr）和标准字段名（temp_c/sp_o2/pr_hr 等）。
-    """
+    """把载荷中的数值型体征字段转为 float 后挑出，供 insert_vital 使用。"""
     out = {}
     for k in VITAL_KEYS:
         v = payload.get(k)
@@ -483,17 +467,6 @@ def _vital_values(payload: dict) -> dict:
             continue
         try:
             out[k] = float(v)
-        except (TypeError, ValueError):
-            pass
-    # 固件别名映射：t→temp_c, h→hum_pct, p→pres_hpa, spo2→sp_o2, hr→pr_hr
-    for alias, standard in FIRMWARE_ALIASES.items():
-        if standard in out:
-            continue  # 标准字段已有值，不覆盖
-        v = payload.get(alias)
-        if v is None:
-            continue
-        try:
-            out[standard] = float(v)
         except (TypeError, ValueError):
             pass
     # 设备只发 pr_hr(脉率) 时，回填 ecg_hr(心电图心率) 让心率卡片有值
@@ -3010,58 +2983,6 @@ def patient_devices(pid: str):
         else:
             d["latest_telemetry"] = None
     return {"devices": devices}
-
-
-# ---------- 最新体征（逐指标独立取值 + 遥测回退）----------
-@app.get("/api/patients/{pid}/latest-signs", dependencies=[Depends(require_user)])
-def latest_signs(pid: str):
-    """每个生命体征指标各自查最新非空值，同时查关联设备遥测做回退。
-
-    返回 {sign: {value, ts, source}} — 谁有数据就返回谁，互不依赖。
-    """
-    import sqlite3 as _sqlite3
-    p = icu.patient_by_pid(pid)
-    if not p:
-        raise HTTPException(404, "患者不存在")
-    patient_id = p["id"]
-
-    # 需要独立取值的指标列表
-    signs = ["ecg_hr", "sp_o2", "rr_bpm", "sbp", "dbp", "temp_c", "glucose",
-             "hum_pct", "pres_hpa", "pr_hr", "map_bp"]
-    result = {}
-
-    conn = icu._get_conn()
-    conn.row_factory = _sqlite3.Row
-
-    # 1) 从 vitals 表逐指标查最新非空值
-    for sign in signs:
-        row = conn.execute(
-            f"SELECT {sign} AS val, ts, source_device FROM vitals "
-            f"WHERE patient_id=? AND {sign} IS NOT NULL ORDER BY ts DESC LIMIT 1",
-            (patient_id,),
-        ).fetchone()
-        if row and row["val"] is not None:
-            result[sign] = {"value": row["val"], "ts": row["ts"],
-                            "source": "vitals", "device": row["source_device"]}
-
-    # 2) 遥测回退：对 vitals 表没有的指标，查关联设备的最新遥测
-    devices = icu.devices_for_patient(patient_id)
-    for d in devices:
-        dev_id = d.get("device_id")
-        if not dev_id:
-            continue
-        tel = db.latest_telemetry(dev_id)
-        if not tel:
-            continue
-        # 遥测字段 → 体征字段映射
-        tel_map = {"temp_c": "temp_c", "hum_pct": "hum_pct", "pres_hpa": "pres_hpa"}
-        for tel_field, sign in tel_map.items():
-            if sign not in result and tel.get(tel_field) is not None:
-                result[sign] = {"value": tel[tel_field], "ts": tel["ts"],
-                                "source": "telemetry", "device": dev_id}
-
-    conn.close()
-    return {"pid": pid, "signs": result}
 
 
 # ---------- 生命体征 ----------

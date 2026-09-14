@@ -77,8 +77,6 @@ class MqttBridge:
             client.subscribe("envmon/+/vitals", qos=1)
             client.subscribe("envmon/+/order", qos=1)
             client.subscribe("envmon/+/lab", qos=1)
-            # 旧固件 publish 到 envmon/vitals（无设备ID段），payload 内含 device_id
-            client.subscribe("envmon/vitals", qos=1)
             log.info("MQTT connected, topics subscribed")
         else:
             log.warning("MQTT connect rc=%s", rc)
@@ -90,19 +88,7 @@ class MqttBridge:
 
     def _on_message(self, client, userdata, msg):
         parts = msg.topic.split("/")
-        if parts[0] != "envmon":
-            return
-        # 旧固件 publish 到 envmon/vitals（2段，无设备ID），从 payload 提取 device_id
-        if len(parts) == 2 and parts[1] == "vitals":
-            try:
-                payload = json.loads(msg.payload.decode("utf-8", "ignore"))
-                device_id = payload.get("device_id", "")
-                if device_id and self.on_vitals:
-                    self.on_vitals(device_id, payload)
-            except Exception as e:
-                log.exception("handle old-format vitals failed: %s", e)
-            return
-        if len(parts) < 3:
+        if len(parts) < 3 or parts[0] != "envmon":
             return
         device_id = parts[1]
         # 支持 3 段 (envmon/{id}/telemetry) 和 4 段 (envmon/{id}/config/req) 主题
