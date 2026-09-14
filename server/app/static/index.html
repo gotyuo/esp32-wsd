@@ -666,7 +666,7 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
           <input id="wcWebhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" maxlength="2048" style="width:100%">
         </div>
         <div style="font-size:11px;color:var(--dim);margin-top:8px">
-          在企业微信群中添加"群机器人"，复制 Webhook URL 填入即可。消息将推送到该群。
+          在企业微信群中添加群机器人，复制 Webhook URL 填入即可。消息将推送到该群。
         </div>
       </div>
       <!-- 子页签 B: 应用消息 -->
@@ -2117,17 +2117,31 @@ function showSettings(){
       "</div>"+
       "<div style='font-size:11px;color:var(--dim);margin:6px 0 14px'>AI 用于报警自动分析，结果可推送到企业微信。测试连接请到 🧠 AI 模型 标签页。</div>"+
       "<div style='border-top:1px dashed var(--line);padding-top:12px;margin-top:0;font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信提醒配置</div>"+
-      "<div class='kv'>"+
+      "<div class='kv' style='margin-bottom:10px'>"+
         "<label>企业微信开关</label><div class='switchrow'><input type='checkbox' id='sWxEn' "+(wec?"checked":"")+" onchange='toggleWxKey()'><span>启用企业微信推送提醒</span></div>"+
-        "<label>模式</label><div style='font-size:11px;color:var(--dim);margin-bottom:4px'>任选其一：<b>webhook_url</b>（群机器人，最简单）或 <b>corp_id + agent_id + secret</b>（应用消息）</div>"+
-        "<label>Webhook URL</label><input id='sWxUrl' value='"+esc(AI_SETTINGS["wechat.webhook_url"]||"")+"' placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' maxlength='2048'>"+
-        "<label>企业 ID (corp_id)</label><input id='sWxCorp' value='"+esc(AI_SETTINGS["wechat.corp_id"]||"")+"' maxlength='200'>"+
-        "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+"' maxlength='50'>"+
-        "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+"' maxlength='4096'>"+
-        "<label>回调 Token</label><input id='sWxToken' value='"+esc(AI_SETTINGS["wechat.token"]||"")+"' placeholder='企业微信回调 Token（应用消息模式可选）' maxlength='200'>"+
-        "<label>回调 AES Key</label><input id='sWxAesKey' type='password' value='"+esc(AI_SETTINGS["wechat.aes_key"]||"")+"' placeholder='企业微信回调 EncodingAESKey（应用消息模式可选）' maxlength='200'>"+
       "</div>"+
-      "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信。回调 Token/AES Key 用于企业微信消息回调（医生→设备）。</div>"+
+      "<div style='margin-bottom:6px'>"+
+        "<span class=\"chip active\" data-mwtab=\"webhook\" onclick=\"switchModalWxTab('webhook')\" style='margin-right:6px'>🔗 群机器人</span>"+
+        "<span class=\"chip\" data-mwtab=\"app\" onclick=\"switchModalWxTab('app')\">📱 应用消息</span>"+
+      "</div>"+
+      "<div id='mw-tab-webhook' class='m-panel'>"+
+        "<div style='font-size:12px;color:var(--blue);margin-bottom:8px'>🔗 模式 A：Webhook 群机器人（推荐，无需企业号）</div>"+
+        "<div class='kv'>"+
+          "<label>Webhook URL</label><input id='sWxUrl' value='"+esc(AI_SETTINGS["wechat.webhook_url"]||"")+"' placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' maxlength='2048'>"+
+        "</div>"+
+        "<div style='font-size:11px;color:var(--dim);margin-top:6px'>在企业微信群中添加群机器人，复制 Webhook URL 填入即可。消息将推送到该群。</div>"+
+      "</div>"+
+      "<div id='mw-tab-app' class='m-panel hidden'>"+
+        "<div style='font-size:12px;color:var(--orange);margin-bottom:8px'>📱 模式 B：应用消息（需企业管理员授权，可定向发到某位医生）</div>"+
+        "<div class='kv'>"+
+          "<label>企业 ID (corp_id)</label><input id='sWxCorp' value='"+esc(AI_SETTINGS["wechat.corp_id"]||"")+"' maxlength='200'>"+
+          "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+"' maxlength='50'>"+
+          "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+"' maxlength='4096'>"+
+          "<label>回调 Token</label><input id='sWxToken' value='"+esc(AI_SETTINGS["wechat.token"]||"")+"' placeholder='企业微信回调 Token（可选）' maxlength='200'>"+
+          "<label>回调 AES Key</label><input id='sWxAesKey' type='password' value='"+esc(AI_SETTINGS["wechat.aes_key"]||"")+"' placeholder='企业微信回调 EncodingAESKey（可选）' maxlength='200'>"+
+        "</div>"+
+        "<div style='font-size:11px;color:var(--dim);margin-top:6px'>医生表 wechat_userid 字段对应 touser（定向推送）；留空则推送给 @all。回调 Token/AES Key 用于消息回调（医生→设备）。</div>"+
+      "</div>"+
       "<div class='actions'><button onclick='saveSettings()'>保存全部设置</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     toggleWxKey();
     $("modalBox").classList.remove("hidden");
@@ -2135,8 +2149,18 @@ function showSettings(){
 }
 function toggleWxKey(){
   var en=$("sWxEn")&&$("sWxEn").checked;
-  $("sWxUrl").disabled=!en;$("sWxCorp").disabled=!en;$("sWxAgent").disabled=!en;$("sWxSecret").disabled=!en;
-  if($("sWxToken"))$("sWxToken").disabled=!en;if($("sWxAesKey"))$("sWxAesKey").disabled=!en;
+  if($("sWxUrl"))$("sWxUrl").disabled=!en;
+  if($("sWxCorp"))$("sWxCorp").disabled=!en;
+  if($("sWxAgent"))$("sWxAgent").disabled=!en;
+  if($("sWxSecret"))$("sWxSecret").disabled=!en;
+  if($("sWxToken"))$("sWxToken").disabled=!en;
+  if($("sWxAesKey"))$("sWxAesKey").disabled=!en;
+}
+function switchModalWxTab(t){
+  document.querySelectorAll('[data-mwtab]').forEach(function(e){e.classList.toggle('active',e.dataset.mwtab===t);});
+  var w=$("mw-tab-webhook"),a=$("mw-tab-app");
+  if(w)w.classList.toggle('hidden',t!=='webhook');
+  if(a)a.classList.toggle('hidden',t!=='app');
 }
 function saveSettings(){
   var body={
