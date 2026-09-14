@@ -337,10 +337,14 @@ def lab_result_insert(patient_id: int, source: str = "lis",
                       ref_min: float = None, ref_max: float = None,
                       result_ts: str = None, critical: int = 0) -> int:
     ts = result_ts or _now()
-    # 自动标 critical
+    # 自动标 critical：仅超出参考范围 50% 以上才标危急值，
+    # 避免轻度偏离正常区间（如 K 5.5 vs ref 3.5-5.3）被误标为危急。
+    # 若调用方已显式传入 critical=1 则保留。
     if ref_min is not None and ref_max is not None and value is not None:
-        if value < ref_min or value > ref_max:
-            critical = 1
+        span = ref_max - ref_min
+        if span > 0:
+            if value < ref_min - span * 0.5 or value > ref_max + span * 0.5:
+                critical = 1
     return run(
         "INSERT INTO lab_results (patient_id,source,item_code,item_name,value,unit,ref_min,ref_max,result_ts,critical,created_at) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?)",

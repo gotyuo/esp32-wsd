@@ -17,5 +17,5 @@ export MQTT_PORT="${MQTT_PORT:-18830}"
 export MQTT_USER="${MQTT_USER:-}"
 export MQTT_PASS="${MQTT_PASS:-}"
 
-echo ">> 启动后端 http://127.0.0.1:8627"
-uvicorn app.main:app --host 0.0.0.0 --port 8627
+echo ">> 启动后端 http://127.0.0.1:12090"
+uvicorn app.main:app --host 0.0.0.0 --port 12090
