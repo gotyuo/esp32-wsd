@@ -266,6 +266,7 @@ void NetManager::loop() {
     } else {
         dns.processNextRequest();
         web.handleClient();
+        if (_scanBusy) pollScan(millis());
     }
 }
 
@@ -290,19 +291,11 @@ void NetManager::startAP() {
     startPortalServer();
     Serial.printf("[NET] AP started: %s (http://192.168.4.1)\n", _ap_ssid.c_str());
 
-    // AP 刚起、尚无客户端时扫一次填充缓存 (射频稳定后重试)
+    // 初始扫描改用 loop() 驱动(pollScan),避免 setup() 阻塞导致射频未稳时饿死。
     _scanCache = "[]";
-    for (int tt = 0; tt < 3 && (_scanCache == "[]"); tt++) {
-        delay(800);
-        WiFi.scanNetworks(true, false, false, 200);
-        uint32_t t0 = millis();
-        while (millis() - t0 < 3500) {
-            int n = WiFi.scanComplete();
-            if (n >= 0) { buildScanCache(n); WiFi.scanDelete(); break; }
-            dns.processNextRequest(); web.handleClient();
-        }
-    }
-    Serial.printf("[NET] initial scan cache: %s\n", (_scanCache == "[]" ? "empty" : _scanCache.substring(0, 40).c_str()));
+    delay(2000);
+    Serial.println("[NET] initial scan requested (loop-driven)");
+    requestScan();
 }
 
 void NetManager::startPortalServer() {
@@ -399,8 +392,27 @@ void NetManager::buildScanCache(int n) {
 void NetManager::requestScan() {
     if (_scanBusy || WiFi.getMode() == WIFI_OFF) return;
     _scanBusy = true;
+    _scanStartedAt = millis();
     WiFi.scanNetworks(true, false, false, 250);
     Serial.println("[NET] on-demand scan started");
+}
+
+// 轮询异步扫描结果：scanComplete()>=0 表示完成，填 _scanCache 并清 _scanBusy。
+// 带超时：超过 30s 未完成则放弃（避免射频卡死导致永久"扫描中"）。
+void NetManager::pollScan(uint32_t now) {
+    if (!_scanBusy) return;
+    int n = WiFi.scanComplete();
+    if (n >= 0) {
+        buildScanCache(n);
+        WiFi.scanDelete();
+        _scanBusy = false;
+        Serial.printf("[NET] scan complete: %d networks\n", n);
+    } else if (now - _scanStartedAt > 30000) {
+        WiFi.scanDelete();
+        _scanBusy = false;
+        if (_scanCache == "") _scanCache = "[]";
+        Serial.println("[NET] scan timeout, aborted");
+    }
 }
 
 void NetManager::handleSave() {
