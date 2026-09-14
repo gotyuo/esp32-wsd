@@ -188,7 +188,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab" data-view="access" onclick="switchView('access')">📡 设备接入</span>
       <span class="vtab" data-view="doctors" onclick="switchView('doctors')">👨⚕ 医生管理</span>
       <span class="vtab" data-view="remind" onclick="switchView('remind')">💬 发提醒</span>
-      <span class="vtab" data-view="wechat" onclick="switchView('wechat')">🏥 企微配置</span>
+      <span class="vtab" data-view="wechat" onclick="switchView('wechat')">🏥 企业微信配置</span>
       <span class="vtab" data-view="ai" onclick="switchView('ai')">🧠 AI 模型</span>
       <span class="vtab" data-view="datasource" onclick="switchView('datasource')">🔌 数据源</span>
     </div>
@@ -642,6 +642,10 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
 <div id="view-wechat" class="hidden">
     <div class="section">
       <h2>🏥 企业微信配置 / WECHAT
+        <div class="sub" style="margin-top:6px">
+          <span class="chip active" data-wtab="webhook" onclick="switchWechatTab('webhook')">🔗 群机器人</span>
+          <span class="chip" data-wtab="app" onclick="switchWechatTab('app')">📱 应用消息</span>
+        </div>
         <div class="actions" style="margin-top:0">
           <button onclick="saveWechatSettings()">💾 保存</button>
           <button class="secondary" onclick="testWechat()">📤 发送测试消息</button>
@@ -650,27 +654,35 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
       <div style="font-size:12px;color:var(--sub);margin-bottom:14px">
         患者异常/医生发提醒时，自动推送企业微信。支持两种模式（任选其一）：<b>webhook_url</b>（群机器人，最简单）或 <b>corp_id + agent_id + secret</b>（应用消息，可定向发到某位医生）。
       </div>
-      <div class="m-panel" style="max-width:720px">
+      <div class="kv" style="max-width:720px;margin-bottom:14px">
+        <label>企业微信开关</label>
+        <div class="switchrow"><input type="checkbox" id="wcEn"><span>启用企业微信推送</span></div>
+      </div>
+      <!-- 子页签 A: 群机器人 Webhook -->
+      <div id="wechat-tab-webhook" class="m-panel" style="max-width:720px">
+        <div style="font-size:13px;color:var(--blue);margin-bottom:10px">🔗 模式 A：Webhook 群机器人（推荐，无需企业号）</div>
         <div class="kv">
-          <label>企微开关</label>
-          <div class="switchrow"><input type="checkbox" id="wcEn"><span>启用企业微信推送</span></div>
-          <label>模式</label>
-          <div style="font-size:11px;color:var(--dim);margin-bottom:4px">
-            模式 A：Webhook URL 群机器人（推荐，无需企业号）<br>
-            模式 B：corp_id + agent_id + secret（应用消息，需企业管理员授权）
-          </div>
-          <label>Webhook URL (模式 A)</label>
+          <label>Webhook URL</label>
           <input id="wcWebhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" maxlength="2048" style="width:100%">
-          <label>企业 ID / corp_id (模式 B)</label>
-          <input id="wcCorp" placeholder="ww1234567890abcdef" maxlength="200">
-          <label>应用 ID / agent_id (模式 B)</label>
-          <input id="wcAgent" placeholder="1000001" maxlength="50">
-          <label>应用 Secret (模式 B)</label>
-          <input id="wcSecret" type="password" placeholder="secret..." maxlength="4096">
+        </div>
+        <div style="font-size:11px;color:var(--dim);margin-top:8px">
+          在企业微信群中添加"群机器人"，复制 Webhook URL 填入即可。消息将推送到该群。
         </div>
       </div>
-      <div style="font-size:11px;color:var(--dim);margin-top:10px">
-        医生表中 <code>wechat_userid</code> 字段对应"应用消息"的 touser（定向推送）；留空则由应用推送给 @all。患者表同样新增 wechat_userid 字段，支持异常时直接推给患者本人。
+      <!-- 子页签 B: 应用消息 -->
+      <div id="wechat-tab-app" class="m-panel hidden" style="max-width:720px">
+        <div style="font-size:13px;color:var(--orange);margin-bottom:10px">📱 模式 B：应用消息（需企业管理员授权，可定向发到某位医生）</div>
+        <div class="kv">
+          <label>企业 ID / corp_id</label>
+          <input id="wcCorp" placeholder="ww1234567890abcdef" maxlength="200">
+          <label>应用 ID / agent_id</label>
+          <input id="wcAgent" placeholder="1000001" maxlength="50">
+          <label>应用 Secret</label>
+          <input id="wcSecret" type="password" placeholder="secret..." maxlength="4096">
+        </div>
+        <div style="font-size:11px;color:var(--dim);margin-top:10px">
+          医生表中 <code>wechat_userid</code> 字段对应"应用消息"的 touser（定向推送）；留空则由应用推送给 @all。患者表同样新增 wechat_userid 字段，支持异常时直接推给患者本人。
+        </div>
       </div>
     </div>
   </div>
@@ -1367,7 +1379,7 @@ function showPatientForm(pid){
         +"<label>主管医生</label><select id='pDoc'><option value=''>-- 无 --</option></select>"
         +"<label>诊断</label><input id='pDiag' value='" + esc(p.diagnosis||"") + "' maxlength='512'>"
         +"<label>联系电话</label><input id='pPhone' value='" + esc(p.phone||"") + "' maxlength='20'>"
-        +"<label>企业微信 userid（推送地址，可选）</label><input id='pWxId' value='" + esc(p.wechat_userid||"") + "' maxlength='128' placeholder='企微账号ID，如 zhangsan。提醒会推送到此账号'>"
+        +"<label>企业微信 userid（推送地址，可选）</label><input id='pWxId' value='" + esc(p.wechat_userid||"") + "' maxlength='128' placeholder='企业微信账号ID，如 zhangsan。提醒会推送到此账号'>"
       +"</div>"
       +"<div class='actions'><button onclick='savePatient(\""+(pid||"")+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     $("modalBox").classList.remove("hidden");
@@ -2034,33 +2046,40 @@ function loadSettings(){
     AI_ASSESS=(AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]==="1"||AI_SETTINGS["ai.enabled"]===true);
   }).catch(function(){});
 }
-// 加载企微配置到独立 tab 表单
+// 企业微信配置 — 子页签切换
+function switchWechatTab(t){
+  document.querySelectorAll('#view-wechat .chip').forEach(function(e){e.classList.toggle('active',e.dataset.wtab===t);});
+  var w=$("wechat-tab-webhook"),a=$("wechat-tab-app");
+  if(w)w.classList.toggle('hidden',t!=='webhook');
+  if(a)a.classList.toggle('hidden',t!=='app');
+}
+// 加载企业微信配置到独立 tab 表单
 function loadWechatTab(){
   if(!AI_SETTINGS || Object.keys(AI_SETTINGS).length===0) loadSettings();
   api("/api/settings").then(function(d){
     var ss=d.settings||[];AI_SETTINGS={};
     ss.forEach(function(x){AI_SETTINGS[x.key]=x.value;});
-    var el=$( "wcEn"); if(el) el.checked = (AI_SETTINGS["wechat.enabled"]==="1"||AI_SETTINGS["wechat.enabled"]==="true");
-    var e2=$( "wcWebhook"); if(e2) e2.value = AI_SETTINGS["wechat.webhook_url"]||"";
-    var e3=$( "wcCorp"); if(e3) e3.value = AI_SETTINGS["wechat.corp_id"]||"";
-    var e4=$( "wcAgent"); if(e4) e4.value = AI_SETTINGS["wechat.agent_id"]||"";
-    var e5=$( "wcSecret"); if(e5) e5.value = AI_SETTINGS["wechat.secret"]||"";
+    var el=$("wcEn"); if(el) el.checked = (AI_SETTINGS["wechat.enabled"]==="1"||AI_SETTINGS["wechat.enabled"]==="true");
+    var e2=$("wcWebhook"); if(e2) e2.value = AI_SETTINGS["wechat.webhook_url"]||"";
+    var e3=$("wcCorp"); if(e3) e3.value = AI_SETTINGS["wechat.corp_id"]||"";
+    var e4=$("wcAgent"); if(e4) e4.value = AI_SETTINGS["wechat.agent_id"]||"";
+    var e5=$("wcSecret"); if(e5) e5.value = AI_SETTINGS["wechat.secret"]||"";
   }).catch(function(){});
 }
 function saveWechatSettings(){
   var body={
     "wechat.enabled": $("wcEn")&&$("wcEn").checked?"1":"0",
-    "wechat.webhook_url": $("wcWebhook").value.trim(),
-    "wechat.corp_id": $("wcCorp").value.trim(),
-    "wechat.agent_id": $("wcAgent").value.trim(),
-    "wechat.secret": $("wcSecret").value,
+    "wechat.webhook_url": $("wcWebhook")?$("wcWebhook").value.trim():"",
+    "wechat.corp_id": $("wcCorp")?$("wcCorp").value.trim():"",
+    "wechat.agent_id": $("wcAgent")?$("wcAgent").value.trim():"",
+    "wechat.secret": $("wcSecret")?$("wcSecret").value:"",
   };
   api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-    .then(function(){toast("企微配置已保存");loadSettings();loadAiSettings();})
+    .then(function(){toast("企业微信配置已保存");loadSettings();loadAiSettings();})
     .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
 }
 function testWechat(){
-  api("/api/wechat/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:"envmon 企微配置测试消息"})})
+  api("/api/wechat/test",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:"envmon 企业微信配置测试消息"})})
     .then(function(d){toast(d.ok?("✅ 已推送" + (d.detail?(" ("+d.detail+")"):"")):("❌ 失败: "+(d.detail||"")),"");})
     .catch(function(e){toast("测试失败: "+(e&&e.message||""),"alarm");});
 }
@@ -2094,21 +2113,21 @@ function showSettings(){
         "<label>Timeout (秒)</label><input id='sAITimeout' type='number' value='"+esc(AI_SETTINGS["ai.timeout"]||"30")+"' placeholder='30' min='5' max='300'>"+
         "<label>Max Tokens</label><input id='sAIMaxTokens' type='number' value='"+esc(AI_SETTINGS["ai.max_tokens"]||"512")+"' placeholder='512' min='50' max='8192'>"+
         "<label>System Prompt</label><textarea id='sAIPrompt' style='width:100%;height:60px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:12px;padding:8px' maxlength='4096'>"+esc(AI_SETTINGS["ai.system_prompt"]||AI_SETTINGS["ai.prompt"]||"")+"</textarea>"+
-        "<label>AI 结果推送企微</label><div class='switchrow'><input type='checkbox' id='sAIPushWx' "+(aiPushWx?"checked":"")+"><span>开启后 AI 分析结果自动推送到主管医生企微</span></div>"+
+        "<label>AI 结果推送企业微信</label><div class='switchrow'><input type='checkbox' id='sAIPushWx' "+(aiPushWx?"checked":"")+"><span>开启后 AI 分析结果自动推送到主管医生企业微信</span></div>"+
       "</div>"+
       "<div style='font-size:11px;color:var(--dim);margin:6px 0 14px'>AI 用于报警自动分析，结果可推送到企业微信。测试连接请到 🧠 AI 模型 标签页。</div>"+
       "<div style='border-top:1px dashed var(--line);padding-top:12px;margin-top:0;font-size:13px;color:var(--orange);margin-bottom:6px'>🏥 企业微信提醒配置</div>"+
       "<div class='kv'>"+
-        "<label>企微开关</label><div class='switchrow'><input type='checkbox' id='sWxEn' "+(wec?"checked":"")+" onchange='toggleWxKey()'><span>启用企业微信推送提醒</span></div>"+
+        "<label>企业微信开关</label><div class='switchrow'><input type='checkbox' id='sWxEn' "+(wec?"checked":"")+" onchange='toggleWxKey()'><span>启用企业微信推送提醒</span></div>"+
         "<label>模式</label><div style='font-size:11px;color:var(--dim);margin-bottom:4px'>任选其一：<b>webhook_url</b>（群机器人，最简单）或 <b>corp_id + agent_id + secret</b>（应用消息）</div>"+
         "<label>Webhook URL</label><input id='sWxUrl' value='"+esc(AI_SETTINGS["wechat.webhook_url"]||"")+"' placeholder='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx' maxlength='2048'>"+
         "<label>企业 ID (corp_id)</label><input id='sWxCorp' value='"+esc(AI_SETTINGS["wechat.corp_id"]||"")+"' maxlength='200'>"+
         "<label>应用 ID (agent_id)</label><input id='sWxAgent' value='"+esc(AI_SETTINGS["wechat.agent_id"]||"")+"' maxlength='50'>"+
         "<label>应用 Secret</label><input id='sWxSecret' type='password' value='"+esc(AI_SETTINGS["wechat.secret"]||"")+"' maxlength='4096'>"+
-        "<label>回调 Token</label><input id='sWxToken' value='"+esc(AI_SETTINGS["wechat.token"]||"")+"' placeholder='企微回调 Token（应用消息模式可选）' maxlength='200'>"+
-        "<label>回调 AES Key</label><input id='sWxAesKey' type='password' value='"+esc(AI_SETTINGS["wechat.aes_key"]||"")+"' placeholder='企微回调 EncodingAESKey（应用消息模式可选）' maxlength='200'>"+
+        "<label>回调 Token</label><input id='sWxToken' value='"+esc(AI_SETTINGS["wechat.token"]||"")+"' placeholder='企业微信回调 Token（应用消息模式可选）' maxlength='200'>"+
+        "<label>回调 AES Key</label><input id='sWxAesKey' type='password' value='"+esc(AI_SETTINGS["wechat.aes_key"]||"")+"' placeholder='企业微信回调 EncodingAESKey（应用消息模式可选）' maxlength='200'>"+
       "</div>"+
-      "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信。回调 Token/AES Key 用于企微消息回调（医生→设备）。</div>"+
+      "<div style='font-size:11px;color:var(--dim);margin:6px 0 12px'>启用后，患者异常/医生发提醒时会自动推送企业微信。回调 Token/AES Key 用于企业微信消息回调（医生→设备）。</div>"+
       "<div class='actions'><button onclick='saveSettings()'>保存全部设置</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     toggleWxKey();
     $("modalBox").classList.remove("hidden");
@@ -2744,7 +2763,7 @@ function showDoctorForm(did){
         "<label>职称</label><input id='dTitle' value='"+esc(doc.title||"")+"' maxlength='48'>"+
         "<label>科室</label><input id='dDept' value='"+esc(doc.department||"")+"' maxlength='48'>"+
         "<label>电话</label><input id='dPhone' value='"+esc(doc.phone||doc.contact||"")+"' maxlength='20'>"+
-        "<label>企业微信 userid（推送地址）</label><input id='dWxId' value='"+esc(doc.wechat_userid||"")+"' maxlength='128' placeholder='企微账号ID，如 zhangsan。报警/AI分析结果通过企微应用消息推送到此账号'>"+
+        "<label>企业微信 userid（推送地址）</label><input id='dWxId' value='"+esc(doc.wechat_userid||"")+"' maxlength='128' placeholder='企业微信账号ID，如 zhangsan。报警/AI分析结果通过企业微信应用消息推送到此账号'>"+
         "<label>备注</label><input id='dNote' value='"+esc(doc.note||"")+"' maxlength='256'>"+
       "</div>"+
       "<div class='actions'><button onclick='saveDoctor("+did+")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
@@ -2814,7 +2833,7 @@ function loadRemindHistory(){
     var list=d.reminders||[];
     if(!list.length){$("rmdHistory").innerHTML='<div class="empty">暂无</div>';return;}
     $("rmdHistory").innerHTML=list.map(function(x){
-      var flag = (x.sent_to_device?"<span class='ok'>🔊 设备</span>":"")+(x.sent_to_wechat?" <span class='ok'>📱 企微</span>":"");
+      var flag = (x.sent_to_device?"<span class='ok'>🔊 设备</span>":"")+(x.sent_to_wechat?" <span class="ok">📱 微信</span>":"");
       var who = x.doctor_name||"-";
       return "<div style='padding:6px 0;border-bottom:1px dashed var(--line)'>"+
         "<div><b>"+esc(x.patient_id)+"</b> · <span style='color:var(--blue)'>"+esc(who)+"</span> · <span style='color:var(--dim)'>"+fmtTime(x.created_at)+"</span></div>"+
@@ -2854,8 +2873,8 @@ function doRemind(){
     var msg = "已发送：";
     if(d.tts) msg+=" 🔊 语音播报已下发";
     else msg+=" 🔊 语音下发失败";
-    if(d.wechat) msg+=" 📱 企微已推送";
-    else if($("rmdWx").checked) msg+=" 📱 企微推送失败: "+(d.wechat_error||"-");
+    if(d.wechat) msg+=" 📱 企业微信已推送";
+    else if($("rmdWx").checked) msg+=" 📱 企业微信推送失败: "+(d.wechat_error||"-");
     toast(msg);
     t.value="";
     loadRemindHistory();
@@ -2914,7 +2933,7 @@ async function saveAiSettings(){
       setTimeout(()=>{ msg.textContent=''; }, 3000);
       // 刷新 AI_SETTINGS 缓存，使测试连接能读到最新值
       await loadSettings();
-      // 同步刷新企微标签页表单，保持三处设置一致
+      // 同步刷新企业微信标签页表单，保持三处设置一致
       loadWechatTab();
     } else { alert('保存失败: '+(r&&r.error||'')); }
   }catch(e){ alert('请求失败: '+e); }
