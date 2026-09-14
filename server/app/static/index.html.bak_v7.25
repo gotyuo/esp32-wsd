@@ -369,6 +369,8 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 TEMP</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
   <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 GLU</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
 </div>
+  </div>
+</div>
 <div class="m-bottom">
   <div class="m-panel">
     <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新医嘱</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">📜 历史</button></h4>
@@ -417,8 +419,6 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <span><span style="display:inline-block;width:10px;height:2px;background:#ff6b9d;vertical-align:middle"></span> TEMP</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#b48cff;vertical-align:middle"></span> GLU</span>
     <span><span style="display:inline-block;width:6px;height:6px;background:#ff5470;border-radius:50%;vertical-align:middle"></span> 用药</span>
-</div>
-</div>
 </div>
   <!-- ============= 患者管理 ============= -->
   <div id="view-patients" class="hidden">
@@ -734,6 +734,7 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
       </div>
     </div>
   </div>
+</div>
 
   <!-- ============= 数据源配置 ============= -->
   <div id="view-datasource" class="hidden">
@@ -750,7 +751,6 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
       </p>
       <div id="dsCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px"></div>
     </div>
-</div>
   </div>
 
 <div id="modalBox" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:400">
