@@ -66,29 +66,43 @@ static bool httpPostTelemetry(const EnvData &d, int alarmLevel) {
     http.addHeader("Content-Type", "application/json");
     http.setTimeout(5000);
 
+    // seq: 单调序列号(去重), 与 MQTT 一致用 uptime 秒
+    uint32_t seq = (uint32_t)(millis() / 1000);
+
+    // NaN 值发 null (服务器 handle_telemetry 对 None 跳过)
+    auto nanOrNull = [](float v, int prec) -> String {
+        if (isnan(v)) return "null";
+        return String(v, prec);
+    };
+
     // JSON payload: 与 MQTT 遥测格式一致
-    String json = String("{\"device_id\":\"") + g_cfg.device_id + "\","
-                "\"t\":"  + String(d.temp_c, 1) + ","
-                "\"h\":"  + String(d.hum_pct, 1) + ","
-                "\"p\":"  + String(d.pres_hpa, 0) + ","
-                "\"rssi\":" + String((int)WiFi.RSSI()) + ","
-                "\"uptime\":" + String((uint32_t)(millis() / 1000)) + ","
-                "\"alarm\":" + String((int)alarmLevel) + ","
-                "\"fw\":\"1.0.0\""
-                + ",\"heap\":" + String((unsigned long)ESP.getFreeHeap()) + ","
-                "\"ip\":\"" + WiFi.localIP().toString() + "\"";
-    // 体征数据（非零时附带）
-    if (d.sp_o2 > 0) json += ",\"sp_o2\":" + String((int)d.sp_o2);
-    if (d.pr_hr > 0) json += ",\"pr_hr\":" + String((int)d.pr_hr);
-    if (d.ecg_hr > 0) json += ",\"ecg_hr\":" + String((int)d.ecg_hr);
+    String json = String("{\"device_id\":\"") + g_cfg.device_id + "\""
+                + ",\"seq\":" + String((unsigned long)seq)
+                + ",\"t\":"  + nanOrNull(d.temp_c, 2)
+                + ",\"h\":"  + nanOrNull(d.hum_pct, 2)
+                + ",\"p\":"  + nanOrNull(d.pres_hpa, 2)
+                + ",\"rssi\":" + String((int)WiFi.RSSI())
+                + ",\"uptime\":" + String((unsigned long)(millis() / 1000))
+                + ",\"alarm\":" + String((int)alarmLevel)
+                + ",\"fw\":\"" + String(FW_VERSION) + "\""
+                + ",\"heap\":" + String((unsigned long)ESP.getFreeHeap())
+                + ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
+
+    // 体征数据（非 NaN 时附带）
+    if (!isnan(d.sp_o2))  json += ",\"sp_o2\":"  + nanOrNull(d.sp_o2, 1);
+    if (!isnan(d.pr_hr))  json += ",\"pr_hr\":"  + nanOrNull(d.pr_hr, 1);
+    if (!isnan(d.ecg_hr)) json += ",\"ecg_hr\":" + nanOrNull(d.ecg_hr, 1);
+    if (!isnan(d.rr_bpm)) json += ",\"rr_bpm\":" + nanOrNull(d.rr_bpm, 1);
+    if (!isnan(d.glucose)) json += ",\"glucose\":" + nanOrNull(d.glucose, 2);
+
     json += "}";
 
     int code = http.POST(json);
     http.end();
 
     if (code == 200) {
-        Serial.printf("[HTTP] telemetry OK (t=%.1f h=%.1f p=%.0f)\n",
-                      d.temp_c, d.hum_pct, d.pres_hpa);
+        Serial.printf("[HTTP] telemetry OK seq=%lu (t=%.1f h=%.1f p=%.0f)\n",
+                      (unsigned long)seq, d.temp_c, d.hum_pct, d.pres_hpa);
         return true;
     } else {
         Serial.printf("[HTTP] telemetry FAIL code=%d\n", code);
