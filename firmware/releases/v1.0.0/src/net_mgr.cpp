@@ -63,7 +63,7 @@ button{width:100%;padding:13px;border:0;border-radius:10px;background:#0ea5e9;co
 <label>MQTT 用户名</label>
 <input name="user" value="envmon">
 <label>MQTT 密码</label>
-<input name="mpass" type="password">
+<input name="mpass" type="password" value="envmon">
 <label>设备编号</label>
 <input name="devid" placeholder="留空自动生成"><input type="hidden" name="smode" id="m_smode" value="0">
 <label>上报间隔（秒）</label>
@@ -434,11 +434,17 @@ void NetManager::handleSave() {
     }
     c.server_mode = (uint8_t)web.arg("smode").toInt();
     String host = web.arg("host");
+    // 留空表示使用自动发现；填了就存
     if (host.length() > 0) host.toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
     c.mqtt_port = (uint16_t)web.arg("port").toInt();
     if (c.mqtt_port == 0) c.mqtt_port = 18830;
-    web.arg("user").toCharArray(c.mqtt_user, sizeof(c.mqtt_user));
-    web.arg("mpass").toCharArray(c.mqtt_pass, sizeof(c.mqtt_pass));
+    // MQTT 凭据：留空时保留默认 envmon/envmon，避免空串覆盖导致下次登录显示空
+    String muser = web.arg("user");
+    if (muser.length() > 0) { memset(c.mqtt_user, 0, sizeof(c.mqtt_user)); muser.toCharArray(c.mqtt_user, sizeof(c.mqtt_user)); }
+    else strcpy(c.mqtt_user, "envmon");
+    String mpass = web.arg("mpass");
+    if (mpass.length() > 0) { memset(c.mqtt_pass, 0, sizeof(c.mqtt_pass)); mpass.toCharArray(c.mqtt_pass, sizeof(c.mqtt_pass)); }
+    else strcpy(c.mqtt_pass, "envmon");
     String devid = web.arg("devid");
     devid.trim();
     if (devid.length() > 0) devid.toCharArray(c.device_id, sizeof(c.device_id));
