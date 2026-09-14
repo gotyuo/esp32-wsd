@@ -24,7 +24,7 @@ body{background:var(--bg);color:var(--txt);font-family:var(--font);min-height:10
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--dim)}
 .dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}.dot.off{background:var(--red)}
 select,input[type=text],input[type=number],input[type=password]{padding:7px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--txt);font-size:13px}
-button{padding:7px 14px;border-radius:5px;border:none;background:var(--blue);color:#00141f;font-weight:600;font-size:12px;cursor:pointer;font-family:var(--font);white-space:nowrap}
+button{padding:7px 14px;border-radius:5px;border:none;background:var(--blue);color:#00141f;font-weight:600;font-size:12px;cursor:pointer;font-family:var(--font)}
 button.secondary{background:var(--panel2);color:var(--txt);border:1px solid var(--line);font-weight:400}
 button.danger{background:rgba(255,23,68,.15);color:var(--red);border:1px solid rgba(255,23,68,.5)}
 button.success{background:rgba(0,230,118,.15);color:var(--green);border:1px solid rgba(0,230,118,.5)}
@@ -48,7 +48,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
 .section h2{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;color:var(--sub);text-transform:uppercase;letter-spacing:1px}
 .section h2 .hint{font-size:11px;color:var(--dim);font-weight:400;letter-spacing:0;text-transform:none}
-.actions{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;white-space:nowrap}
+.actions{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
 /* ===== 登录 ===== */
 #loginView{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(800px 400px at 50% -10%,#0a1e38 0%,var(--bg) 60%)}
@@ -103,11 +103,11 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .devcard .id{font-size:13px;font-weight:700;color:var(--blue);font-family:Consolas,monospace}
 .devcard .meta{display:grid;grid-template-columns:repeat(2,1fr);gap:5px 10px;font-size:11px}
 .devcard .meta .k{color:var(--dim)} .devcard .meta .v{color:var(--txt);font-weight:600;font-family:Consolas,monospace}
-.devcard .latest{display:flex;gap:12px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:11px;flex-wrap:nowrap;overflow:hidden;font-family:Consolas,monospace;white-space:nowrap}
+.devcard .latest{display:flex;gap:12px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:11px;flex-wrap:wrap;font-family:Consolas,monospace}
 .devcard .latest span{color:var(--sub)} .devcard .latest b{color:var(--txt);font-weight:600}
-.devcard .actions{margin-top:10px;display:flex;gap:4px;flex-wrap:nowrap;overflow:hidden}.devcard .actions button{flex-shrink:0;white-space:nowrap}
+.devcard .actions{margin-top:10px;display:flex;gap:4px;flex-wrap:nowrap;overflow:hidden}
 .devcard .name{font-size:11px;color:var(--sub);margin-left:6px;font-weight:400}
-.devcard .meta-inline{display:flex;gap:14px;font-size:10px;color:var(--sub);font-family:Consolas,monospace;flex-wrap:nowrap;overflow:hidden;margin-bottom:6px;white-space:nowrap}
+.devcard .meta-inline{display:flex;gap:14px;font-size:10px;color:var(--sub);font-family:Consolas,monospace;flex-wrap:wrap;margin-bottom:6px}
 .devcard .dev-patient{font-size:11px;padding:4px 0;border-top:1px dashed var(--line);margin-top:6px}
 .devcard .dev-patient:empty{display:none}
 /* 设备卡片头部：左侧设备 ID/名称，右侧状态徽标 + 单台刷新按钮（按钮用 margin-left:auto 靠右） */
