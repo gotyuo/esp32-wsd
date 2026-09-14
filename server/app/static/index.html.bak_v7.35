@@ -441,7 +441,6 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <h2>🖥 设备管理 / DEVICE MANAGEMENT
         <div class="actions" style="margin-top:0">
           <button onclick="showAddDevice()">+ 注册设备</button>
-          <button class="small" onclick="scanLanDevices(event)" title="扫描局域网子网发现ESP设备">🔍 扫描局域网</button>
           <button class="small" id="devProbeBtn" onclick="probeDevices(event)" title="主动扫描所有设备在线状态">🔄 刷新</button>
           <span class="hint" id="devCount">0 台</span>
         </div>
@@ -1056,25 +1055,6 @@ function probeDevices(ev){
     toast("扫描失败: "+(e&&e.message||""),"alarm");
   }).finally(function(){
     if(b){b.disabled=false;b.textContent=_o;}
-  });
-}
-function scanLanDevices(ev){
-  var b=ev&&ev.currentTarget;
-  if(b&&b.disabled)return;
-  if(b){b.disabled=true;b.textContent="扫描中…";}
-  toast("正在扫描局域网，约需5-10秒…");
-  api("/api/devices/scan",{method:"POST"}).then(function(d){
-    var found=d.found||[];
-    if(found.length){
-      toast("发现 "+found.length+" 台设备: "+found.map(function(x){return x.device_id;}).join(", "));
-      loadDevices();
-    }else{
-      toast("未发现新设备（扫描 "+(d.scanned||0)+" 个IP）"+(d.error?" · "+d.error:""));
-    }
-  }).catch(function(e){
-    toast("扫描失败: "+(e&&e.message||""),"alarm");
-  }).finally(function(){
-    if(b){b.disabled=false;b.textContent="🔍 扫描局域网";}
   });
 }
 var DEV_TAB='all',DEV_SEARCH='';
