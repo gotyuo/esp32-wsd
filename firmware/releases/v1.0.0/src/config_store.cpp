@@ -26,7 +26,9 @@ bool ConfigStore::load(DeviceConfig &cfg) {
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     snprintf(cfg.device_id, sizeof(cfg.device_id), "envmon-%02x%02x%02x",
              mac[3], mac[4], mac[5]);
-    snprintf(cfg.ap_ssid, sizeof(cfg.ap_ssid), "ENVMON-%02X%02X", mac[4], mac[5]);
+    // 热点名: esp32- + MAC后6位,多设备时可区分
+    snprintf(cfg.ap_ssid, sizeof(cfg.ap_ssid), "esp32-%02x%02x%02x",
+             mac[3], mac[4], mac[5]);
 
     // 默认 MQTT 凭据（与服务器 broker 一一致：user=envmon / pass=envmon）。
     // 首次烧录未配置时即可直连，无需手工配网。
@@ -41,6 +43,11 @@ bool ConfigStore::load(DeviceConfig &cfg) {
     s = _prefs.getString("pass", "");      s.toCharArray(cfg.wifi_pass, sizeof(cfg.wifi_pass));
     s = _prefs.getString("apssid", cfg.ap_ssid);
     s.toCharArray(cfg.ap_ssid, sizeof(cfg.ap_ssid));
+    // 迁移: 旧格式 ENVMON-xxxx 改为新格式 esp32-mac后6位
+    if (strncmp(cfg.ap_ssid, "ENVMON-", 7) == 0) {
+        snprintf(cfg.ap_ssid, sizeof(cfg.ap_ssid), "esp32-%02x%02x%02x",
+                 mac[3], mac[4], mac[5]);
+    }
     s = _prefs.getString("host", "");      s.toCharArray(cfg.mqtt_host, sizeof(cfg.mqtt_host));
     s = _prefs.getString("user", "");      s.toCharArray(cfg.mqtt_user, sizeof(cfg.mqtt_user));
     s = _prefs.getString("mpass", "");     s.toCharArray(cfg.mqtt_pass, sizeof(cfg.mqtt_pass));

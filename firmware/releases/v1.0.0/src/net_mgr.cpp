@@ -279,13 +279,15 @@ void NetManager::startAP() {
     } else {
         uint8_t mac[6];
         esp_read_mac(mac, ESP_MAC_WIFI_STA);
-        _ap_ssid = String("EnvMon-") + String(mac[4], HEX) + String(mac[5], HEX);
-        _ap_ssid.toUpperCase();
+        char buf[24];
+        snprintf(buf, sizeof(buf), "esp32-%02x%02x%02x", mac[3], mac[4], mac[5]);
+        _ap_ssid = String(buf);
     }
 
-    // 用 AP_STA: STA 射频常开, 扫描无需切模式, 手机不掉线。
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(_ap_ssid.c_str(), nullptr, 6, 0);  // 固定信道 6
+    // 纯 AP 模式: 配网时用 AP,连上 WiFi 后自动关闭 AP(见 loop 的 WiFiConnected 处理)
+    // 热点密码: 12345689
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(_ap_ssid.c_str(), "12345689", 6, 0);  // 固定信道 6
     delay(300);
     dns.start(53, "*", WiFi.softAPIP());
     startPortalServer();

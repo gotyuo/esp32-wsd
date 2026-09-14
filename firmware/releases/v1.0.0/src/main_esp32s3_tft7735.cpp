@@ -81,104 +81,48 @@ static void renderTft() {
     // 分隔线
     for (int x = 0; x < 160; x += 2) g_tft.drawPixel(x, 12, C_GRAY);
 
-    // ---- AP 配网模式 ----
+    // ---- AP 配网模式: 显示热点名+密码+管理IP ----
     if (g_net.inAPMode()) {
         g_tft.setTextColor(C_YELLOW);
         g_tft.setTextSize(1);
         g_tft.setCursor(4, 18);
-        g_tft.print("AP config mode");
+        g_tft.print("AP Config");
         g_tft.setTextColor(C_WHITE);
         g_tft.setCursor(4, 32);
-        g_tft.print(g_net.apSSID().c_str());
+        String apName = g_net.apSSID();
+        if (apName.length() > 20) apName = apName.substring(0, 20);
+        g_tft.print("SSID:" + apName);
+        g_tft.setTextColor(C_GREEN);
         g_tft.setCursor(4, 44);
-        g_tft.print("192.168.4.1");
+        g_tft.print("PWD:12345689");
+        g_tft.setTextColor(C_CYAN);
         g_tft.setCursor(4, 56);
-        g_tft.print("set WiFi+MQTT");
+        g_tft.print("IP:192.168.4.1");
+        g_tft.setTextColor(C_GRAY);
+        g_tft.setCursor(4, 68);
+        g_tft.print("scan wifi -> save");
         g_displayDirty = false;
         return;
     }
 
-    // ---- 主数据区 ----
-    char buf[16];
+    // ---- 连接 WiFi 后: 仅显示 WiFi 名称和 IP 地址 ----
+    String ipStr = WiFi.localIP().toString();
+    String curSsid = getCurSsid();
+    if (curSsid.isEmpty()) curSsid = "---";
+    if (curSsid.length() > 20) curSsid = curSsid.substring(0, 20);
 
-    // 温度
-    g_tft.setTextColor(C_ORANGE);
     g_tft.setTextSize(1);
-    g_tft.setCursor(4, 20);
-    g_tft.print("T:");
-    snprintf(buf, sizeof(buf), "%.1f", g_last.temp_c);
-    g_tft.setTextColor(C_WHITE);
-    g_tft.setCursor(20, 20);
-    g_tft.print(buf);
-    g_tft.setTextColor(C_GRAY);
-    g_tft.setCursor(48, 20);
-    g_tft.print("C");
-
-    // 湿度
-    g_tft.setTextColor(C_CYAN);
-    g_tft.setCursor(4, 40);
-    g_tft.print("H:");
-    snprintf(buf, sizeof(buf), "%.1f", g_last.hum_pct);
-    g_tft.setTextColor(C_WHITE);
-    g_tft.setCursor(20, 40);
-    g_tft.print(buf);
-    g_tft.setTextColor(C_GRAY);
-    g_tft.setCursor(48, 40);
-    g_tft.print("%");
-
-    // 气压
     g_tft.setTextColor(C_GREEN);
-    g_tft.setCursor(4, 60);
-    g_tft.print("P:");
-    snprintf(buf, sizeof(buf), "%d", (int)g_last.pres_hpa);
-    g_tft.setTextColor(C_WHITE);
-    g_tft.setCursor(20, 60);
-    g_tft.print(buf);
-    g_tft.setTextColor(C_GRAY);
-    g_tft.setCursor(48, 60);
-    g_tft.print("hPa");
+    g_tft.setCursor(4, 20);
+    g_tft.print("WIFI OK");
 
-    // ---- MAX30102 血氧/心率 (右侧) ----
-    g_tft.setTextColor(C_RED);
-    g_tft.setCursor(60, 20);
-    g_tft.print("SpO2:");
-    if (!isnan(g_last.sp_o2)) {
-        snprintf(buf, sizeof(buf), "%.0f%%", g_last.sp_o2);
-        g_tft.setTextColor(C_WHITE);
-    } else {
-        g_tft.setTextColor(C_GRAY);
-        buf[0] = '-'; buf[1] = '-'; buf[2] = 0;
-    }
-    g_tft.setCursor(104, 20);
-    g_tft.print(buf);
+    g_tft.setTextColor(C_WHITE);
+    g_tft.setCursor(4, 38);
+    g_tft.print("WiFi:" + curSsid);
 
     g_tft.setTextColor(C_CYAN);
-    g_tft.setCursor(60, 40);
-    g_tft.print("HR:");
-    if (!isnan(g_last.pr_hr)) {
-        snprintf(buf, sizeof(buf), "%.0f", g_last.pr_hr);
-        g_tft.setTextColor(C_WHITE);
-    } else {
-        g_tft.setTextColor(C_GRAY);
-        buf[0] = '-'; buf[1] = '-'; buf[2] = 0;
-    }
-    g_tft.setCursor(84, 40);
-    g_tft.print(buf);
-    g_tft.setTextColor(C_GRAY);
-    g_tft.setCursor(116, 40);
-    g_tft.print("bpm");
-
-    // ---- MIC 电平条 (右下) ----
-    g_tft.setTextColor(C_GRAY);
-    g_tft.setCursor(60, 60);
-    g_tft.print("MIC:");
-    int micBars = (int)(g_micLevel * 10);
-    if (micBars > 10) micBars = 10;
-    if (micBars < 0) micBars = 0;
-    for (int i = 0; i < 10; i++) {
-        uint16_t col = (i < micBars) ? C_GREEN : C_GRAY;
-        g_tft.fillRect(90 + i * 6, 60, 4, 8, col);
-    }
+    g_tft.setCursor(4, 58);
+    g_tft.print("IP:" + ipStr);
 
     // ---- 底部状态栏 ----
     for (int x = 0; x < 160; x += 2) g_tft.drawPixel(x, 70, C_GRAY);
@@ -331,15 +275,18 @@ void loop() {
     // LAN 自动发现
     if (!g_mqttReady && g_net.wifiConnected()
             && g_cfg.server_mode == 0 && !g_cfg.has_mqtt()) {
-        if (!g_net.inDiscovery()) g_net.startDiscover();
+        static bool discoveryFailed = false;
+        if (!discoveryFailed && !g_net.inDiscovery()) g_net.startDiscover();
         int disc = g_net.discoverLoop(now);
         if (disc == 1) {
             Serial.println(F("[MAIN] server discovered -> restarting to apply"));
             delay(500);
             ESP.restart();
         } else if (disc == -1) {
-            Serial.println(F("[MAIN] discovery failed -> entering AP portal"));
-            g_net.startAP();
+            // WiFi 已连上，发现失败不回落到 AP，也不再重试（保持 STA 模式）
+            // 下次重启或手动 config 命令时可重新触发发现
+            discoveryFailed = true;
+            Serial.println(F("[MAIN] discovery failed, staying in STA mode (AP off)"));
         }
     }
 
