@@ -149,60 +149,69 @@ static void renderTft() {
         String ipStr = WiFi.localIP().toString();
         String curSsid = getCurSsid();
         if (curSsid.isEmpty()) curSsid = "---";
-        if (curSsid.length() > 20) curSsid = curSsid.substring(0, 20);
+        if (curSsid.length() > 16) curSsid = curSsid.substring(0, 16);
 
         g_tft.setTextSize(1);
         g_tft.setTextColor(C_GREEN);
-        g_tft.setCursor(4, 20);
+        g_tft.setCursor(4, 12);
         g_tft.print("WIFI OK");
+        g_tft.setTextSize(2);
         g_tft.setTextColor(C_WHITE);
-        g_tft.setCursor(4, 38);
+        g_tft.setCursor(4, 26);
         g_tft.print("WiFi:" + curSsid);
         g_tft.setTextColor(C_CYAN);
-        g_tft.setCursor(4, 58);
+        g_tft.setCursor(4, 50);
         g_tft.print("IP:" + ipStr);
     }
     else if (g_pageIdx == 1) {
         // ---- 第2页: 体征 (温湿度气压) ----
         g_tft.setTextSize(1);
         g_tft.setTextColor(C_ORANGE);
-        g_tft.setCursor(4, 20);
+        g_tft.setCursor(4, 10);
         g_tft.print("T:");
+        g_tft.setTextSize(2);
         snprintf(buf, sizeof(buf), "%.1f", g_last.temp_c);
         g_tft.setTextColor(C_WHITE);
-        g_tft.setCursor(20, 20);
+        g_tft.setCursor(20, 8);
         g_tft.print(buf);
+        g_tft.setTextSize(1);
         g_tft.setTextColor(C_GRAY);
-        g_tft.setCursor(48, 20);
+        g_tft.setCursor(64, 12);
         g_tft.print("C");
 
+        g_tft.setTextSize(1);
         g_tft.setTextColor(C_CYAN);
-        g_tft.setCursor(4, 40);
+        g_tft.setCursor(4, 32);
         g_tft.print("H:");
+        g_tft.setTextSize(2);
         snprintf(buf, sizeof(buf), "%.1f", g_last.hum_pct);
         g_tft.setTextColor(C_WHITE);
-        g_tft.setCursor(20, 40);
+        g_tft.setCursor(20, 30);
         g_tft.print(buf);
+        g_tft.setTextSize(1);
         g_tft.setTextColor(C_GRAY);
-        g_tft.setCursor(48, 40);
+        g_tft.setCursor(64, 34);
         g_tft.print("%");
 
+        g_tft.setTextSize(1);
         g_tft.setTextColor(C_GREEN);
-        g_tft.setCursor(4, 60);
+        g_tft.setCursor(4, 54);
         g_tft.print("P:");
+        g_tft.setTextSize(2);
         snprintf(buf, sizeof(buf), "%d", (int)g_last.pres_hpa);
         g_tft.setTextColor(C_WHITE);
-        g_tft.setCursor(20, 60);
+        g_tft.setCursor(20, 52);
         g_tft.print(buf);
+        g_tft.setTextSize(1);
         g_tft.setTextColor(C_GRAY);
-        g_tft.setCursor(48, 60);
+        g_tft.setCursor(64, 56);
         g_tft.print("hPa");
     }
     else {
         // ---- 第3页: 血氧心率 ----
         g_tft.setTextSize(1);
         g_tft.setTextColor(C_RED);
-        g_tft.setCursor(4, 20);
+        g_tft.setCursor(4, 10);
         g_tft.print("SpO2:");
         if (!isnan(g_last.sp_o2)) {
             snprintf(buf, sizeof(buf), "%.0f%%", g_last.sp_o2);
@@ -211,11 +220,13 @@ static void renderTft() {
             g_tft.setTextColor(C_GRAY);
             buf[0] = '-'; buf[1] = '-'; buf[2] = 0;
         }
-        g_tft.setCursor(20, 20);
+        g_tft.setTextSize(2);
+        g_tft.setCursor(38, 8);
         g_tft.print(buf);
 
+        g_tft.setTextSize(1);
         g_tft.setTextColor(C_CYAN);
-        g_tft.setCursor(4, 40);
+        g_tft.setCursor(4, 32);
         g_tft.print("HR:");
         if (!isnan(g_last.pr_hr)) {
             snprintf(buf, sizeof(buf), "%.0f", g_last.pr_hr);
@@ -224,10 +235,12 @@ static void renderTft() {
             g_tft.setTextColor(C_GRAY);
             buf[0] = '-'; buf[1] = '-'; buf[2] = 0;
         }
-        g_tft.setCursor(20, 40);
+        g_tft.setTextSize(2);
+        g_tft.setCursor(20, 30);
         g_tft.print(buf);
+        g_tft.setTextSize(1);
         g_tft.setTextColor(C_GRAY);
-        g_tft.setCursor(48, 40);
+        g_tft.setCursor(50, 34);
         g_tft.print("bpm");
 
         g_tft.setTextColor(C_GRAY);
@@ -242,7 +255,7 @@ static void renderTft() {
         }
     }
 
-    // ---- 底部状态栏 (版本+页指示+报警等级) ----
+    // ---- 底部状态栏 (版本+报警等级) ----
     for (int x = 0; x < 160; x += 2) g_tft.drawPixel(x, 70, C_GRAY);
 
     g_tft.setTextSize(1);
@@ -250,15 +263,8 @@ static void renderTft() {
     g_tft.setCursor(4, 72);
     g_tft.print("v" FW_VERSION);
 
-    // 页指示点 (●●○ / ●○● / ○●●)
-    const char *dots = (g_pageIdx == 0) ? "●●○" :
-                       (g_pageIdx == 1) ? "●○●" : "○●●";
-    g_tft.setTextColor(C_CYAN);
-    g_tft.setCursor(60, 72);
-    g_tft.print(dots);
-
     g_tft.setTextColor(C_GRAY);
-    g_tft.setCursor(100, 72);
+    g_tft.setCursor(80, 72);
     g_tft.print("L:");
     g_tft.print(g_alarm.level());
 
