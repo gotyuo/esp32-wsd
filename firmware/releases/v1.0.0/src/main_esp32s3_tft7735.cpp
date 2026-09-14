@@ -149,18 +149,17 @@ static void renderTft() {
         String ipStr = WiFi.localIP().toString();
         String curSsid = getCurSsid();
         if (curSsid.isEmpty()) curSsid = "---";
-        if (curSsid.length() > 16) curSsid = curSsid.substring(0, 16);
+        if (curSsid.length() > 20) curSsid = curSsid.substring(0, 20);
 
         g_tft.setTextSize(1);
         g_tft.setTextColor(C_GREEN);
-        g_tft.setCursor(4, 12);
+        g_tft.setCursor(4, 20);
         g_tft.print("WIFI OK");
-        g_tft.setTextSize(2);
         g_tft.setTextColor(C_WHITE);
-        g_tft.setCursor(4, 26);
+        g_tft.setCursor(4, 38);
         g_tft.print("WiFi:" + curSsid);
         g_tft.setTextColor(C_CYAN);
-        g_tft.setCursor(4, 50);
+        g_tft.setCursor(4, 58);
         g_tft.print("IP:" + ipStr);
     }
     else if (g_pageIdx == 1) {
@@ -254,19 +253,6 @@ static void renderTft() {
             g_tft.fillRect(20 + i * 12, 60, 10, 8, col);
         }
     }
-
-    // ---- 底部状态栏 (版本+报警等级) ----
-    for (int x = 0; x < 160; x += 2) g_tft.drawPixel(x, 70, C_GRAY);
-
-    g_tft.setTextSize(1);
-    g_tft.setTextColor(C_GRAY);
-    g_tft.setCursor(4, 72);
-    g_tft.print("v" FW_VERSION);
-
-    g_tft.setTextColor(C_GRAY);
-    g_tft.setCursor(80, 72);
-    g_tft.print("L:");
-    g_tft.print(g_alarm.level());
 
     // 报警红边框
     if (g_alarm.level() >= AL_ALARM) {
