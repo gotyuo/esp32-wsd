@@ -105,7 +105,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .devcard .meta .k{color:var(--dim)} .devcard .meta .v{color:var(--txt);font-weight:600;font-family:Consolas,monospace}
 .devcard .latest{display:flex;gap:12px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:11px;flex-wrap:wrap;font-family:Consolas,monospace}
 .devcard .latest span{color:var(--sub)} .devcard .latest b{color:var(--txt);font-weight:600}
-.devcard .actions{margin-top:10px;display:flex;gap:4px;flex-wrap:nowrap;overflow:hidden}
+.devcard .actions{margin-top:10px;display:flex;gap:5px;flex-wrap:wrap}
 .devcard .name{font-size:11px;color:var(--sub);margin-left:6px;font-weight:400}
 .devcard .meta-inline{display:flex;gap:14px;font-size:10px;color:var(--sub);font-family:Consolas,monospace;flex-wrap:wrap;margin-bottom:6px}
 .devcard .dev-patient{font-size:11px;padding:4px 0;border-top:1px dashed var(--line);margin-top:6px}
@@ -901,7 +901,7 @@ function _devCard(x,onlineFlag){
     "<div class='latest'>"+vals+"</div>"+
     "<div class='dev-patient' id='devpt-"+did+"'></div>"+
     "<div class='actions'>"+
-    "<button class='secondary small' onclick='event.stopPropagation();refreshOneDevice(\""+did+"\",event)' title='刷新此设备'>刷新</button>"+
+    "<button class='secondary small' onclick='event.stopPropagation();refreshOneDevice(\""+did+"\",event)' title='刷新此设备'>⟳</button>"+
     "<button class='secondary small' onclick='event.stopPropagation();editName(\""+did+"\")' title='编辑名称/IP'>✏ 编辑</button>"+
     "<button class='success small' onclick='event.stopPropagation();showDeviceConfig(\""+did+"\")' title='配置阈值'>⚙ 配置</button>"+
     "<button class='secondary small' onclick='event.stopPropagation();showBindPatient(\""+did+"\")' title='绑定患者'>🔗 绑定</button>"+
@@ -986,7 +986,7 @@ function refreshOneDevice(id,ev){
   _DEVREFRESH_BUSY[key]=true;
   var btn=ev&&ev.currentTarget?ev.currentTarget:null;
   var orig=btn?btn.textContent:"";
-  if(btn){btn.disabled=true;btn.textContent="刷新…";}
+  if(btn){btn.disabled=true;btn.textContent="⟳ …";}
   var stEl=$("devst-"+esc(id)), seenEl=$("devseen-"+esc(id));
   api("/api/devices/"+encodeURIComponent(id)+"/probe",{method:"POST"}).then(function(d){
     var on=!!d.online, rec=d.device||{};
@@ -1489,7 +1489,7 @@ function showPatientDetail(pid){
         +"<button class='secondary small' onclick='closeModal();linkDev(\""+pid+"\")'>关联设备</button>"
         +"<button class='danger small' onclick='closeModal();delPatient(\""+pid+"\")'>删除</button>"
       +"</div>"
-      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin-bottom:6px'>设备 ("+devs.length+") <button class='secondary small' onclick='refreshPatientDevices()' style='font-size:10px'>刷新设备状态</button></h3>"
+      +"<h3 style='font-size:12px;color:var(--sub);letter-spacing:1px;margin-bottom:6px'>设备 ("+devs.length+") <button class='secondary small' onclick='refreshPatientDevices()' style='font-size:10px'>⟳ 刷新设备状态</button></h3>"
       +"<div style='display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px'>"
         +devs.map(function(d){
             return "<span class='tag'>"+esc(d.device_name||d.device_id)+" "+(d.online?"🟢":"🔴")
