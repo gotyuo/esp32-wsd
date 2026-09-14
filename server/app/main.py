@@ -3143,11 +3143,41 @@ def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
     field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
     rows = icu.patient_vitals(p["id"], start or "1970-01-01T00:00:00Z",
                               end or "9999-12-31T00:00:00Z", field_list)
-    # 回退：如果时间窗口查询无结果，但数据库中有体征数据（可能因设备时钟偏差
+    # 回退1：如果时间窗口查询无结果，但数据库中有体征数据（可能因设备时钟偏差
     # 或时区格式不一致导致 ts 落在窗口外），则不按时间过滤取最新 100 条，
     # 确保实时监护界面与监护屏一致地展示数据。
     if not rows and hours:
         rows = icu.patient_vitals_latest(p["id"], limit=100, fields=field_list)
+    # 回退2：vitals 表完全无数据时，查关联设备遥测（含所有设备做回退），
+    # 把遥测的 temp_c/hum_pct/pres_hpa 转成 vitals 格式返回，趋势图能画出来。
+    if not rows:
+        import sqlite3 as _sqlite3
+        _conn = icu._get_conn()
+        _conn.row_factory = _sqlite3.Row
+        # 先查绑定的设备，没有则查所有设备
+        dev_rows = _conn.execute(
+            "SELECT device_id FROM patient_devices WHERE patient_id=?", (p["id"],)
+        ).fetchall()
+        dev_ids = [r["device_id"] for r in dev_rows if r["device_id"]]
+        if not dev_ids:
+            all_devs = _conn.execute("SELECT id FROM devices").fetchall()
+            dev_ids = [r["id"] for r in all_devs if r["id"]]
+        _conn.close()
+        for did in dev_ids:
+            tel_rows = db.query(
+                "SELECT ts, temp_c, hum_pct, pres_hpa FROM telemetry "
+                "WHERE device_id=? ORDER BY ts DESC LIMIT 200", (did,))
+            for tr in tel_rows:
+                rows.append({
+                    "ts": tr["ts"], "temp_c": tr["temp_c"],
+                    "hum_pct": tr["hum_pct"], "pres_hpa": tr["pres_hpa"],
+                    "source": "telemetry", "alarm_flag": 0,
+                })
+        rows.sort(key=lambda r: r["ts"])
+        if hours:
+            from datetime import timedelta
+            _cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            rows = [r for r in rows if r["ts"] >= _cutoff]
     return {"patient_id": p["id"], "count": len(rows), "points": rows}
 
 
