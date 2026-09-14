@@ -8,6 +8,8 @@
 // ============================================================
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClient.h>
+#include <HTTPClient.h>
 #include <Wire.h>
 #include <SPI.h>
 #include "pins_esp32s3_tft7735.h"
@@ -31,6 +33,7 @@ static EnvData  g_last;
 static uint32_t g_lastRead = 0;
 static uint32_t g_lastTft  = 0;
 static uint32_t g_lastPub  = 0;
+static uint32_t g_lastHttp = 0;  // HTTP POST 上次上报时间
 static bool     g_mqttReady = false;
 static bool     g_displayDirty = false;
 static uint8_t  g_pageIdx = 0;      // 轮播页索引 0=WiFi 1=体征 2=血氧
@@ -48,6 +51,63 @@ static String getCurSsid() {
     if (g_net.inAPMode()) return "AP-CONFIG";
     if (g_cfg.has_wifi()) return String(g_cfg.wifi_ssid);
     return "";
+}
+
+// HTTP POST 遥测上报到服务器 /api/telemetry（无需鉴权）
+static bool httpPostTelemetry(const EnvData &d, int alarmLevel) {
+    if (!g_cfg.has_mqtt() || !g_net.wifiConnected()) return false;
+    if (g_cfg.http_port == 0) return false;
+
+    WiFiClient client;
+    HTTPClient http;
+    String url = String("http://") + String(g_cfg.mqtt_host)
+               + ":" + String((int)g_cfg.http_port) + "/api/telemetry";
+    http.begin(client, url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(5000);
+
+    // seq: 单调序列号(去重), 与 MQTT 一致用 uptime 秒
+    uint32_t seq = (uint32_t)(millis() / 1000);
+
+    // NaN 值发 null (服务器 handle_telemetry 对 None 跳过)
+    auto nanOrNull = [](float v, int prec) -> String {
+        if (isnan(v)) return "null";
+        return String(v, prec);
+    };
+
+    // JSON payload: 与 MQTT 遥测格式一致
+    String json = String("{\"device_id\":\"") + g_cfg.device_id + "\""
+                + ",\"seq\":" + String((unsigned long)seq)
+                + ",\"t\":"  + nanOrNull(d.temp_c, 2)
+                + ",\"h\":"  + nanOrNull(d.hum_pct, 2)
+                + ",\"p\":"  + nanOrNull(d.pres_hpa, 2)
+                + ",\"rssi\":" + String((int)WiFi.RSSI())
+                + ",\"uptime\":" + String((unsigned long)(millis() / 1000))
+                + ",\"alarm\":" + String((int)alarmLevel)
+                + ",\"fw\":\"" + String(FW_VERSION) + "\""
+                + ",\"heap\":" + String((unsigned long)ESP.getFreeHeap())
+                + ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
+
+    // 体征数据（非 NaN 时附带）
+    if (!isnan(d.sp_o2))  json += ",\"sp_o2\":"  + nanOrNull(d.sp_o2, 1);
+    if (!isnan(d.pr_hr))  json += ",\"pr_hr\":"  + nanOrNull(d.pr_hr, 1);
+    if (!isnan(d.ecg_hr)) json += ",\"ecg_hr\":" + nanOrNull(d.ecg_hr, 1);
+    if (!isnan(d.rr_bpm)) json += ",\"rr_bpm\":" + nanOrNull(d.rr_bpm, 1);
+    if (!isnan(d.glucose)) json += ",\"glucose\":" + nanOrNull(d.glucose, 2);
+
+    json += "}";
+
+    int code = http.POST(json);
+    http.end();
+
+    if (code == 200) {
+        Serial.printf("[HTTP] telemetry OK seq=%lu (t=%.1f h=%.1f p=%.0f)\n",
+                      (unsigned long)seq, d.temp_c, d.hum_pct, d.pres_hpa);
+        return true;
+    } else {
+        Serial.printf("[HTTP] telemetry FAIL code=%d\n", code);
+        return false;
+    }
 }
 
 static void renderTft() {
@@ -386,6 +446,13 @@ void loop() {
             Serial.printf("[MAIN] telemetry published (t=%.1f h=%.1f p=%.1f)\n",
                           g_last.temp_c, g_last.hum_pct, g_last.pres_hpa);
         }
+    }
+
+    // HTTP POST 上报（与 MQTT 并行，独立触发）
+    if (g_cfg.has_mqtt() && g_net.wifiConnected() &&
+        now - g_lastHttp >= (uint32_t)g_cfg.report_interval * 1000UL) {
+        g_lastHttp = now;
+        httpPostTelemetry(g_last, (int)lvl);
     }
     delay(5);
 }
