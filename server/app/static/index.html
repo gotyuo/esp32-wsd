@@ -3032,7 +3032,7 @@ function loadDsSettings(){
         '</div></div>';
     }).join('');
     $("dsCards").innerHTML=html;
-  }).catch(function(e){toast("加载数据源配置失败: "+(e&&e.message||""),"alarm");});
+  }).catch(function(e){var box=$("dsCards");if(box)box.innerHTML='<div class="empty">数据源配置加载失败，请检查数据库</div>';});
 }
 function saveDsSettings(){
   var body={};
