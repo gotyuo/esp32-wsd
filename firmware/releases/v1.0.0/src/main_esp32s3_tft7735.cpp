@@ -33,6 +33,9 @@ static uint32_t g_lastTft  = 0;
 static uint32_t g_lastPub  = 0;
 static bool     g_mqttReady = false;
 static bool     g_displayDirty = false;
+static uint8_t  g_pageIdx = 0;      // 轮播页索引 0=WiFi 1=体征 2=血氧
+static uint32_t g_lastPageSwitch = 0;
+static const uint32_t PAGE_INTERVAL = 4000;  // 每4秒切页
 static float    g_micLevel = 0;   // MIC 当前电平 0~1
 
 static void forceRefreshTft() { if (g_tftOk) g_lastTft = 0; }
@@ -51,35 +54,8 @@ static void renderTft() {
     if (!g_tftOk) return;
     g_tft.fillScreen(C_BLACK);
 
-    // ---- 顶部状态栏 ----
-    String ssid = getCurSsid();
-    if (ssid.isEmpty()) ssid = "---";
-    if (ssid.length() > 14) ssid = ssid.substring(0, 14);
-    String topLine = "SSID:" + ssid;
-
-    g_tft.setTextSize(1);
-    g_tft.setTextColor(C_GRAY);
-    g_tft.setCursor(2, 3);
-    g_tft.print(topLine.c_str());
-
-    // WiFi 信号条（右侧）
-    int8_t rssi = g_net.wifiConnected() ? WiFi.RSSI() : 127;
-    uint8_t bars = 0;
-    if (rssi >= -50) bars = 4;
-    else if (rssi >= -65) bars = 3;
-    else if (rssi >= -78) bars = 2;
-    else if (rssi >= -90) bars = 1;
-    g_tft.fillRect(138, 3, 2, 8, C_GRAY);
-    g_tft.fillRect(136, 5, 2, 6, C_GRAY);
-    g_tft.fillRect(134, 7, 2, 4, C_GRAY);
-    g_tft.fillRect(132, 9, 2, 2, C_GRAY);
-    if (bars >= 1) g_tft.fillRect(138, 3, 2, 8, C_GREEN);
-    if (bars >= 2) g_tft.fillRect(136, 5, 2, 6, C_GREEN);
-    if (bars >= 3) g_tft.fillRect(134, 7, 2, 4, C_GREEN);
-    if (bars >= 4) g_tft.fillRect(132, 9, 2, 2, C_GREEN);
-
-    // 分隔线
-    for (int x = 0; x < 160; x += 2) g_tft.drawPixel(x, 12, C_GRAY);
+    // 顶部分隔线 (WiFi信息已在轮播第1页显示)
+    for (int x = 0; x < 160; x += 2) g_tft.drawPixel(x, 8, C_GRAY);
 
     // ---- AP 配网模式: 显示热点名+密码+管理IP ----
     if (g_net.inAPMode()) {
@@ -105,35 +81,121 @@ static void renderTft() {
         return;
     }
 
-    // ---- 连接 WiFi 后: 仅显示 WiFi 名称和 IP 地址 ----
-    String ipStr = WiFi.localIP().toString();
-    String curSsid = getCurSsid();
-    if (curSsid.isEmpty()) curSsid = "---";
-    if (curSsid.length() > 20) curSsid = curSsid.substring(0, 20);
+    // ---- 连接 WiFi 后: 三页轮播 WiFi/体征/血氧 ----
+    char buf[16];
 
-    g_tft.setTextSize(1);
-    g_tft.setTextColor(C_GREEN);
-    g_tft.setCursor(4, 20);
-    g_tft.print("WIFI OK");
+    if (g_pageIdx == 0) {
+        // ---- 第1页: WiFi ----
+        String ipStr = WiFi.localIP().toString();
+        String curSsid = getCurSsid();
+        if (curSsid.isEmpty()) curSsid = "---";
+        if (curSsid.length() > 20) curSsid = curSsid.substring(0, 20);
 
-    g_tft.setTextColor(C_WHITE);
-    g_tft.setCursor(4, 38);
-    g_tft.print("WiFi:" + curSsid);
+        g_tft.setTextSize(1);
+        g_tft.setTextColor(C_GREEN);
+        g_tft.setCursor(4, 20);
+        g_tft.print("WIFI OK");
+        g_tft.setTextColor(C_WHITE);
+        g_tft.setCursor(4, 38);
+        g_tft.print("WiFi:" + curSsid);
+        g_tft.setTextColor(C_CYAN);
+        g_tft.setCursor(4, 58);
+        g_tft.print("IP:" + ipStr);
+    }
+    else if (g_pageIdx == 1) {
+        // ---- 第2页: 体征 (温湿度气压) ----
+        g_tft.setTextSize(1);
+        g_tft.setTextColor(C_ORANGE);
+        g_tft.setCursor(4, 20);
+        g_tft.print("T:");
+        snprintf(buf, sizeof(buf), "%.1f", g_last.temp_c);
+        g_tft.setTextColor(C_WHITE);
+        g_tft.setCursor(20, 20);
+        g_tft.print(buf);
+        g_tft.setTextColor(C_GRAY);
+        g_tft.setCursor(48, 20);
+        g_tft.print("C");
 
-    g_tft.setTextColor(C_CYAN);
-    g_tft.setCursor(4, 58);
-    g_tft.print("IP:" + ipStr);
+        g_tft.setTextColor(C_CYAN);
+        g_tft.setCursor(4, 40);
+        g_tft.print("H:");
+        snprintf(buf, sizeof(buf), "%.1f", g_last.hum_pct);
+        g_tft.setTextColor(C_WHITE);
+        g_tft.setCursor(20, 40);
+        g_tft.print(buf);
+        g_tft.setTextColor(C_GRAY);
+        g_tft.setCursor(48, 40);
+        g_tft.print("%");
 
-    // ---- 底部状态栏 ----
+        g_tft.setTextColor(C_GREEN);
+        g_tft.setCursor(4, 60);
+        g_tft.print("P:");
+        snprintf(buf, sizeof(buf), "%d", (int)g_last.pres_hpa);
+        g_tft.setTextColor(C_WHITE);
+        g_tft.setCursor(20, 60);
+        g_tft.print(buf);
+        g_tft.setTextColor(C_GRAY);
+        g_tft.setCursor(48, 60);
+        g_tft.print("hPa");
+    }
+    else {
+        // ---- 第3页: 血氧心率 ----
+        g_tft.setTextSize(1);
+        g_tft.setTextColor(C_RED);
+        g_tft.setCursor(4, 20);
+        g_tft.print("SpO2:");
+        if (!isnan(g_last.sp_o2)) {
+            snprintf(buf, sizeof(buf), "%.0f%%", g_last.sp_o2);
+            g_tft.setTextColor(C_WHITE);
+        } else {
+            g_tft.setTextColor(C_GRAY);
+            buf[0] = '-'; buf[1] = '-'; buf[2] = 0;
+        }
+        g_tft.setCursor(20, 20);
+        g_tft.print(buf);
+
+        g_tft.setTextColor(C_CYAN);
+        g_tft.setCursor(4, 40);
+        g_tft.print("HR:");
+        if (!isnan(g_last.pr_hr)) {
+            snprintf(buf, sizeof(buf), "%.0f", g_last.pr_hr);
+            g_tft.setTextColor(C_WHITE);
+        } else {
+            g_tft.setTextColor(C_GRAY);
+            buf[0] = '-'; buf[1] = '-'; buf[2] = 0;
+        }
+        g_tft.setCursor(20, 40);
+        g_tft.print(buf);
+        g_tft.setTextColor(C_GRAY);
+        g_tft.setCursor(48, 40);
+        g_tft.print("bpm");
+
+        g_tft.setTextColor(C_GRAY);
+        g_tft.setCursor(4, 60);
+        g_tft.print("MIC:");
+        int micBars = (int)(g_micLevel * 10);
+        if (micBars > 10) micBars = 10;
+        if (micBars < 0) micBars = 0;
+        for (int i = 0; i < 10; i++) {
+            uint16_t col = (i < micBars) ? C_GREEN : C_GRAY;
+            g_tft.fillRect(20 + i * 12, 60, 10, 8, col);
+        }
+    }
+
+    // ---- 底部状态栏 (版本+页指示+报警等级) ----
     for (int x = 0; x < 160; x += 2) g_tft.drawPixel(x, 70, C_GRAY);
 
     g_tft.setTextSize(1);
     g_tft.setTextColor(C_GRAY);
     g_tft.setCursor(4, 72);
-    const char *net = g_mqttReady ? "MQTT" : (g_net.wifiConnected() ? "WIFI" : "OFF");
-    g_tft.print(net);
-    g_tft.print(" v");
-    g_tft.print(FW_VERSION);
+    g_tft.print("v" FW_VERSION);
+
+    // 页指示点 (●●○ / ●○● / ○●●)
+    const char *dots = (g_pageIdx == 0) ? "●●○" :
+                       (g_pageIdx == 1) ? "●○●" : "○●●";
+    g_tft.setTextColor(C_CYAN);
+    g_tft.setCursor(60, 72);
+    g_tft.print(dots);
 
     g_tft.setTextColor(C_GRAY);
     g_tft.setCursor(100, 72);
@@ -250,11 +312,12 @@ void loop() {
     g_net.loop();
     uint32_t now = millis();
 
-    // AP 配网模式
+    // AP 配网模式: 内容不变,只在首次或脏数据时刷新(避免反复整屏清黑闪烁)
     if (g_net.inAPMode()) {
-        if (g_tftOk && (now - g_lastTft >= 1500 || g_displayDirty)) {
+        if (g_tftOk && (g_displayDirty || now - g_lastTft >= 5000)) {
             g_lastTft = now;
             renderTft();
+            g_displayDirty = false;
         }
         if (now - g_lastRead >= 2000) {
             g_lastRead = now;
@@ -300,8 +363,17 @@ void loop() {
     AlarmLevel lvl = g_alarm.evaluate(g_last, g_cfg);
     g_alarm.update(lvl, g_cfg.alarm_sound);
 
-    // TFT 刷新
-    if (g_tftOk && (now - g_lastTft >= 1500 || g_displayDirty)) {
+    // TFT 刷新: 非AP模式下每4秒切页轮播(WiFi/体征/血氧),切页时才重绘
+    if (g_tftOk && !g_net.inAPMode()) {
+        if (now - g_lastPageSwitch >= PAGE_INTERVAL) {
+            g_lastPageSwitch = now;
+            g_pageIdx = (g_pageIdx + 1) % 3;
+            g_lastTft = 0;  // 触发下次刷新
+            Serial.printf("[TFT] page -> %d\n", g_pageIdx);
+        }
+    }
+    // 刷新间隔 5s,切页时立即刷新(g_lastTft=0 让 now-0>=5000 为真)
+    if (g_tftOk && (now - g_lastTft >= 5000 || g_displayDirty)) {
         g_lastTft = now;
         renderTft();
     }
