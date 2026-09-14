@@ -20,7 +20,7 @@ cp .env.example .env      # 修改 ADMIN_PASS 等重要密码
 docker compose up -d --build
 ```
 
-访问 `http://<服务器IP>:8627`，使用 `.env` 中 `ADMIN_USER`/`ADMIN_PASS` 登录。
+访问 `http://<服务器IP>:12090`，使用 `.env` 中 `ADMIN_USER`/`ADMIN_PASS` 登录。
 
 首次登录后请立即修改默认管理员密码（右上角头像 → 修改密码）。
 
@@ -28,7 +28,7 @@ docker compose up -d --build
 
 | 端口 | 用途 |
 |------|------|
-| 8627 | Web 管理界面 + REST API |
+| 12090 | Web 管理界面 + REST API |
 | 18830 | MQTT（设备接入，映射到容器内 1883） |
 
 ## 数据库
@@ -41,7 +41,7 @@ SQLite 文件挂载在主机 `./data/envmon.db`（容器外持久化，重部署
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | MQTT_PORT | 18830 | MQTT 对外端口 |
-| WEB_PORT | 8627 | Web 对外端口 |
+| WEB_PORT | 12090 | Web 对外端口 |
 | MQTT_USER | envmon | MQTT 账号（终端配网页同填） |
 | MQTT_PASS | envmon-secret | MQTT 密码 |
 | ADMIN_USER | admin | 首次启动自动创建的管理员账号 |

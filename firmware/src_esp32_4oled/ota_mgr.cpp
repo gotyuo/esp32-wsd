@@ -27,7 +27,7 @@
 namespace ota {
 
 static Preferences _prefs;
-static String g_ota_host;     // "192.168.1.100:8627"
+static String g_ota_host;     // "192.168.1.100:12090"
 static String g_ota_token;
 
 static const char NAMESPACE[] = "ota";

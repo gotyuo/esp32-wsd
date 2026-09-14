@@ -134,7 +134,7 @@ static float computeHR(uint16_t *ir, int n) {
         }
     }
     if (bestN < 3 || bestD <= 0) return NAN;
-    float hr = 3000.0f / bestD / bestN;
+    float hr = 3000.0f * bestN / bestD;
     if (hr < 30 || hr > 220) return NAN;
     return hr;
 }

@@ -2969,7 +2969,7 @@ def list_io(pid: str, hours: int = 72):
 
 
 @app.get("/api/patients/{pid}/io/balance")
-def io_balance(pid: str, hours: int = 24):
+def io_balance(pid: str, hours: int = Query(24, ge=1, le=720)):
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
@@ -3101,7 +3101,7 @@ def list_patient_monitor_sessions(pid: str):
 
 # ---------- AI 评估 ----------
 @app.get("/api/patients/{pid}/assessment")
-def assess(pid: str, hours: int = 24, ai: bool = Query(False)):
+def assess(pid: str, hours: int = Query(24, ge=1, le=720), ai: bool = Query(False)):
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
