@@ -1655,7 +1655,15 @@ function setTrendHours(h){
 function drawMonitorTrend(){
   var canvas = document.getElementById('mTrendChart');
   if(!canvas) return;
-  var pts = MONITOR_VITALS || [];
+  var allPts = MONITOR_VITALS || [];
+  // 按 MONITOR_TREND_HOURS 筛选趋势数据范围
+  var pts = allPts;
+  if (allPts.length && MONITOR_TREND_HOURS) {
+    var cutoff = Date.now() - MONITOR_TREND_HOURS * 3600 * 1000;
+    pts = allPts.filter(function(p) {
+      return new Date(p.ts).getTime() >= cutoff;
+    });
+  }
   var ctx = canvas.getContext('2d');
   var W = canvas.width = canvas.clientWidth * 2;
   var H = canvas.height = canvas.clientHeight * 2;

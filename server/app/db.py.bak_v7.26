@@ -405,19 +405,11 @@ def vital_insert_v2(patient_id: int, ts: str, source: str, device_id: str,
         ph.append("?")
         bind.append(alarm_flag)
     with _locked_scope() as conn:
-        # 去重：有 seq 号时按 extra 去重；无 seq 号时按 ts 去重（同设备同时间不重复）
-        if extra is not None:
-            if conn.execute(
-                "SELECT 1 FROM vitals WHERE source_device=? AND extra=?",
-                (device_id, extra),
-            ).fetchone():
-                return
-        else:
-            if conn.execute(
-                "SELECT 1 FROM vitals WHERE source_device=? AND ts=?",
-                (device_id, ts),
-            ).fetchone():
-                return
+        if conn.execute(
+            "SELECT 1 FROM vitals WHERE source_device=? AND extra=?",
+            (device_id, extra),
+        ).fetchone():
+            return
         conn.execute(
             "INSERT INTO vitals (%s) VALUES (%s)" % (", ".join(fields), ", ".join(ph)),
             bind,
