@@ -449,42 +449,6 @@ def handle_telemetry(device_id: str, payload: dict):
         except Exception as e:  # noqa: BLE001
             log.exception("handle_vitals from telemetry of %s failed: %s", device_id, e)
 
-    # 设备绑定了患者时，遥测也自动创建监护记录（不依赖体征入库）
-    try:
-        _auto_ensure_session(device_id)
-    except Exception:
-        pass
-
-
-def _auto_ensure_session(device_id: str):
-    """遥测到达时：若设备已绑定患者，自动创建/维持监护记录。
-    若设备未绑定任何患者，尝试自动绑定到唯一患者（方便设备更换后即用）。
-    """
-    from .icu import _get_conn
-    conn = _get_conn()
-    rows = conn.execute(
-        "SELECT p.id AS patient_id FROM patient_devices pd "
-        "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=?",
-        (device_id,),
-    ).fetchall()
-    if not rows:
-        # 设备未绑定任何患者 — 尝试自动绑定到唯一患者
-        patients = conn.execute("SELECT id FROM patients ORDER BY created_at DESC LIMIT 1").fetchall()
-        if patients:
-            pid = patients[0]["id"]
-            try:
-                conn.execute(
-                    "INSERT OR IGNORE INTO patient_devices (patient_id, device_id, role) VALUES (?,?,?)",
-                    (pid, device_id, "primary"),
-                )
-                conn.commit()
-                log.info("auto-bound device %s to patient_id=%s", device_id, pid)
-                rows = [{"patient_id": pid}]
-            except Exception:
-                pass
-    if rows:
-        _ensure_monitor_session(rows[0]["patient_id"], device_id)
-
 
 def _looks_like_vitals(payload: dict) -> bool:
     """检查载荷是否包含生命体征字段（标准名或固件别名）。"""
@@ -3082,10 +3046,6 @@ def latest_signs(pid: str):
 
     # 2) 遥测回退：对 vitals 表没有的指标，查关联设备的最新遥测
     devices = icu.devices_for_patient(patient_id)
-    # 若无绑定设备，查所有设备（设备可能换了还没绑定）
-    if not devices:
-        all_devs = db.list_devices()
-        devices = [{"device_id": d["id"]} for d in all_devs]
     for d in devices:
         dev_id = d.get("device_id")
         if not dev_id:
@@ -3264,14 +3224,10 @@ def list_monitor_sessions(patient_id: Optional[int] = Query(None),
                           end: Optional[str] = Query(None),
                           limit: int = Query(200, ge=1, le=1000)):
     """查询监护记录列表（支持按患者/设备/日期范围过滤）。"""
-    try:
-        sessions = icu.list_monitor_sessions(
-            patient_id=patient_id, device_id=device_id,
-            start=start, end=end, limit=limit,
-        )
-    except Exception as e:
-        log.warning("list_monitor_sessions failed: %s", e)
-        sessions = []
+    sessions = icu.list_monitor_sessions(
+        patient_id=patient_id, device_id=device_id,
+        start=start, end=end, limit=limit,
+    )
     # 计算每条会话持续时间
     for s in sessions:
         s["duration_str"] = _duration_str(s.get("start_ts"), s.get("end_ts"))
