@@ -1870,7 +1870,7 @@ function loadOrders(ev){_refreshBtn(ev,function(){
       }).join("");
     }
     renderOrderHistory(all);
-  }).catch(function(e){toast("医嘱加载失败: "+(e&&e.message||""),"alarm");});
+  }).catch(function(e){var box=$("mOrders");if(box)box.innerHTML='<div class="empty" style="font-size:12px">暂无医嘱</div>';});
 });}
 // 历史给药：已停医嘱的流水（含停医嘱时间），只读，无删除按钮。
 function renderOrderHistory(all){

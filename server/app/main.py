@@ -3130,7 +3130,11 @@ def get_orders(pid: str, start: Optional[str] = None, end: Optional[str] = None)
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
-    return {"orders": icu.orders_for_patient(p["id"], start, end)}
+    try:
+        return {"orders": icu.orders_for_patient(p["id"], start, end)}
+    except Exception as e:
+        log.warning("get_orders failed (table missing?): %s", e)
+        return {"orders": []}
 
 
 @app.post("/api/patients/{pid}/orders/{order_id}/stop", dependencies=[Depends(require_admin)])
@@ -3161,7 +3165,11 @@ def get_lab(pid: str, start: Optional[str] = None, end: Optional[str] = None):
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
-    return {"results": icu.lab_results_for_patient(p["id"], start, end)}
+    try:
+        return {"results": icu.lab_results_for_patient(p["id"], start, end)}
+    except Exception as e:
+        log.warning("get_lab failed: %s", e)
+        return {"results": []}
 
 
 # ---------- 出入量 ----------
@@ -3190,7 +3198,11 @@ def list_io(pid: str, hours: int = 72):
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
-    return {"entries": icu.list_io_log(p["id"], hours)}
+    try:
+        return {"entries": icu.list_io_log(p["id"], hours)}
+    except Exception as e:
+        log.warning("list_io failed: %s", e)
+        return {"entries": []}
 
 
 @app.get("/api/patients/{pid}/io/balance")
@@ -3198,7 +3210,11 @@ def io_balance(pid: str, hours: int = Query(24, ge=1, le=720)):
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
-    return icu.io_balance(p["id"], hours)
+    try:
+        return icu.io_balance(p["id"], hours)
+    except Exception as e:
+        log.warning("io_balance failed: %s", e)
+        return {"in_ml": 0, "out_ml": 0, "net_ml": 0}
 
 
 @app.get("/api/monitor/sessions", dependencies=[Depends(require_user)])
