@@ -929,6 +929,25 @@ def health(q: Optional[str] = Query(default=None)):
     return {"ok": True, "mqtt_connected": bridge.connected, "time": db.localnow()}
 
 
+@app.post("/api/telemetry")
+async def post_telemetry(request: Request):
+    """HTTP POST 遥测上报（无需登录，ESP 设备直接调用）。
+    请求体 JSON 与 MQTT 遥测载荷格式一致：
+    {"device_id":"...", "t":25.5, "h":60.0, "p":1013.0,
+     "rssi":-50, "uptime":12345, "alarm":0, "fw":"1.0.0",
+     "heap":100000, "ip":"192.168.1.100", "seq":123}
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON body")
+    device_id = payload.get("device_id", "").strip()
+    if not device_id:
+        raise HTTPException(400, "missing device_id")
+    handle_telemetry(device_id, payload)
+    return {"ok": True, "device_id": device_id}
+
+
 @app.get("/api/devices", dependencies=[Depends(require_user)])
 def devices(limit: int = Query(0, ge=0, description="0=全部"), offset: int = Query(0, ge=0)):
     """设备列表 + 每台设备的最新一帧遥测。
@@ -2927,11 +2946,7 @@ _DS_FIELDS = ["enabled", "type", "url", "auth_type", "auth_key",
 @app.get("/api/datasources", dependencies=[Depends(require_user)])
 def list_datasources():
     """列出所有数据源配置。"""
-    try:
-        raw = icu.list_settings_raw()
-    except Exception as e:
-        log.warning("list_datasources failed (table missing?): %s", e)
-        raw = {}
+    raw = icu.list_settings_raw()
     result = []
     for name in _DS_TYPES:
         ds = {"name": name, "label": _DS_LABELS[name]}
