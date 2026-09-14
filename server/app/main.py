@@ -2243,6 +2243,142 @@ def _parse_hl7(text: str) -> Dict[str, Any]:
     return result
 
 
+
+@app.post("/api/vitals")
+async def vitals_upload(request: Request):
+    """ESP8266 MAX30102 固件兼容端点（免 admin 认证，设备直接上报）。
+
+    接受固件格式: {"device_id":"xxx","hr":72,"spo2":98,"pr_hr":72,"ecg_hr":72,"sp_o2":98,...}
+    同时兼容旧格式: {"id":"xxx","hr":72,"spo2":98}
+    自动注册设备，若设备已绑定患者则写入 vitals 表。
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        raw = (await request.body()).decode("utf-8", errors="replace").strip()
+        if not raw:
+            raise HTTPException(400, "请求体为空")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            raise HTTPException(400, "无法解析 JSON")
+
+    if not isinstance(data, dict):
+        raise HTTPException(400, "JSON 必须是对象")
+
+    # 兼容 device_id 和 id 两种字段名
+    device_id = data.get("device_id") or data.get("id")
+    if not device_id:
+        raise HTTPException(400, "缺少 device_id 或 id")
+
+    device_id = str(device_id)
+    import re as _re
+    if not _re.match(r'^[A-Za-z0-9_-]{1,32}$', device_id):
+        raise HTTPException(400, "device_id 格式无效")
+
+    # 自动注册设备
+    db.ensure_device(device_id)
+    db.set_device_online(device_id, True)
+    db.set_device_seen(device_id, None)
+
+    # 提取体征字段（兼容多种命名）
+    hr = data.get("pr_hr") or data.get("ecg_hr") or data.get("hr")
+    spo2 = data.get("sp_o2") or data.get("spo2")
+    rr = data.get("rr_bpm")
+    temp = data.get("temp_c")
+    sbp = data.get("sbp")
+    dbp = data.get("dbp")
+    glucose = data.get("glucose")
+
+    vital_vals = {}
+    if hr is not None:
+        try:
+            vital_vals["pr_hr"] = float(hr)
+            vital_vals["ecg_hr"] = float(hr)
+        except (TypeError, ValueError):
+            pass
+    if spo2 is not None:
+        try:
+            vital_vals["sp_o2"] = float(spo2)
+        except (TypeError, ValueError):
+            pass
+    if rr is not None:
+        try:
+            vital_vals["rr_bpm"] = float(rr)
+        except (TypeError, ValueError):
+            pass
+    if temp is not None:
+        try:
+            vital_vals["temp_c"] = float(temp)
+        except (TypeError, ValueError):
+            pass
+    if sbp is not None:
+        try:
+            vital_vals["sbp"] = float(sbp)
+        except (TypeError, ValueError):
+            pass
+    if dbp is not None:
+        try:
+            vital_vals["dbp"] = float(dbp)
+        except (TypeError, ValueError):
+            pass
+    if glucose is not None:
+        try:
+            vital_vals["glucose"] = float(glucose)
+        except (TypeError, ValueError):
+            pass
+
+    # 若设备已绑定患者，写入 vitals 表
+    from .icu import _get_conn
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT p.id AS patient_id, p.pid AS pid FROM patient_devices pd "
+        "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=?",
+        (device_id,),
+    ).fetchall()
+
+    ts = icu._now()
+    if rows and vital_vals:
+        target = rows[0]
+        try:
+            icu.insert_vital(
+                target["patient_id"], ts, "esp8266",
+                source_device=device_id,
+                **vital_vals,
+            )
+            hub.broadcast_threadsafe({
+                "type": "vital", "patient_id": target["patient_id"],
+                "pid": target["pid"], "ts": ts, "source": "esp8266",
+            })
+        except Exception as e:  # noqa: BLE001
+            log.warning("vitals_upload: insert_vital failed: %s", e)
+
+    # 也存 telemetry（环境数据如果有）
+    temp_env = data.get("temp_c") or data.get("temp")
+    hum_env = data.get("hum_pct") or data.get("hum")
+    pres_env = data.get("pres_hpa") or data.get("pres")
+    rssi = data.get("rssi")
+    if temp_env is not None or hum_env is not None or pres_env is not None:
+        try:
+            db.insert_telemetry(
+                device_id,
+                float(temp_env) if temp_env is not None else None,
+                float(hum_env) if hum_env is not None else None,
+                float(pres_env) if pres_env is not None else None,
+                rssi,
+            )
+        except Exception:
+            pass
+
+    hub.broadcast_threadsafe({
+        "type": "telemetry", "device_id": device_id,
+        "data": {"hr": hr, "spo2": spo2, "rssi": rssi},
+        "ts": ts,
+    })
+
+    return {"ok": True, "device_id": device_id, "vitals": bool(vital_vals)}
+
+
 @app.post("/api/ingest", dependencies=[Depends(require_admin)])
 async def ingest(request: Request):
     """HTTP 数据接入通道，支持 JSON 和 HL7 v2.x 文本两种格式。
