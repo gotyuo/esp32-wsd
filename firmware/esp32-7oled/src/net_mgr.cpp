@@ -194,7 +194,7 @@ h2{color:#38bdf8;margin:8px 0 16px}
   <div class="stat"><span class="dot ok" id="d_mqtt"></span><span>MQTT</span></div>
   <div class="stat"><span>运行: <span id="v_up">0</span> 秒</span></div>
 </div>
-<a class="btn" href="/">返回配网页面</a>
+<a class="btn" href="/config">⚙️ 修改配置</a>
 <div class="footer" id="footer">加载中...</div>
 <script>
 function fmt(v,d){if(!isFinite(v))return'--';return v.toFixed(d)}
@@ -340,10 +340,16 @@ void NetManager::handleScan() {
 void NetManager::startDataServer() {
     if (_dataRunning) return;
     _dataRunning = true;
+    web.on("/", HTTP_GET, [this]() {
+        // STA 模式: 根路径重定向到数据页,配置页移到 /config
+        web.sendHeader("Location", "http://" + WiFi.localIP().toString() + "/data", true);
+        web.send(302, "text/plain", "");
+    });
+    web.on("/config", HTTP_GET, [this]() { handleRoot(); });
     web.on("/data", HTTP_GET, [this]() { handleData(); });
     web.on("/json", HTTP_GET, [this]() { handleJson(); });
     web.on("/factory", HTTP_GET, [this]() { restoreFactory(); });
-    web.on("/", HTTP_GET, [this]() { handleRoot(); });
+    web.on("/save", HTTP_POST, [this]() { handleSave(); });
     web.begin();
     Serial.printf("[NET] Data web server started on http://%s/data\n",
                   WiFi.localIP().toString().c_str());
