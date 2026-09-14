@@ -815,7 +815,7 @@ function _refreshBtn(ev,fn){
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
   ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai","datasource"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);MONITOR_REFRESH_TIMER=setInterval(function(){if(CURRENT_VIEW==="monitor")refreshMonitor();},5000);}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}}
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -1262,7 +1262,7 @@ function beep(freq,dur,gap,count){try{if(!audioCtx)audioCtx=new(window.AudioCont
 function alarmSound(level){if(!SOUND)return;if(level>=2)beep(880,.18,.12,4);else if(level===1)beep(660,.15,.15,2);}
 function toast(html,cls){var t=document.createElement("div");t.className="toast "+(cls||"");t.innerHTML=html;$("toastWrap").appendChild(t);setTimeout(function(){t.style.opacity="0";t.style.transition="opacity .4s";setTimeout(function(){t.remove();},450);},6000);}
 function showBanner(level,dev,reason){clearTimeout(bannerTimer);var b=$("alarmBanner");b.textContent=(level>=2?"ALARM LV2":"ALARM LV1")+" · "+dev+(reason?" · "+reason:"");b.style.display="block";b.style.background=level>=2?"linear-gradient(90deg,rgba(255,23,68,.95),rgba(220,10,10,.95))":"linear-gradient(90deg,rgba(255,171,0,.95),rgba(220,120,0,.95))";bannerTimer=setTimeout(function(){b.style.display="none";},8000);}
-function connectWS(){try{ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws?token="+encodeURIComponent(TOKEN));}catch(e){return;}ws.onopen=function(){$("wsState").textContent="WS 已连接";$("wsState").style.color="var(--green)";_monitorHook();};ws.onclose=function(){$("wsState").textContent="WS 断开";$("wsState").style.color="var(--red)";setTimeout(connectWS,3000);};ws.onerror=function(){try{ws.close()}catch(e){}};
+function connectWS(){try{ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws?token="+encodeURIComponent(TOKEN));}catch(e){return;}ws.onopen=function(){$("wsState").textContent="WS 已连接";$("wsState").style.color="var(--green)";};ws.onclose=function(){$("wsState").textContent="WS 断开";$("wsState").style.color="var(--red)";setTimeout(connectWS,3000);};ws.onerror=function(){try{ws.close()}catch(e){}};
   ws.onmessage=function(ev){var m;try{m=JSON.parse(ev.data)}catch(e){return;}
     if(m.type==="telemetry"){var d=m.data||{};if(m.device_id===DEV){$("vTemp").textContent=fmt(d.t);$("vHum").textContent=fmt(d.h);$("vPres").textContent=fmt(d.p,1);$("vRssi").textContent=d.rssi==null?"--":d.rssi;$("lastSeen").textContent="最后上报: "+fmtTime(m.ts);paintAlarm(d.alarm);
       HIST.push({ts:m.ts,t:d.t,h:d.h,p:d.p,alarm:d.alarm});if(HIST.length>4000)HIST.shift();if(RANGE<=1)drawAll();
@@ -1272,7 +1272,7 @@ function connectWS(){try{ws=new WebSocket((location.protocol==="https:"?"wss://"
     }}
     else if(m.type==="status"){loadDevices();}
     else if(m.type==="alarm"){toast("<b>ALARM LV"+(m.level||2)+"</b> "+esc(m.device_id)+esc(m.reason||""),"alarm");alarmSound(m.level||2);showBanner(m.level||2,m.device_id,m.reason||"");if(m.device_id===DEV)paintAlarm(m.level||2);loadAlarms();}
-    else if(m.type==="alarm_cleared"){toast("<b>RESOLVED</b> "+esc(m.device_id),"");if(m.device_id===DEV)paintAlarm(0);loadAlarms();}else if(m.type==="vital"){if(CURRENT_VIEW==="monitor"){refreshMonitor();}}
+    else if(m.type==="alarm_cleared"){toast("<b>RESOLVED</b> "+esc(m.device_id),"");if(m.device_id===DEV)paintAlarm(0);loadAlarms();}
   };}
 
 if(TOKEN){api("/api/me").then(function(u){ME=u;SOUND=u.sound_alarm!==0;enterApp();}).catch(function(){showLogin();});}else{showLogin();}
@@ -1538,7 +1538,6 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
   MONITOR_PID=pid;
   $("mTime").textContent="患者 "+pid;
   // 加载患者体征
-  loadOrders();loadIo();loadLabs();
   return api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
     // 后端 patient_vitals 按 ts ASC（升序）返回：points[0] 是最旧、末尾是最新。
     // 因此"最新一条"必须取末尾下标，不能改成 [0]（否则会取到最旧值）。
@@ -1573,7 +1572,7 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
       trendEl.style.color=(ar==="↗"?"#ffa300":(ar==="↘"?"#4fc3f7":"var(--sub)"));
       paintSpark(c.querySelector(".m-spark"),vals);
     });
-    drawMonitorTrend();
+    loadOrders();loadIo();loadLabs();drawMonitorTrend();
     // 加载关联设备的实时环境数据(ESP8266/ESP32 telemetry)
     api("/api/patients/"+pid+"/devices").then(function(dd){
       var devs=dd.devices||[];
@@ -1985,7 +1984,7 @@ function _monitorHook(){
       if(orig)orig.call(ws,ev);
       try{
         var m=JSON.parse(ev.data);
-        if(CURRENT_VIEW==="monitor" && (m.type==="vital"||m.type==="telemetry")){
+        if(CURRENT_VIEW==="monitor" && (m.type==="vitals"||m.type==="telemetry")){
           refreshMonitor();
         }
       }catch(e){}
