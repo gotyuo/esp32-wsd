@@ -2833,7 +2833,7 @@ function loadRemindHistory(){
     var list=d.reminders||[];
     if(!list.length){$("rmdHistory").innerHTML='<div class="empty">暂无</div>';return;}
     $("rmdHistory").innerHTML=list.map(function(x){
-      var flag = (x.sent_to_device?"<span class='ok'>🔊 设备</span>":"")+(x.sent_to_wechat?" <span class="ok">📱 微信</span>":"");
+      var flag = (x.sent_to_device?"<span class='ok'>🔊 设备</span>":"")+(x.sent_to_wechat?" <span class='ok'>📱 微信</span>":"");
       var who = x.doctor_name||"-";
       return "<div style='padding:6px 0;border-bottom:1px dashed var(--line)'>"+
         "<div><b>"+esc(x.patient_id)+"</b> · <span style='color:var(--blue)'>"+esc(who)+"</span> · <span style='color:var(--dim)'>"+fmtTime(x.created_at)+"</span></div>"+
