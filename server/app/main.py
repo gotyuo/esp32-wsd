@@ -2946,7 +2946,11 @@ _DS_FIELDS = ["enabled", "type", "url", "auth_type", "auth_key",
 @app.get("/api/datasources", dependencies=[Depends(require_user)])
 def list_datasources():
     """列出所有数据源配置。"""
-    raw = icu.list_settings_raw()
+    try:
+        raw = icu.list_settings_raw()
+    except Exception as e:
+        log.warning("list_datasources failed (table missing?): %s", e)
+        raw = {}
     result = []
     for name in _DS_TYPES:
         ds = {"name": name, "label": _DS_LABELS[name]}
