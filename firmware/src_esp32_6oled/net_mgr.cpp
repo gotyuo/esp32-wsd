@@ -223,19 +223,12 @@ void NetManager::startAP() {
     startPortalServer();
     Serial.printf("[NET] AP started: %s (http://192.168.4.1)\n", _ap_ssid.c_str());
 
-    // AP 刚起、尚无客户端时扫一次填充缓存 (射频稳定后重试)
+    // 初始扫描改用 loop() 驱动(pollScan),避免在 setup() 阻塞导致射频未稳时饿死。
+    // 等射频稳定后触发一次异步扫描;loop() 负责轮询结果填 _scanCache。
     _scanCache = "[]";
-    for (int tt = 0; tt < 3 && (_scanCache == "[]"); tt++) {
-        delay(800);
-        WiFi.scanNetworks(true, false, false, 200);
-        uint32_t t0 = millis();
-        while (millis() - t0 < 3500) {
-            int n = WiFi.scanComplete();
-            if (n >= 0) { buildScanCache(n); WiFi.scanDelete(); break; }
-            dns.processNextRequest(); web.handleClient();
-        }
-    }
-    Serial.printf("[NET] initial scan cache: %s\n", (_scanCache == "[]" ? "empty" : _scanCache.substring(0, 40).c_str()));
+    delay(2000);
+    Serial.println("[NET] initial scan requested (loop-driven)");
+    requestScan();
 }
 
 void NetManager::startPortalServer() {
