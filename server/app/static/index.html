@@ -2516,8 +2516,8 @@ function showSessionDetail(sid){
   api("/api/monitor/sessions/"+sid).then(function(d){
     var s=d.session||{};
     var vit=d.vitals||[], ord=d.orders||[], lab=d.labs||[], io=d.io_logs||[];
-    var vitHtml=vit.slice(-20).map(function(v){
-      return "<tr><td>"+fmtTime(v.ts)+"</td><td>"+esc(v.source)+"</td>"
+    var vitHtml=vit.slice(-50).map(function(v){
+      return "<tr><td>"+fmtTime(v.ts)+"</td><td>"+esc(v.source)+"</td><td>"+esc(v.source_device||"-")+"</td>"
         +"<td>"+(v.ecg_hr!=null?v.ecg_hr.toFixed(0):"-")+"</td>"
         +"<td>"+(v.sp_o2!=null?v.sp_o2.toFixed(0):"-")+"</td>"
         +"<td>"+(v.sbp!=null?v.sbp.toFixed(0):"-")+"/"+(v.dbp!=null?v.dbp.toFixed(0):"-")+"</td>"
@@ -2549,7 +2549,7 @@ function showSessionDetail(sid){
       +"</div>"
       +(s.summary?"<div style='margin-bottom:14px;padding:8px;background:var(--panel2);border-radius:4px;font-size:12px'><b>摘要：</b>"+esc(s.summary)+"</div>":"")
       +"<h3 style='font-size:12px;color:var(--sub);margin-bottom:6px'>体征 ("+vit.length+" 条)</h3>"
-      +"<table style='font-size:11px'><thead><tr><th>时间</th><th>源</th><th>HR</th><th>SpO2</th><th>BP</th><th>RR</th><th>℃</th></tr></thead><tbody>"+vitHtml+"</tbody></table>"
+      +"<table style='font-size:11px'><thead><tr><th>时间</th><th>源</th><th>设备</th><th>HR</th><th>SpO2</th><th>BP</th><th>RR</th><th>℃</th></tr></thead><tbody>"+vitHtml+"</tbody></table>"
       +"<h3 style='font-size:12px;color:var(--sub);margin:14px 0 6px'>医嘱 ("+ord.length+" 条)</h3>"
       +"<table style='font-size:11px'><thead><tr><th>开始</th><th>药品</th><th>剂量</th><th>途径</th><th>状态</th></tr></thead><tbody>"+ordHtml+"</tbody></table>"
       +"<h3 style='font-size:12px;color:var(--sub);margin:14px 0 6px'>检验 ("+lab.length+" 条)</h3>"

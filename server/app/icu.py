@@ -281,7 +281,7 @@ def patient_vitals(patient_id: int, start: str, end: str,
     if not fields:
         fields = VITAL_FIELDS
     cols = ", ".join([f for f in fields if f in VITAL_FIELDS])
-    sql = (f"SELECT ts, {cols}, source, alarm_flag "
+    sql = (f"SELECT ts, {cols}, source, source_device, alarm_flag "
            f"FROM vitals WHERE patient_id=? AND ts>=? AND ts<=? ORDER BY ts ASC")
     return fetchall(sql, (patient_id, start, end))
 

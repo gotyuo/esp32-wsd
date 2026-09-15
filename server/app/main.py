@@ -621,20 +621,35 @@ def handle_vitals(device_id: str, payload: dict):
 
 
 def _ensure_monitor_session(patient_id: int, device_id: str):
-    """设备上报体征时自动创建监护记录（若无活跃会话）。"""
+    """设备上报体征时自动创建监护记录（若无活跃会话）。
+    患者切换设备时：结束旧设备会话，开启新设备会话。"""
     from .icu import _get_conn
     conn = _get_conn()
     open_sess = conn.execute(
-        "SELECT id FROM monitor_sessions WHERE patient_id=? AND end_ts IS NULL ORDER BY start_ts DESC LIMIT 1",
+        "SELECT id, device_id FROM monitor_sessions WHERE patient_id=? AND end_ts IS NULL ORDER BY start_ts DESC LIMIT 1",
         (patient_id,),
     ).fetchone()
+    now = icu._now()
     if not open_sess:
-        now = icu._now()
+        # 无活跃会话，创建新的
         conn.execute(
             "INSERT INTO monitor_sessions (patient_id, device_id, start_ts, created_at) VALUES (?,?,?,?)",
             (patient_id, device_id, now, now),
         )
         conn.commit()
+    elif open_sess["device_id"] and open_sess["device_id"] != device_id:
+        # 设备切换：结束旧会话，开启新会话
+        conn.execute(
+            "UPDATE monitor_sessions SET end_ts=? WHERE id=?",
+            (now, open_sess["id"]),
+        )
+        conn.execute(
+            "INSERT INTO monitor_sessions (patient_id, device_id, start_ts, created_at) VALUES (?,?,?,?)",
+            (patient_id, device_id, now, now),
+        )
+        conn.commit()
+        log.info("monitor session: patient %s switched device %s -> %s",
+                 patient_id, open_sess["device_id"], device_id)
 
 
 # 体征正常范围（用于自动报警）
