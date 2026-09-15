@@ -111,46 +111,60 @@ async def require_admin(request: Request,
 
 
 def bootstrap_admin() -> None:
-    """users 表为空时创建首个管理员；ADMIN_RESET=1 时重置管理员密码。"""
-    users = db.list_users()
-    # 确定密码：ADMIN_PASS 优先，否则默认 admin123
+    """确保管理员账号存在且密码与 ADMIN_PASS 一致。
+
+    - users 表为空：创建首个管理员
+    - admin 用户不存在：重新创建
+    - admin 密码与 ADMIN_PASS 不匹配：自动重置（确保 docker-compose 中
+      ADMIN_PASS=admin123 始终可登录，避免改密后锁死）
+    - ADMIN_RESET=1：强制重置（兼容显式重置场景）
+    """
+    # 确定预期密码：ADMIN_PASS 优先，否则默认 admin123
     if not ADMIN_PASS:
         password = "admin123"
     else:
         password = ADMIN_PASS
     masked = password[:1] + "****" if len(password) > 2 else "****"
 
+    users = db.list_users()
     if not users:
         # 首次启动：创建管理员
         if not ADMIN_PASS:
             log.warning("============================================================")
             log.warning("首次启动：未设置 ADMIN_PASS 环境变量，使用默认密码 admin/admin123")
-            log.warning("请立即登录后在【系统设置】中修改密码！")
             log.warning("============================================================")
         h, salt = hash_password(password)
         db.create_user(ADMIN_USER, "系统管理员", h, salt, role="admin")
         log.info("bootstrap admin created: %s (password=%s)", ADMIN_USER, masked)
         log.info("login endpoint: http://<host>:12090  username=%s", ADMIN_USER)
-        if verify_password(password, salt, h):
-            log.info("bootstrap admin self-check PASS (password verified)")
-        else:
-            log.error("bootstrap admin self-check FAIL — please check ADMIN_PASS env")
         return
 
-    # ADMIN_RESET=1：重置管理员密码
+    # 查找 admin 用户
+    admin_user = db.get_user_by_name(ADMIN_USER)
+    if not admin_user:
+        # admin 用户不存在（可能被删除），重新创建
+        h, salt = hash_password(password)
+        db.create_user(ADMIN_USER, "系统管理员", h, salt, role="admin")
+        log.warning("admin user missing, recreated: %s (password=%s)", ADMIN_USER, masked)
+        return
+
+    # 校验密码是否与 ADMIN_PASS 一致
+    need_reset = False
     if ADMIN_RESET == "1":
-        admin_user = db.get_user_by_name(ADMIN_USER)
-        if admin_user:
-            h, salt = hash_password(password)
-            db.update_password(admin_user["id"], h, salt)
-            log.info("ADMIN_RESET=1: admin password reset to %s", masked)
-            # 清除该用户所有会话，强制重新登录
-            db.execute("DELETE FROM sessions WHERE user_id=?", (admin_user["id"],))
-        else:
-            # 管理员用户不存在，重新创建
-            h, salt = hash_password(password)
-            db.create_user(ADMIN_USER, "系统管理员", h, salt, role="admin")
-            log.info("ADMIN_RESET=1: admin user recreated (password=%s)", masked)
+        need_reset = True
+        reason = "ADMIN_RESET=1"
+    elif not verify_password(password, admin_user["salt"], admin_user["password_hash"]):
+        need_reset = True
+        reason = "password mismatch with ADMIN_PASS"
+
+    if need_reset:
+        h, salt = hash_password(password)
+        db.update_password(admin_user["id"], h, salt)
+        # 清除该用户所有会话，强制重新登录
+        db.execute("DELETE FROM sessions WHERE user_id=?", (admin_user["id"],))
+        log.info("admin password reset (%s) → %s", reason, masked)
+    else:
+        log.info("admin password OK (matches ADMIN_PASS)")
 
 
 # ================================================================ WebSocket Hub
