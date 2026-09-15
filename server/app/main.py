@@ -2564,6 +2564,11 @@ async def vitals_upload(request: Request):
                 source_device=device_id,
                 **vital_vals,
             )
+            # 自动创建监护记录（若该患者无活跃会话）
+            try:
+                _ensure_monitor_session(target["patient_id"], device_id)
+            except Exception:
+                pass
             hub.broadcast_threadsafe({
                 "type": "vital", "patient_id": target["patient_id"],
                 "pid": target["pid"], "ts": ts, "source": "esp8266",
@@ -2647,6 +2652,11 @@ async def ingest(request: Request):
                         source_device=device_id or "",
                         **vital_fields,
                     )
+                    # 自动创建监护记录（若该患者无活跃会话）
+                    try:
+                        _ensure_monitor_session(p["id"], device_id or "")
+                    except Exception:
+                        pass
                     hub.broadcast_threadsafe({
                         "type": "vital", "patient_id": p["id"], "pid": hl7_pid,
                         "ts": icu._now(), "source": "hl7",
@@ -2722,6 +2732,11 @@ async def ingest(request: Request):
                 pid = int(dict(rows[0])["patient_id"])
                 icu.insert_vital(pid, db.utcnow(), "ingest",
                                  source_device=device_id, **vital_fields)
+                # 自动创建监护记录（若该患者无活跃会话）
+                try:
+                    _ensure_monitor_session(pid, device_id)
+                except Exception:
+                    pass
         except Exception as e:  # noqa: BLE001
             log.warning("ingest: vital insert failed for %s: %s", device_id, e)
 
@@ -3292,6 +3307,11 @@ def add_vital(pid: str, body: VitalIn):
         source_device=body.source_device or None,
         **kwargs,
     )
+    # 自动创建监护记录（若该患者无活跃会话）
+    try:
+        _ensure_monitor_session(p["id"], body.source_device or "")
+    except Exception:
+        pass
     hub.broadcast_threadsafe({
         "type": "vital", "patient_id": p["id"], "pid": pid,
         "ts": ts, "source": body.source,
