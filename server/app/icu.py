@@ -26,17 +26,33 @@ BACKUP_DIR = os.environ.get("BACKUP_DIR", os.path.join(os.path.dirname(DB_PATH),
 
 
 def _get_conn() -> sqlite3.Connection:
-    """线程局部连接（FastAPI 线程池要求每线程独立连接）。"""
+    """线程局部连接（FastAPI 线程池要求每线程独立连接）。
+
+    BUG-001 修复：增加连接健康检查，避免 latest_signs/get_vitals 关闭连接后
+    线程局部缓存仍持有已关闭连接对象，导致后续请求 ProgrammingError。
+    """
     import threading
     local = getattr(_get_conn, "_local", None)
     if local is None:
         local = _get_conn._local = threading.local()
-    if getattr(local, "conn", None) is None:
-        local.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        local.conn.row_factory = sqlite3.Row
-        local.conn.execute("PRAGMA journal_mode=WAL")
-        local.conn.execute("PRAGMA busy_timeout=3000")
-    return local.conn
+    conn = getattr(local, "conn", None)
+    # 健康检查：连接可能已被外部 close()，需重建
+    if conn is None:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=3000")
+        local.conn = conn
+    else:
+        try:
+            conn.execute("SELECT 1")
+        except Exception:
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=3000")
+            local.conn = conn
+    return conn
 
 
 @contextmanager

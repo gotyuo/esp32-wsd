@@ -3518,7 +3518,7 @@ def latest_signs(pid: str):
                 result[sign] = {"value": tel[tel_field], "ts": tel["ts"],
                                 "source": "telemetry", "device": dev_id}
 
-    conn.close()
+    # BUG-001 修复：不再关闭线程局部连接，由 _get_conn 健康检查管理
     return {"pid": pid, "signs": result}
 
 
@@ -3591,7 +3591,7 @@ def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
         if not dev_ids:
             all_devs = _conn.execute("SELECT id FROM devices").fetchall()
             dev_ids = [r["id"] for r in all_devs if r["id"]]
-        _conn.close()
+        # BUG-001 修复：不再关闭线程局部连接
         for did in dev_ids:
             tel_rows = db.query(
                 "SELECT ts, temp_c, hum_pct, pres_hpa FROM telemetry "
