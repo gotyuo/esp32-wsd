@@ -257,6 +257,25 @@ CREATE TABLE IF NOT EXISTS io_log (
 CREATE INDEX IF NOT EXISTS idx_io_patient_ts ON io_log(patient_id, ts);
 
 -- ============================================================
+-- 检查报告（影像/心电图/超声等）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS exams (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id  INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    source      TEXT DEFAULT 'manual',         -- manual / his / pacs
+    exam_type   TEXT,                           -- 检查类型: ct/mri/xray/ultrasound/ecg/endoscopy/other
+    exam_name   TEXT,                           -- 检查名称: 胸部CT、心电图、腹部超声...
+    result      TEXT,                           -- 结论/报告摘要
+    report_url  TEXT,                           -- 报告链接(PACS/图片URL)
+    operator    TEXT,
+    exam_ts     TEXT NOT NULL,                  -- 检查时间
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exams_patient_ts ON exams(patient_id, exam_ts);
+
+
+
+-- ============================================================
 -- 应用持久化设置（key/value，用于 AI 等全局配置）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS app_settings (

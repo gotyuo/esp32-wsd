@@ -243,6 +243,17 @@ class LabResultIn(BaseModel):
     critical: bool = False
 
 
+
+class ExamIn(BaseModel):
+    source: str = Field("manual", pattern=r"^(manual|his|pacs)$")
+    exam_type: str = Field("", max_length=32)
+    exam_name: str = Field("", max_length=128)
+    result: str = Field("", max_length=4096)
+    report_url: str = Field("", max_length=512)
+    operator: str = Field("", max_length=64)
+    exam_ts: str = Field("", max_length=32)
+
+
 # ================================================================ 系统设置
 class SettingsUpdateIn(BaseModel):
     key: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")

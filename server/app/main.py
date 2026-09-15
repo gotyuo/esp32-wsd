@@ -43,7 +43,7 @@ from .models import (
 )
 from pydantic import BaseModel, Field
 from . import icu
-from .models import PatientCreate, PatientUpdate, LinkDeviceIn, VitalIn, OrderIn, LabResultIn
+from .models import PatientCreate, PatientUpdate, LinkDeviceIn, VitalIn, OrderIn, LabResultIn, ExamIn
 from .mqtt_bridge import MqttBridge
 from . import tts as tts_mod
 
@@ -3549,6 +3549,32 @@ def get_lab(pid: str, start: Optional[str] = None, end: Optional[str] = None):
     except Exception as e:
         log.warning("get_lab failed: %s", e)
         return {"results": []}
+
+
+
+# ---------- 检查报告 ----------
+@app.post("/api/patients/{pid}/exam", dependencies=[Depends(require_admin)])
+def add_exam(pid: str, body: ExamIn):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    eid = icu.exam_insert(
+        p["id"], body.source, body.exam_type, body.exam_name,
+        body.result, body.report_url, body.operator, body.exam_ts or None,
+    )
+    return {"ok": True, "exam_id": eid}
+
+
+@app.get("/api/patients/{pid}/exam")
+def get_exams(pid: str):
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    try:
+        return {"exams": icu.exams_for_patient(p["id"])}
+    except Exception as e:
+        log.warning("get_exams failed: %s", e)
+        return {"exams": []}
 
 
 # ---------- 出入量 ----------

@@ -379,6 +379,27 @@ def lab_results_for_patient(patient_id: int, result_ts_start: str = None,
     )
 
 
+
+# ---------- 检查报告 ----------
+def exam_insert(patient_id: int, source: str = "manual",
+                exam_type: str = None, exam_name: str = None,
+                result: str = None, report_url: str = None,
+                operator: str = None, exam_ts: str = None) -> int:
+    ts = exam_ts or _now()
+    return run(
+        "INSERT INTO exams (patient_id,source,exam_type,exam_name,result,report_url,operator,exam_ts,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (patient_id, source, exam_type, exam_name, result, report_url, operator, ts, _now()),
+    )
+
+
+def exams_for_patient(patient_id: int) -> List[Dict]:
+    return fetchall(
+        "SELECT * FROM exams WHERE patient_id=? ORDER BY exam_ts DESC",
+        (patient_id,),
+    )
+
+
 # ---------- 出入量 ----------
 def add_io_log(patient_id: int, direction: str, kind: str, amount_ml: float,
                amount_g: Optional[float], sub_type: Optional[str], route: Optional[str],

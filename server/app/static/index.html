@@ -292,7 +292,10 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 #view-monitor .m-val .u{font-size:12px;color:var(--sub);margin-left:4px;font-weight:400}
 #view-monitor .m-trend{font-size:12px;margin-left:6px}
 #view-monitor .m-spark{height:32px;margin-top:4px;width:100%}
-#view-monitor .m-bottom{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+#view-monitor .m-bottom{margin-bottom:8px}
+#view-monitor .m-tab{padding:6px 14px;font-size:12px;border:1px solid var(--line);border-bottom:none;border-radius:4px 4px 0 0;background:var(--panel2);color:var(--sub);cursor:pointer;font-family:var(--font)}
+#view-monitor .m-tab.active{background:var(--panel);color:var(--ink);border-bottom:2px solid var(--blue);font-weight:600}
+#view-monitor .m-tab:hover:not(.active){background:rgba(255,255,255,.05)}
 #view-monitor .m-panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
 .m-panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:14px}
 .m-panel .kv{display:grid;grid-template-columns:120px 1fr;gap:10px 14px;align-items:start;font-size:13px}
@@ -378,21 +381,39 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 体温</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
   <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 血糖</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
 </div>
-<div class="m-bottom">
-  <div class="m-panel">
-    <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新医嘱</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">📜 历史</button></h4>
-    <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
-    <div id="ordHist" class="hidden" style="margin-top:6px;max-height:220px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
+<div class="m-bottom" style="display:block">
+  <div style="display:flex;gap:2px;border-bottom:2px solid var(--line);margin-bottom:8px">
+    <button class="m-tab active" data-mtab="orders" onclick="switchMTab('orders')">💊 用药</button>
+    <button class="m-tab" data-mtab="exams" onclick="switchMTab('exams')">📋 检查</button>
+    <button class="m-tab" data-mtab="labs" onclick="switchMTab('labs')">🔬 检验</button>
+    <button class="m-tab" data-mtab="io" onclick="switchMTab('io')">💧 出入量</button>
   </div>
-  <div class="m-panel">
-    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新出入量</button><button class="secondary small" onclick="showAddIo()">+ 添加出入量</button></h4>
-    <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
-    <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
-    <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
+  <div id="mtab-orders" class="m-tab-content">
+    <div class="m-panel">
+      <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">📜 历史</button></h4>
+      <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
+      <div id="ordHist" class="hidden" style="margin-top:6px;max-height:220px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
+    </div>
   </div>
-  <div class="m-panel">
-    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新检验</button><button class="secondary small" onclick="showAddLab()">+ 添加检验</button></h4>
-    <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
+  <div id="mtab-exams" class="m-tab-content" style="display:none">
+    <div class="m-panel">
+      <h4>📋 检查 <button class="secondary small" onclick="loadExams(event)">刷新</button><button class="secondary small" onclick="showAddExam()">+ 添加检查</button></h4>
+      <div id="mExams"><div class="empty" style="font-size:12px">-</div></div>
+    </div>
+  </div>
+  <div id="mtab-labs" class="m-tab-content" style="display:none">
+    <div class="m-panel">
+      <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新</button><button class="secondary small" onclick="showAddLab()">+ 添加检验</button></h4>
+      <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
+    </div>
+  </div>
+  <div id="mtab-io" class="m-tab-content" style="display:none">
+    <div class="m-panel">
+      <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showAddIo()">+ 添加出入量</button></h4>
+      <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
+      <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
+      <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
+    </div>
   </div>
 </div>
 <div class="m-panel" id="mAssessPanel" style="display:none">
@@ -1689,7 +1710,7 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
   $("mTime").textContent="患者 "+pid;
   // 加载患者体征
   // 各数据源独立加载，互不阻塞——有啥数据刷啥数据
-  loadOrders();loadIo();loadLabs();
+  loadOrders();loadIo();loadLabs();loadExams();
   // 1) 体征数据 — 逐指标独立取最新非空值 + 遥测回退
   //    先调 latest-signs 拿每个指标的最新值（谁有数据就显示谁）
   //    再调 vitals 拿历史数据画趋势线（两调用并行，互不阻塞）
@@ -1925,7 +1946,7 @@ function drawMonitorTrend(){
 
 function showAddOrder(){
   var pid=MONITOR_PID;if(!pid){alert("请先选择患者");return;}
-  $( "modalInner" ).innerHTML =
+  $("modalInner").innerHTML =
     "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>ADD ORDER · 添加医嘱</h2>" +
     "<div class='kv'>" +
       "<label>药品名 *</label><input id='oDrug' maxlength='128' required>" +
@@ -1940,15 +1961,15 @@ function showAddOrder(){
     "</div>" +
     "<div style='font-size:11px;color:var(--dim);margin-top:8px'>患者 " + esc(pid) + " · 保存后即时生效到运行中医嘱。</div>" +
     "<div class='actions'><button onclick='doAddOrder()'>保存医嘱</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
-  $( "modalBox" ).classList.remove("hidden");
+  $("modalBox").classList.remove("hidden");
 }
 function doAddOrder(){
   var pid=MONITOR_PID;
-  var body={source:"manual",order_no:$( "oNo" ).value.trim(),drug_name:$( "oDrug" ).value.trim(),
-    dosage:$( "oDos" ).value.trim(),route:$( "oRoute" ).value,rate_mlph:parseFloat($( "oRate" ).value)||null,
-    start_ts:"",end_ts:"",operator:$( "oOper" ).value.trim()};
+  var body={source:"manual",order_no:$("oNo").value.trim(),drug_name:$("oDrug").value.trim(),
+    dosage:$("oDos").value.trim(),route:$("oRoute").value,rate_mlph:parseFloat($("oRate").value)||null,
+    start_ts:"",end_ts:"",operator:$("oOper").value.trim()};
   if(!body.drug_name){alert("请输入药品名");return;}
-  if($( "oRate" ).value && body.rate_mlph==null){alert("泵速格式错误");return;}
+  if($("oRate").value && body.rate_mlph==null){alert("泵速格式错误");return;}
   api("/api/patients/"+pid+"/orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
     toast("医嘱已录入");closeModal();loadOrders();
   }).catch(function(e){toast("保存失败: "+(e.message||""),"alarm");});
@@ -2105,6 +2126,70 @@ function loadLabs(ev){_refreshBtn(ev,function(){
     }).join("");
   }).catch(function(){});
 });}
+// 监护底部页签切换
+function switchMTab(tab){
+  var tabs=["orders","exams","labs","io"];
+  tabs.forEach(function(t){
+    var c=document.getElementById("mtab-"+t);
+    if(c)c.style.display=(t===tab)?"":"none";
+    var b=document.querySelector(".m-tab[data-mtab='"+t+"']");
+    if(b)b.classList.toggle("active",t===tab);
+  });
+  // 切换时加载数据
+  if(tab==="orders")loadOrders();
+  else if(tab==="exams")loadExams();
+  else if(tab==="labs")loadLabs();
+  else if(tab==="io")loadIo();
+}
+
+// ==================== 检查报告 ====================
+function loadExams(ev){_refreshBtn(ev,function(){
+  var pid=MONITOR_PID;if(!pid)return;
+  api("/api/patients/"+pid+"/exam").then(function(d){
+    var exams=(d.exams||[]).slice(0,20);
+    if(!exams.length){$("mExams").innerHTML='<div class="empty" style="font-size:12px">暂无检查记录</div>';return;}
+    var typeMap={ct:"CT",mri:"MRI",xray:"X光",ultrasound:"超声",ecg:"心电图",endoscopy:"内镜",other:"其他"};
+    $("mExams").innerHTML=exams.map(function(e){
+      var tn=typeMap[e.exam_type]||e.exam_type||"-";
+      var url=e.report_url?' <a href="'+esc(e.report_url)+'" target="_blank" style="color:var(--blue);font-size:10px">查看报告</a>':"";
+      return "<div style='font-size:11px;padding:3px 0;border-bottom:1px solid var(--line)'>"
+        +"<span class='small'>"+fmtTime(e.exam_ts)+"</span> "
+        +"<span class='badge' style='font-size:10px'>"+esc(tn)+"</span> "
+        +"<b>"+esc(e.exam_name||"-")+"</b> "
+        +"<span style='color:var(--sub)'>"+esc(e.result||"")+"</span>"
+        +url
+        +"</div>";
+    }).join("");
+  }).catch(function(){var box=$("mExams");if(box)box.innerHTML='<div class="empty" style="font-size:12px">加载失败</div>';});
+});}
+function showAddExam(){
+  var pid=MONITOR_PID;if(!pid){alert("请先选择患者");return;}
+  $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>ADD EXAM · 添加检查</h2>"
+    +"<div class='kv'>"
+    +"<label>检查类型 *</label><select id='eType'>"
+    +"<option value='ct'>CT</option><option value='mri'>MRI</option><option value='xray'>X光</option>"
+    +"<option value='ultrasound'>超声</option><option value='ecg'>心电图</option>"
+    +"<option value='endoscopy'>内镜</option><option value='other'>其他</option></select>"
+    +"<label>检查名称 *</label><input id='eName' maxlength='128' placeholder='如 胸部CT平扫、腹部超声' required>"
+    +"<label>结论/摘要</label><textarea id='eResult' rows='3' placeholder='检查结论或报告摘要' style='width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:4px;color:var(--txt);padding:6px 8px;font-size:12px'></textarea>"
+    +"<label>报告链接</label><input id='eUrl' maxlength='512' placeholder='PACS链接或图片URL'>"
+    +"<label>操作者</label><input id='eOper' maxlength='64'>"
+    +"</div>"
+    +"<div style='font-size:11px;color:var(--dim);margin-top:8px'>患者 "+esc(pid)+"</div>"
+    +"<div class='actions'><button onclick='doAddExam()'>保存检查</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+  $("modalBox").classList.remove("hidden");
+}
+function doAddExam(){
+  var pid=MONITOR_PID;
+  var body={source:"manual",exam_type:$("eType").value,exam_name:$("eName").value.trim(),
+    result:$("eResult").value.trim(),report_url:$("eUrl").value.trim(),
+    operator:$("eOper").value.trim(),exam_ts:""};
+  if(!body.exam_name){alert("请输入检查名称");return;}
+  api("/api/patients/"+pid+"/exam",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
+    toast("检查记录已录入");closeModal();loadExams();
+  }).catch(function(e){toast("保存失败: "+(e.message||""),"alarm");});
+}
+
 function showIoForm(){
   var pid=MONITOR_PID;if(!pid){toast("请先选择患者");return;}
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>IO · "+esc(pid)+"</h2>"
