@@ -185,12 +185,12 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab" data-view="sessions" onclick="switchView('sessions')">📋 监护记录</span>
       <span class="vtab" data-view="alarms" onclick="switchView('alarms')">🚨 报警</span>
       <span class="vtab" data-view="hl7" onclick="switchView('hl7')">📡 非ESP接入</span>
-      <span class="vtab" data-view="access" onclick="switchView('access')">📡 设备接入</span>
-      <span class="vtab" data-view="doctors" onclick="switchView('doctors')">👨⚕ 医生管理</span>
-      <span class="vtab" data-view="remind" onclick="switchView('remind')">💬 发提醒</span>
-      <span class="vtab" data-view="wechat" onclick="switchView('wechat')">🏥 企业微信配置</span>
-      <span class="vtab" data-view="ai" onclick="switchView('ai')">🧠 AI 模型</span>
-      <span class="vtab" data-view="datasource" onclick="switchView('datasource')">🔌 数据源</span>
+      <span class="vtab" data-view="access" onclick="switchView('access')" id="tab-access">📡 设备接入</span>
+      <span class="vtab" data-view="doctors" onclick="switchView('doctors')" id="tab-doctors">👨⚕ 医生管理</span>
+      <span class="vtab" data-view="remind" onclick="switchView('remind')" id="tab-remind">💬 发提醒</span>
+      <span class="vtab" data-view="wechat" onclick="switchView('wechat')" id="tab-wechat">🏥 企业微信配置</span>
+      <span class="vtab" data-view="ai" onclick="switchView('ai')" id="tab-ai">🧠 AI 模型</span>
+      <span class="vtab" data-view="datasource" onclick="switchView('datasource')" id="tab-datasource">🔌 数据源</span>
     </div>
   </div>
   <div class="left">
@@ -2098,8 +2098,15 @@ function testWechat(){
 }
 function loadSettingsForMenu(){
   if(!ME) return;
-  if(ME.role==="admin") $("mSettings").classList.remove("hidden");
+  var isAdmin=(ME.role==="admin");
+  // 系统设置菜单仅管理员可见
+  if(isAdmin) $("mSettings").classList.remove("hidden");
   else $("mSettings").classList.add("hidden");
+  // 需要管理员权限的标签页：非管理员隐藏，避免保存时报 403
+  ["access","doctors","remind","wechat","ai","datasource"].forEach(function(t){
+    var el=$("tab-"+t);
+    if(el) el.classList.toggle("hidden",!isAdmin);
+  });
 }
 function showSettings(){
   api("/api/settings").then(function(d){
