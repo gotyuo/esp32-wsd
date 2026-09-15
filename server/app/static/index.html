@@ -2955,10 +2955,8 @@ async function loadAiSettings(){
     set('s-ai.provider', m['ai.provider']||'openai');
     set('s-ai.base_url', m['ai.base_url']||'');
     set('s-ai.model', m['ai.model']||'');
-    // api_key 被后端脱敏为 ******，不覆盖表单中已有的真实值
-    if (m['ai.api_key'] && m['ai.api_key'] !== '******') {
-      set('s-ai.api_key', m['ai.api_key']);
-    }
+    // api_key 被后端脱敏为 ******，显示占位符表明已保存
+    set('s-ai.api_key', m['ai.api_key'] || '');
     set('s-ai.timeout', m['ai.timeout']||'30');
     set('s-ai.max_tokens', m['ai.max_tokens']||'512');
     set('s-ai.system_prompt', m['ai.system_prompt']||'');
@@ -2970,7 +2968,11 @@ async function saveAiSettings(){
   const ids = ['enabled','provider','base_url','model','api_key','timeout','max_tokens','system_prompt','push_wechat','push_doctor_id'];
   const body = {};
   ids.forEach(id=>{ body['ai.'+id] = (document.getElementById('s-ai.'+id).value || ''); });
-  body['ai.api_key'] = (document.getElementById('s-ai.api_key').value || '');
+  // ****** 是脱敏占位符，跳过不提交以保留已保存的真实 key
+  { const _k = document.getElementById('s-ai.api_key').value || '';
+    if (_k === '******') { delete body['ai.api_key']; }
+    else { body['ai.api_key'] = _k; }
+  }
   // ai.enabled 统一存为 'true'/'false'，与设置菜单 saveSettings() 和所有检查逻辑一致
   body['ai.enabled'] = (document.getElementById('s-ai.enabled').value === '1') ? 'true' : 'false';
   // 同步 ai.prompt = ai.system_prompt，兼容后端 icu.py 的 assess_with_ai
