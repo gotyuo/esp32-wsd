@@ -117,9 +117,16 @@ def _write_wyoming_message(msg_type: str, data: Optional[dict] = None,
 
 
 async def _wyoming_synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
-    """通过 Wyoming 协议向 Piper 请求 TTS 合成，返回 WAV 字节流。"""
+    """通过 Wyoming 协议向 Piper 请求 TTS 合成，返回 WAV 字节流。
+
+    BUG-014: 连接和消息读取均加超时，Piper 假死时不再永久悬挂。
+    BUG-015: IncompleteReadError 归一化为 ConnectionError，使上层返回 503 而非 500。
+    """
     voice = voice_id or TTS_VOICE
-    reader, writer = await asyncio.open_connection(TTS_HOST, TTS_PORT)
+    # BUG-014: 连接超时 5 秒
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(TTS_HOST, TTS_PORT), timeout=5.0
+    )
 
     try:
         # Step 1: 发送 describe 请求
@@ -128,7 +135,8 @@ async def _wyoming_synthesize(text: str, voice_id: Optional[str] = None) -> byte
 
         # 读取 info 响应（可能收到多行，取 info 类型的）
         while True:
-            msg = await _read_wyoming_message(reader)
+            # BUG-014: 单条消息读取超时 10 秒
+            msg = await asyncio.wait_for(_read_wyoming_message(reader), timeout=10.0)
             if msg is None:
                 raise ConnectionError("Piper 连接断开，未收到 info 响应")
             if msg["type"] == "info":
@@ -151,7 +159,8 @@ async def _wyoming_synthesize(text: str, voice_id: Optional[str] = None) -> byte
         channels = 1         # mono
 
         while True:
-            msg = await _read_wyoming_message(reader)
+            # BUG-014: 单条消息读取超时 10 秒
+            msg = await asyncio.wait_for(_read_wyoming_message(reader), timeout=10.0)
             if msg is None:
                 break
 
@@ -189,6 +198,12 @@ async def _wyoming_synthesize(text: str, voice_id: Optional[str] = None) -> byte
         # 包装成 WAV
         return _pcm_to_wav(raw_pcm, sample_rate, sample_width, channels)
 
+    except asyncio.IncompleteReadError:
+        # BUG-015: 连接半路关闭，归一化为 ConnectionError 使上层返回 503
+        raise ConnectionError("Piper 连接中断 (IncompleteReadError)")
+    except asyncio.TimeoutError:
+        # BUG-014: 超时归一化为 ConnectionError
+        raise ConnectionError("Piper 响应超时")
     finally:
         writer.close()
         try:
