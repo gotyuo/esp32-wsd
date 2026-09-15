@@ -458,6 +458,18 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     </div>
   </div>
 
+  <!-- ============= 就诊记录 ============= -->
+  <div id="view-encounters" class="hidden">
+    <div class="section">
+      <h2>🏥 就诊记录 / ENCOUNTERS
+        <div class="actions" style="margin-top:0">
+          <button class="secondary small" onclick="loadEncountersView(event)">刷新就诊记录</button>
+        </div>
+      </h2>
+      <div id="encountersList"><div class="empty">加载中…</div></div>
+    </div>
+  </div>
+
   <!-- ============= 监护记录 ============= -->
   <div id="view-sessions" class="hidden">
     <div class="section">
@@ -1194,6 +1206,7 @@ function loadAll(ev){
       case "monitor":  refreshMonitor();            return;
       case "patients": loadPatients();              return;
       case "devices":  loadDevices();               return;
+      case "encounters": loadEncountersView();      return;
       case "sessions": loadMonitorSessionsView();  return;
       case "alarms":   loadAlarms();                return;
       case "hl7":      loadHl7View();               return;
@@ -2490,6 +2503,73 @@ function testIngest(){
     resultEl.textContent='失败: '+(e&&e.message?e.message:'未知错误');
     resultEl.style.color='var(--red)';
   });
+}
+
+// ==================== 就诊记录 ====================
+function loadEncountersView(ev){_refreshBtn(ev,function(){
+  api("/api/encounters?limit=200").then(function(d){
+    var encs=d.encounters||[];
+    if(!encs.length){.innerHTML='<div class="empty">暂无就诊记录</div>';return;}
+    .innerHTML="<table><thead><tr><th>患者</th><th>床号</th><th>就诊号</th><th>开始</th><th>结束</th><th>持续</th><th>监护段</th><th>报警</th><th>状态</th><th>操作</th></tr></thead><tbody>"
+      +encs.map(function(e){
+        var st=e.end_ts?'<span class="ok">已出院</span>':'<span class="bad">在院</span>';
+        return "<tr><td>"+esc(e.name||e.pid||"-")+"</td>"
+          +"<td>"+esc(e.bed_no||e.patient_bed||"-")+"</td>"
+          +"<td>"+esc(e.encounter_no||"-")+"</td>"
+          +"<td>"+fmtTime(e.start_ts)+"</td>"
+          +"<td>"+(e.end_ts?fmtTime(e.end_ts):"-")+"</td>"
+          +"<td>"+esc(e.duration_str||"-")+"</td>"
+          +"<td>"+esc(e.session_count||0)+"</td>"
+          +"<td>"+esc(e.alarm_count||0)+"</td>"
+          +"<td>"+st+"</td>"
+          +"<td><button class='secondary small' onclick="showEncounterDetail("+e.id+")">详情</button>"
+          +(e.end_ts?'':" <button class='warn small' onclick="endEncounter("+e.id+")">出院</button>")
+          +"</td></tr>";
+      }).join("")
+      +"</tbody></table>";
+  }).catch(function(){.innerHTML='<div class="empty">加载失败</div>';});
+});}
+function showEncounterDetail(eid){
+  api("/api/encounters/"+eid).then(function(d){
+    var e=d.encounter||{},sessions=d.sessions||[],alarms=d.alarms||[];
+    var sessHtml=sessions.map(function(s){
+      var st=s.end_ts?'<span class="ok">已结束</span>':'<span class="bad">进行中</span>';
+      return "<tr><td>"+fmtTime(s.start_ts)+"</td><td>"+(s.end_ts?fmtTime(s.end_ts):"-")+"</td>"
+        +"<td>"+esc(s.duration_str||"-")+"</td><td>"+esc(s.device_id||"-")+"</td>"
+        +"<td>"+st+"</td><td>"+esc(s.summary||"-")+"</td>"
+        +"<td><button class='secondary small' onclick="closeModal();showSessionDetail("+s.id+")">详情</button></td></tr>";
+    }).join("");
+    var alarmHtml=alarms.slice(0,50).map(function(a){
+      var lv=a.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';
+      var st=a.cleared_at?'<span class="ok">已恢复</span>':'<span class="bad">持续中</span>';
+      return "<tr><td>"+fmtTime(a.ts)+"</td><td>"+esc(a.device_id||"-")+"</td>"
+        +"<td>"+lv+"</td><td>"+esc(a.reason||"")+"</td><td>"+st+"</td></tr>";
+    }).join("");
+    .innerHTML="<div style='max-height:70vh;overflow:auto'>"
+      +"<h2 style='font-size:14px;color:var(--sub);letter-spacing:1px'>就诊记录详情 · "+esc(e.pid||"-")+" "+esc(e.name||"")+"</h2>"
+      +"<div class='grid' style='margin:8px 0 14px'>"
+        +"<span>床号 <b>"+esc(e.bed_no||e.patient_bed||"-")+"</b></span>"
+        +"<span>开始 <b>"+fmtTime(e.start_ts)+"</b></span>"
+        +"<span>结束 <b>"+(e.end_ts?fmtTime(e.end_ts):"在院")+"</b></span>"
+        +"<span>持续 <b>"+esc(e.duration_str||"-")+"</b></span>"
+        +"<span>体征 <b>"+esc(d.vitals_count||0)+" 条</b></span>"
+      +"</div>"
+      +(e.diagnosis?"<div style='margin-bottom:14px;padding:8px;background:var(--panel2);border-radius:4px;font-size:12px'><b>诊断：</b>"+esc(e.diagnosis)+"</div>":"")
+      +(e.summary?"<div style='margin-bottom:14px;padding:8px;background:var(--panel2);border-radius:4px;font-size:12px'><b>出院总结：</b>"+esc(e.summary)+"</div>":"")
+      +"<h3 style='font-size:12px;color:var(--sub);margin-bottom:6px'>监护会话 ("+sessions.length+" 段)</h3>"
+      +"<table style='font-size:11px'><thead><tr><th>开始</th><th>结束</th><th>持续</th><th>设备</th><th>状态</th><th>摘要</th><th>操作</th></tr></thead><tbody>"+sessHtml+"</tbody></table>"
+      +"<h3 style='font-size:12px;color:var(--sub);margin:14px 0 6px'>报警记录 ("+alarms.length+" 条)</h3>"
+      +"<table style='font-size:11px'><thead><tr><th>时间</th><th>设备</th><th>级别</th><th>原因</th><th>状态</th></tr></thead><tbody>"+alarmHtml+"</tbody></table>"
+      +"<div class='actions' style='margin-top:14px'><button class='secondary' onclick='closeModal()'>关闭</button></div>"
+      +"</div>";
+    .classList.remove("hidden");
+  }).catch(function(){toast("加载就诊记录失败","alarm");closeModal();});
+}
+function endEncounter(eid){
+  var summary=prompt("请输入出院总结（可选）：","")||"";
+  api("/api/encounters/"+eid+"/end",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({summary:summary})}).then(function(){
+    toast("已出院");loadEncountersView();
+  }).catch(function(e){toast("出院失败: "+(e.message||""),"alarm");});
 }
 
 function loadMonitorSessionsView(ev){_refreshBtn(ev,function(){

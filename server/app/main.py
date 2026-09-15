@@ -200,14 +200,30 @@ def check_alarm(device_id: str, temp, hum, pres) -> (int, str):
     return worst, "; ".join(reasons)
 
 
-def record_alarm_transition(device_id: str, level: int, reason: str, temp, hum, pres):
-    """报警状态迁移：触发时记录，恢复时销警。"""
+def record_alarm_transition(device_id: str, level: int, reason: str, temp, hum, pres,
+                               patient_id: int = None):
+    """报警状态迁移：触发时记录，恢复时销警。
+    patient_id 用于关联就诊记录（encounter_id）。"""
+    # 查找当前就诊记录
+    encounter_id = None
+    if patient_id:
+        enc = icu.active_encounter_for_patient(patient_id)
+        if enc:
+            encounter_id = enc["id"]
+    elif device_id:
+        # 从设备绑定反查患者
+        binding = icu.device_current_binding(device_id)
+        if binding:
+            patient_id = binding.get("patient_id")
+            enc = icu.active_encounter_for_patient(patient_id) if patient_id else None
+            encounter_id = enc["id"] if enc else None
     open_alarm = db.open_alarm_for(device_id)
     if level >= 1:
         if not open_alarm or open_alarm["level"] != level:
             if open_alarm:
                 db.clear_open_alarms(device_id)
-            db.insert_alarm(device_id, level, reason, temp, hum, pres)
+            db.insert_alarm(device_id, level, reason, temp, hum, pres,
+                            patient_id=patient_id, encounter_id=encounter_id)
             hub.broadcast_threadsafe({"type": "alarm", "device_id": device_id,
                                       "level": level, "reason": reason})
             log.warning("ALARM [%s] lv%d %s", device_id, level, reason)
@@ -622,34 +638,45 @@ def handle_vitals(device_id: str, payload: dict):
 
 def _ensure_monitor_session(patient_id: int, device_id: str):
     """设备上报体征时自动创建监护记录（若无活跃会话）。
-    患者切换设备时：结束旧设备会话，开启新设备会话。"""
+    患者切换设备时：结束旧设备会话，开启新设备会话。
+    所有会话关联到当前就诊记录（encounter）。"""
     from .icu import _get_conn
     conn = _get_conn()
+    # 确保有活跃就诊记录
+    enc = icu.ensure_active_encounter(patient_id)
+    encounter_id = enc["id"] if enc else None
     open_sess = conn.execute(
-        "SELECT id, device_id FROM monitor_sessions WHERE patient_id=? AND end_ts IS NULL ORDER BY start_ts DESC LIMIT 1",
+        "SELECT id, device_id, encounter_id FROM monitor_sessions WHERE patient_id=? AND end_ts IS NULL ORDER BY start_ts DESC LIMIT 1",
         (patient_id,),
     ).fetchone()
     now = icu._now()
     if not open_sess:
         # 无活跃会话，创建新的
         conn.execute(
-            "INSERT INTO monitor_sessions (patient_id, device_id, start_ts, created_at) VALUES (?,?,?,?)",
-            (patient_id, device_id, now, now),
+            "INSERT INTO monitor_sessions (patient_id, device_id, encounter_id, start_ts, created_at) VALUES (?,?,?,?,?)",
+            (patient_id, device_id, encounter_id, now, now),
         )
         conn.commit()
     elif open_sess["device_id"] and open_sess["device_id"] != device_id:
-        # 设备切换：结束旧会话，开启新会话
+        # 设备切换：结束旧会话，开启新会话（同一就诊下）
         conn.execute(
             "UPDATE monitor_sessions SET end_ts=? WHERE id=?",
             (now, open_sess["id"]),
         )
         conn.execute(
-            "INSERT INTO monitor_sessions (patient_id, device_id, start_ts, created_at) VALUES (?,?,?,?)",
-            (patient_id, device_id, now, now),
+            "INSERT INTO monitor_sessions (patient_id, device_id, encounter_id, start_ts, created_at) VALUES (?,?,?,?,?)",
+            (patient_id, device_id, encounter_id, now, now),
         )
         conn.commit()
-        log.info("monitor session: patient %s switched device %s -> %s",
-                 patient_id, open_sess["device_id"], device_id)
+        log.info("monitor session: patient %s switched device %s -> %s (encounter %s)",
+                 patient_id, open_sess["device_id"], device_id, encounter_id)
+    elif open_sess["encounter_id"] is None and encounter_id:
+        # 旧会话缺 encounter_id，补关联
+        conn.execute(
+            "UPDATE monitor_sessions SET encounter_id=? WHERE id=?",
+            (encounter_id, open_sess["id"]),
+        )
+        conn.commit()
 
 
 # 体征正常范围（用于自动报警）
@@ -665,7 +692,19 @@ VITAL_NORMAL_RANGES = {
 
 
 def _check_vital_alarms(device_id: str, pid: str, payload: dict):
-    """检查体征值是否超出正常范围，超限时写入 alarms 表。"""
+    """检查体征值是否超出正常范围，超限时写入 alarms 表。
+    报警记录关联 patient_id 和 encounter_id。"""
+    # 查找 patient_id (int) 和 encounter_id
+    _vital_patient_id = None
+    _vital_encounter_id = None
+    try:
+        p = icu.patient_by_pid(pid)
+        if p:
+            _vital_patient_id = p["id"]
+            enc = icu.active_encounter_for_patient(p["id"])
+            _vital_encounter_id = enc["id"] if enc else None
+    except Exception:
+        pass
     for key, (lo, hi, label) in VITAL_NORMAL_RANGES.items():
         v = payload.get(key)
         if v is None:
@@ -687,8 +726,8 @@ def _check_vital_alarms(device_id: str, pid: str, payload: dict):
             if not recent:
                 now = icu._now()
                 conn.execute(
-                    "INSERT INTO alarms (device_id, ts, level, reason, cleared_at) VALUES (?,?,?,?,NULL)",
-                    (device_id, now, level, reason),
+                    "INSERT INTO alarms (device_id, ts, level, reason, cleared_at, patient_id, encounter_id) VALUES (?,?,?,?,NULL,?,?)",
+                    (device_id, now, level, reason, _vital_patient_id, _vital_encounter_id),
                 )
                 conn.commit()
                 hub.broadcast_threadsafe({"type": "alarm", "device_id": device_id,
@@ -3515,6 +3554,97 @@ def io_balance(pid: str, hours: int = Query(24, ge=1, le=720)):
     except Exception as e:
         log.warning("io_balance failed: %s", e)
         return {"in_ml": 0, "out_ml": 0, "net_ml": 0}
+
+
+# ================================================================ 就诊记录
+@app.get("/api/encounters", dependencies=[Depends(require_user)])
+def list_encounters_api(patient_id: Optional[int] = Query(None),
+                        status: Optional[str] = Query(None),
+                        limit: int = Query(100, ge=1, le=500)):
+    """查询就诊记录列表。"""
+    encounters = icu.list_encounters(patient_id=patient_id, status=status, limit=limit)
+    # 为每条就诊补充监护会话数和报警数
+    for e in encounters:
+        eid = e["id"]
+        e["session_count"] = db.query_one_locked(
+            "SELECT COUNT(*) FROM monitor_sessions WHERE encounter_id=?", (eid,))[0]
+        e["alarm_count"] = db.query_one_locked(
+            "SELECT COUNT(*) FROM alarms WHERE encounter_id=?", (eid,))[0]
+        e["duration_str"] = _duration_str(e.get("start_ts"), e.get("end_ts"))
+    return {"encounters": encounters, "total": len(encounters)}
+
+
+@app.get("/api/encounters/{encounter_id}", dependencies=[Depends(require_user)])
+def get_encounter_detail(encounter_id: int):
+    """就诊记录详情：含监护会话列表 + 报警列表 + 体征摘要。"""
+    enc = icu.get_encounter(encounter_id)
+    if not enc:
+        raise HTTPException(404, "就诊记录不存在")
+    eid = enc["id"]
+    # 该就诊下的监护会话
+    sessions = icu.list_monitor_sessions(patient_id=enc["patient_id"], limit=100)
+    sessions = [s for s in sessions if s.get("encounter_id") == eid]
+    for s in sessions:
+        s["duration_str"] = _duration_str(s.get("start_ts"), s.get("end_ts"))
+    # 该就诊下的报警
+    alarms = [dict(r) for r in db.query(
+        "SELECT * FROM alarms WHERE encounter_id=? ORDER BY ts DESC LIMIT 200", (eid,))]
+    # 体征统计
+    start_ts = enc["start_ts"]
+    end_ts = enc["end_ts"] or db.utcnow()
+    vitals = icu.patient_vitals(enc["patient_id"], start_ts, end_ts)
+    enc["duration_str"] = _duration_str(start_ts, enc.get("end_ts"))
+    return {
+        "encounter": enc,
+        "sessions": sessions,
+        "alarms": alarms,
+        "vitals_count": len(vitals),
+    }
+
+
+@app.post("/api/patients/{pid}/encounters", dependencies=[Depends(require_admin)])
+def create_encounter(pid: str, body: Dict[str, Any] = None):
+    """为患者创建新就诊记录（新住院）。若已有活跃就诊，先自动结束。"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    body = body or {}
+    # 自动结束现有活跃就诊
+    active = icu.active_encounter_for_patient(p["id"])
+    if active:
+        icu.end_encounter(active["id"], body.get("prior_summary", ""))
+    enc = icu.ensure_active_encounter(
+        p["id"],
+        bed_no=body.get("bed_no", p.get("bed_no")),
+        diagnosis=body.get("diagnosis", p.get("diagnosis")),
+    )
+    return {"ok": True, "encounter": enc}
+
+
+@app.post("/api/encounters/{encounter_id}/end", dependencies=[Depends(require_admin)])
+def end_encounter_api(encounter_id: int, body: Dict[str, Any] = None):
+    """结束就诊记录（出院）。"""
+    body = body or {}
+    summary = body.get("summary", "")
+    result = icu.end_encounter(encounter_id, summary)
+    return {"ok": True, **result}
+
+
+@app.get("/api/patients/{pid}/encounters", dependencies=[Depends(require_user)])
+def list_patient_encounters(pid: str):
+    """列出某患者的所有就诊记录。"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    encounters = icu.list_encounters(patient_id=p["id"], limit=100)
+    for e in encounters:
+        eid = e["id"]
+        e["session_count"] = db.query_one_locked(
+            "SELECT COUNT(*) FROM monitor_sessions WHERE encounter_id=?", (eid,))[0]
+        e["alarm_count"] = db.query_one_locked(
+            "SELECT COUNT(*) FROM alarms WHERE encounter_id=?", (eid,))[0]
+        e["duration_str"] = _duration_str(e.get("start_ts"), e.get("end_ts"))
+    return {"encounters": encounters}
 
 
 @app.get("/api/monitor/sessions", dependencies=[Depends(require_user)])

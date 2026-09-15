@@ -197,6 +197,55 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_monitor_sessions_device ON monitor_sessions(device_id)"
     )
+    # ── 就诊记录表（patient_encounters）── 患者一次住院/监护的顶层分组。
+    # 下属 monitor_sessions（按设备分段）和 alarms（报警）通过 encounter_id 关联。
+    # 解决：多次住院区分、设备切换归属、报警按就诊隔离。
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS patient_encounters ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE, "
+        "encounter_no TEXT, "
+        "start_ts TEXT NOT NULL, "
+        "end_ts TEXT, "
+        "bed_no TEXT, "
+        "diagnosis TEXT, "
+        "status TEXT DEFAULT 'active', "
+        "summary TEXT, "
+        "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))"
+        ")"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_encounters_patient ON patient_encounters(patient_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_encounters_status ON patient_encounters(status)"
+    )
+    # 迁移：monitor_sessions 增加 encounter_id 列
+    try:
+        conn.execute("ALTER TABLE monitor_sessions ADD COLUMN encounter_id INTEGER REFERENCES patient_encounters(id)")
+        _log.info("migration: added monitor_sessions.encounter_id column")
+    except Exception:
+        pass  # 列已存在
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_monitor_sessions_encounter ON monitor_sessions(encounter_id)"
+    )
+    # 迁移：alarms 增加 encounter_id 和 patient_id 列
+    try:
+        conn.execute("ALTER TABLE alarms ADD COLUMN encounter_id INTEGER")
+        _log.info("migration: added alarms.encounter_id column")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE alarms ADD COLUMN patient_id INTEGER")
+        _log.info("migration: added alarms.patient_id column")
+    except Exception:
+        pass
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alarms_encounter ON alarms(encounter_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alarms_patient ON alarms(patient_id)"
+    )
     # 设备-患者历史表：记录同设备历次分配给不同患者的时间线。
     conn.execute(
         "CREATE TABLE IF NOT EXISTS device_patient_history ("
@@ -758,13 +807,14 @@ def save_thresholds(device_id: str, data: Dict[str, Any]) -> None:
 
 # ---------------------------------------------------------------- alarms
 def insert_alarm(device_id: str, level: int, reason: str,
-                 temp: float, hum: float, pres: float) -> int:
+                 temp: float, hum: float, pres: float,
+                 patient_id: int = None, encounter_id: int = None) -> int:
     return execute(
         """
-        INSERT INTO alarms (device_id, ts, level, reason, temp_c, hum_pct, pres_hpa, cleared_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+        INSERT INTO alarms (device_id, ts, level, reason, temp_c, hum_pct, pres_hpa, cleared_at, patient_id, encounter_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
         """,
-        (device_id, utcnow(), level, reason, temp, hum, pres),
+        (device_id, utcnow(), level, reason, temp, hum, pres, patient_id, encounter_id),
     )
 
 

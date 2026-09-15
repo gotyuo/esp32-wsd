@@ -416,6 +416,72 @@ def io_balance(patient_id: int, hours: int = 24) -> Dict:
             "net_ml": round(inc - out, 1), "hours": hours}
 
 
+# ---------- 就诊记录（patient_encounters）----------
+def ensure_active_encounter(patient_id: int, bed_no: str = None, diagnosis: str = None) -> Dict:
+    """确保患者有活跃就诊记录，无则自动创建。返回就诊记录 dict。"""
+    enc = fetchone(
+        "SELECT * FROM patient_encounters WHERE patient_id=? AND status='active' AND end_ts IS NULL "
+        "ORDER BY start_ts DESC LIMIT 1",
+        (patient_id,),
+    )
+    if enc:
+        return dict(enc)
+    now = _now()
+    eid = run(
+        "INSERT INTO patient_encounters (patient_id, start_ts, bed_no, diagnosis, status, created_at) "
+        "VALUES (?,?,?,?, 'active', ?)",
+        (patient_id, now, bed_no, diagnosis, now),
+    )
+    return {"id": eid, "patient_id": patient_id, "start_ts": now,
+            "bed_no": bed_no, "diagnosis": diagnosis, "status": "active"}
+
+
+def list_encounters(patient_id: int = None, status: str = None, limit: int = 100) -> List[Dict]:
+    """查询就诊记录列表，可按患者/状态过滤。"""
+    sql = ("SELECT e.*, p.pid, p.name, p.bed_no AS patient_bed "
+           "FROM patient_encounters e "
+           "LEFT JOIN patients p ON p.id=e.patient_id WHERE 1=1")
+    params: list = []
+    if patient_id is not None:
+        sql += " AND e.patient_id=?"
+        params.append(patient_id)
+    if status:
+        sql += " AND e.status=?"
+        params.append(status)
+    sql += " ORDER BY e.start_ts DESC LIMIT ?"
+    params.append(limit)
+    return fetchall(sql, tuple(params))
+
+
+def get_encounter(encounter_id: int) -> Optional[Dict]:
+    """获取单条就诊记录详情。"""
+    return fetchone(
+        "SELECT e.*, p.pid, p.name, p.bed_no AS patient_bed, p.diagnosis AS patient_diag "
+        "FROM patient_encounters e "
+        "LEFT JOIN patients p ON p.id=e.patient_id WHERE e.id=?",
+        (encounter_id,),
+    )
+
+
+def end_encounter(encounter_id: int, summary: str = None) -> Dict:
+    """结束就诊记录（出院）。同时结束该就诊下所有活跃监护会话。"""
+    now = _now()
+    run("UPDATE patient_encounters SET end_ts=?, status='discharged', summary=? WHERE id=? AND end_ts IS NULL",
+        (now, summary, encounter_id))
+    run("UPDATE monitor_sessions SET end_ts=? WHERE encounter_id=? AND end_ts IS NULL",
+        (now, encounter_id))
+    return {"encounter_id": encounter_id, "end_ts": now, "summary": summary}
+
+
+def active_encounter_for_patient(patient_id: int) -> Optional[Dict]:
+    """查询患者当前活跃就诊记录。"""
+    return fetchone(
+        "SELECT * FROM patient_encounters WHERE patient_id=? AND status='active' AND end_ts IS NULL "
+        "ORDER BY start_ts DESC LIMIT 1",
+        (patient_id,),
+    )
+
+
 # ---------- 监护记录 ----------
 
 def start_monitor_session(patient_id: int, device_id: str = None) -> Dict:
