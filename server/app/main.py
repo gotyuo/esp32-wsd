@@ -110,6 +110,28 @@ async def require_admin(request: Request,
     return user
 
 
+async def require_device_auth(request: Request,
+                               authorization: Optional[str] = Header(default=None)) -> None:
+    """设备上报端点鉴权（BUG-005 修复）。
+
+    若配置了 MQTT 凭据（MQTT_USER/MQTT_PASS），则要求 HTTP Basic Auth
+    使用相同凭据；未配置则放行（向后兼容）。
+    """
+    if not MQTT_USER:
+        return  # 未配置 MQTT 凭据，放行
+    if not authorization or not authorization.lower().startswith("basic "):
+        raise HTTPException(401, "设备认证 required", headers={"WWW-Authenticate": "Basic"})
+    import base64
+    try:
+        decoded = base64.b64decode(authorization[6:]).decode("utf-8")
+        username, _, password = decoded.partition(":")
+    except Exception:
+        raise HTTPException(401, "设备认证无效", headers={"WWW-Authenticate": "Basic"})
+    if not (hmac.compare_digest(username, MQTT_USER) and
+            hmac.compare_digest(password, MQTT_PASS)):
+        raise HTTPException(401, "设备认证失败", headers={"WWW-Authenticate": "Basic"})
+
+
 def bootstrap_admin() -> None:
     """确保管理员账号存在且密码与 ADMIN_PASS 一致。
 
@@ -2480,7 +2502,7 @@ def _parse_hl7(text: str) -> Dict[str, Any]:
 
 
 
-@app.post("/api/telemetry")
+@app.post("/api/telemetry", dependencies=[Depends(require_device_auth)])
 async def telemetry_upload(request: Request):
     """HTTP 遥测上报端点（免认证，设备直接 POST）。
 
@@ -2556,7 +2578,7 @@ async def telemetry_upload(request: Request):
 
 
 
-@app.post("/api/vitals")
+@app.post("/api/vitals", dependencies=[Depends(require_device_auth)])
 async def vitals_upload(request: Request):
     """ESP8266 MAX30102 固件兼容端点（免 admin 认证，设备直接上报）。
 
