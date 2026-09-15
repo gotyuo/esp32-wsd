@@ -160,6 +160,14 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 </head>
 <body>
 
+<!-- ⚠️⚠️⚠️ 警告：请勿修改以下登录区域 ⚠️⚠️⚠️
+     登录表单和 doLogin() 函数已多次因 sed 替换/引号错误导致 JS 语法崩溃，
+     使整个页面无法登录。如需修改登录逻辑，请务必：
+     1. 修改后用 node --check 验证 JS 语法
+     2. 确认 doLogin 函数可正常调用
+     3. 提交前在浏览器中实测登录通过
+     违反此警告将导致系统无法登录！
+-->
 <div id="loginView">
   <div class="loginBox">
     <h1>🏥 ICU 监护数据管理平台</h1>
@@ -910,6 +918,8 @@ function jumpToMonitor(pid){MONITOR_PID=pid;switchView("monitor");setTimeout(fun
 setInterval(function(){var d=new Date();var off=d.getTimezoneOffset()*60000;var dt=new Date(d.getTime()+off+8*60*60000);function p(n){return n<10?"0"+n:""+n;}var s=dt.getFullYear()+"-"+p(dt.getMonth()+1)+"-"+p(dt.getDate())+" "+p(dt.getHours())+":"+p(dt.getMinutes())+":"+p(dt.getSeconds())+" (UTC+8)";$("timeNow").textContent=s;},1000);
 
 function showLogin(){TOKEN="";localStorage.removeItem("envmon_token");$("mainView").classList.add("hidden");$("loginView").classList.remove("hidden");$("lgUser").focus();}
+// ⚠️ 核心登录函数 — 请勿修改！多次因引号/语法错误导致系统无法登录。
+// 如必须修改：(1) 修改后 node --check 验证 (2) 浏览器实测 admin/admin123 登录通过
 function doLogin(ev){ev.preventDefault();var u=$("lgUser").value.trim(),p=$("lgPass").value;
   var btn=ev.submitter||ev.target.querySelector("button[type=submit]");
   var btnText=btn?btn.textContent:"";btn&& (btn.disabled=true);$("loginErr").textContent="";
@@ -3410,6 +3420,26 @@ function openModal(title, bodyHtml){
     '<div style="margin-top:16px;text-align:right"><button onclick="closeModal()">关闭</button></div>';
   document.getElementById('modalBox').classList.remove('hidden');
 }
+
+// ============= 登录安全检测 =============
+// 页面加载后检测 doLogin 等核心函数是否存在，若缺失说明 JS 有语法错误
+window.addEventListener("DOMContentLoaded",function(){
+  var missing=[];
+  if(typeof doLogin!=="function")missing.push("doLogin");
+  if(typeof enterApp!=="function")missing.push("enterApp");
+  if(typeof showLogin!=="function")missing.push("showLogin");
+  if(typeof api!=="function")missing.push("api");
+  if(missing.length){
+    var msg="⚠️ 页面脚本加载失败，以下核心函数缺失：\n"+missing.join(", ")+"\n\n"+
+            "可能原因：前端 JS 存在语法错误。\n"+
+            "请检查 index.html 中的 script 块，或联系管理员更新版本。\n"+
+            "可尝试 Ctrl+Shift+R 强制刷新，若仍不行请回滚到上一版本。";
+    console.error(msg);
+    var errDiv=document.getElementById("loginErr");
+    if(errDiv){errDiv.textContent=msg;errDiv.style.color="red";errDiv.style.whiteSpace="pre-wrap";}
+    alert(msg);
+  }
+});
 </script>
 </body>
 </html>
