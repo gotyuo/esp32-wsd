@@ -12,8 +12,6 @@
 
 - 固件版本：`2.0.3`
 - 发布目录：`firmware/releases/v2.0.3/`
-- 提交：`aee8457 feat(esp32-7oled): make MQTT and HTTP POST mutually exclusive`
-- 文档提交：`511b291 docs(esp32-7oled): add v2.0.3 release notes and checksum`
 - Tag：`v2.0.3`
 
 ## 发布产物
