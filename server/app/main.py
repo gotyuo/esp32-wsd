@@ -915,6 +915,17 @@ def index():
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """BUG-019: 返回 favicon 避免 404。"""
+    fav_path = os.path.join(STATIC_DIR, "favicon.ico")
+    if os.path.exists(fav_path):
+        return FileResponse(fav_path)
+    # 无图标文件时返回 204 No Content，避免控制台报 404
+    from fastapi.responses import Response
+    return Response(status_code=204)
+
+
 # 禁缓存：本地 ICU 内网改前端不用清浏览器缓存；静态文件直接从磁盘读，无需 rebuild。
 class _Static(StaticFiles):
     async def get_response(self, path, scope):
