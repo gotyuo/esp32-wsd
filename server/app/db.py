@@ -47,8 +47,23 @@ def utcnow() -> str:
 
 
 def localnow() -> str:
-    """本地时间戳,默认东八区(系统 TZ 若已设置则以其为准)。用于 UI 展示。"""
-    return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%dT%H:%M:%S+08:00")
+    """本地时间戳，按系统 TZ 环境变量或默认 Asia/Shanghai。用于 UI 展示。
+    BUG-018: 原实现硬编码 UTC+8，与 docstring 承诺矛盾，非东八区部署时间不符。"""
+    try:
+        from zoneinfo import ZoneInfo
+        tz_name = os.environ.get("TZ", "Asia/Shanghai")
+        tz = ZoneInfo(tz_name)
+        now_local = datetime.now(tz)
+        # 生成带时区偏移的 ISO 格式
+        offset = now_local.strftime("%z")
+        if offset:
+            offset_str = f"{offset[:3]}:{offset[3:]}"
+        else:
+            offset_str = "+00:00"
+        return now_local.strftime(f"%Y-%m-%dT%H:%M:%S{offset_str}")
+    except Exception:
+        # 回退：无法解析时区时用 UTC+8
+        return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%dT%H:%M:%S+08:00")
 
 
 def utcnow_ms() -> str:
