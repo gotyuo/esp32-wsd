@@ -489,6 +489,16 @@ def vital_insert_v2(patient_id: int, ts: str, source: str, device_id: str,
 
 
 def execute(sql: str, params: tuple = ()) -> int:
+    """执行 SQL 并返回受影响行数(BUG-013: 原 lastrowid 对 DELETE/UPDATE 语义错误)。"""
+    with _lock:
+        conn = get_conn()
+        cur = conn.execute(sql, params)
+        conn.commit()
+        return cur.rowcount
+
+
+def execute_insert(sql: str, params: tuple = ()) -> int:
+    """执行 INSERT 并返回新行 lastrowid（BUG-013: 与 execute 区分语义）。"""
     with _lock:
         conn = get_conn()
         cur = conn.execute(sql, params)
@@ -903,14 +913,20 @@ def list_users() -> List[Dict[str, Any]]:
 
 
 def delete_user(user_id: int) -> None:
-    # 禁止删除最后一个管理员
-    admins = query("SELECT id FROM users WHERE role='admin'")
-    if len(admins) <= 1:
-        target = get_user_by_id(user_id)
+    """BUG-016: 原子化删除用户——单条 SQL 子查询计数 + 两删除同事务，
+    避免 TOCTOU 竞态导致管理员被全部删光。"""
+    with _lock:
+        conn = get_conn()
+        # 原子检查：如果目标是管理员且只剩一个，拒绝
+        target = conn.execute("SELECT role FROM users WHERE id=?", (user_id,)).fetchone()
         if target and target["role"] == "admin":
-            raise ValueError("cannot delete last admin")
-    execute("DELETE FROM users WHERE id=?", (user_id,))
-    execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+            admin_count = conn.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
+            if admin_count <= 1:
+                raise ValueError("cannot delete last admin")
+        # 同事务删除 users 和 sessions
+        conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+        conn.commit()
 
 
 # ---------------------------------------------------------------- 会话
@@ -1014,7 +1030,7 @@ def add_doctor(name: str, title: Optional[str] = None, department: Optional[str]
     now = utcnow()
     if contact is not None:
         phone = contact  # 兼容 contact 别名
-    cur = execute(
+    cur = execute_insert(
         "INSERT INTO doctors(name,title,department,department_id,phone,note,wechat_userid,created_at) VALUES(?,?,?,?,?,?,?,?)",
         (name, title, department, department_id, phone, note, wechat_userid, now),
     )
@@ -1048,7 +1064,7 @@ def remind_patient(patient_id: str, device_id: Optional[str],
                    text: str, sent_to_device: int = 0,
                    sent_to_wechat: int = 0, rtype: str = "reminder") -> int:
     now = utcnow()
-    cur = execute(
+    cur = execute_insert(
         "INSERT INTO reminders(patient_id,device_id,doctor_id,doctor_name,text,type,sent_to_device,sent_to_wechat,created_at) "
         "VALUES(?,?,?,?,?,?,?,?,?)",
         (patient_id, device_id, doctor_id, doctor_name, text, rtype, sent_to_device, sent_to_wechat, now),
@@ -1078,7 +1094,7 @@ def list_messages(device_id: str = None, limit: int = 100) -> List[Dict[str, Any
 def add_message(device_id: str, text: str, sender: Optional[str] = None,
                 delivered: int = 0, delivered_at: Optional[str] = None) -> int:
     now = utcnow()
-    cur = execute(
+    cur = execute_insert(
         "INSERT INTO messages(device_id,sender,text,delivered,delivered_at,created_at) VALUES(?,?,?,?,?,?)",
         (device_id, sender, text, delivered, delivered_at, now),
     )
@@ -1110,9 +1126,8 @@ def message_stat() -> dict:
 
 
 def message_clear() -> int:
-    """清空历史消息记录，返回删除行数。"""
-    cur = execute("DELETE FROM messages")
-    return int(cur)
+    """清空历史消息记录，返回删除行数。BUG-013: execute 现返回 rowcount。"""
+    return int(execute("DELETE FROM messages"))
 
 
 # ---------------------------------------------------------------- 路由别名
@@ -1129,7 +1144,7 @@ def doctor_create(name: str, title: Optional[str] = None,
                   wechat_userid: Optional[str] = None) -> int:
     """登记医生。contact = 联系电话（别名）；department_id 未提供。"""
     now = utcnow()
-    cur = execute(
+    cur = execute_insert(
         "INSERT INTO doctors(name,title,department,department_id,phone,note,wechat_userid,created_at) "
         "VALUES(?,?,?,?,?,?,?,?)",
         (name, title, department, None, contact, note, wechat_userid, now),
