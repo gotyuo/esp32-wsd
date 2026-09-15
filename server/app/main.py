@@ -2146,7 +2146,7 @@ def dashboard_page():
                         headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
-@app.get("/api/dashboard")
+@app.get("/api/dashboard", dependencies=[Depends(require_user)])
 def dashboard_data():
     """大屏数据：每个患者最新体征 + 环境 + 报警。公开端点，供投屏刷新。"""
     import sqlite3 as _sqlite3
@@ -3082,7 +3082,7 @@ from fastapi import UploadFile, File
 from fastapi.responses import Response, JSONResponse
 
 
-@app.get("/api/tts/status")
+@app.get("/api/tts/status", dependencies=[Depends(require_user)])
 def tts_status():
     """查询 TTS 服务状态。"""
     return {
@@ -3556,7 +3556,7 @@ def add_vital(pid: str, body: VitalIn):
     return {"ok": True}
 
 
-@app.get("/api/patients/{pid}/vitals")
+@app.get("/api/patients/{pid}/vitals", dependencies=[Depends(require_user)])
 def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
                fields: str = Query("", description="逗号分隔字段名"),
                hours: Optional[int] = Query(None, ge=1)):
