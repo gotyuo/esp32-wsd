@@ -421,6 +421,16 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
     except Exception as e:
         _log.warning("device backfill skipped: %s", e)
 
+    # BUG-017: 为 telemetry(ts) 和 alarms(ts) 建单列索引，
+    # 聚合器清理 DELETE ... WHERE ts < ? 原依赖复合索引(device_id,ts)无法走，
+    # 每轮全表扫描，7天数据下 IO/WAL 放大。
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_ts ON telemetry(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_alarms_ts ON alarms(ts)")
+        conn.commit()
+    except Exception as e:
+        _log.warning("BUG-017 index creation skipped: %s", e)
+
 
 def query(sql: str, params: tuple = ()) -> List[sqlite3.Row]:
     with _lock:

@@ -39,16 +39,22 @@ class Aggregator:
     # ------------------------------------------------------------ main loop
     def _run(self):
         # 等到下一个整分钟 +1s 再开始聚合
+        # BUG-017: 原 min(wait, 15) 导致每 ~15s 全量轮询，改为 min(wait, 60)
+        _last_cleanup = 0.0
         while not self._stop.is_set():
             now = datetime.now(timezone.utc)
             next_min = (now + timedelta(minutes=1)).replace(second=1, microsecond=0)
             wait = (next_min - now).total_seconds()
-            if self._stop.wait(min(wait, 15)):
+            if self._stop.wait(min(wait, 60)):
                 break
             try:
                 self._aggregate_last_minute()
                 self._mark_offline_devices()
-                self._cleanup()
+                # BUG-017: 清理节流至每 60s 一次，避免全表扫描过于频繁
+                t = time.time()
+                if t - _last_cleanup >= 60:
+                    self._cleanup()
+                    _last_cleanup = t
             except Exception as e:  # noqa: BLE001
                 log.exception("aggregator error: %s", e)
 
