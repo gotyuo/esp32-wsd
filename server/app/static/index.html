@@ -370,6 +370,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div style="flex:1"></div>
   <button class="small" onclick="probeDevices()">🔍 刷新设备状态</button>
   <button class="secondary small" onclick="refreshMonitor(event)">刷新监护</button>
+  <button class="secondary small" onclick="showAddVital()">+ 录入体征</button>
   <button class="secondary small" onclick="showIoForm()">+ 出入量</button>
   <button class="secondary small" id="mAssessBtn" onclick="assessPatient()">🤖 AI 评估</button>
 </div>
@@ -381,39 +382,25 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 体温</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
   <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 血糖</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
 </div>
-<div class="m-bottom" style="display:block">
-  <div style="display:flex;gap:2px;border-bottom:2px solid var(--line);margin-bottom:8px">
-    <button class="m-tab active" data-mtab="orders" onclick="switchMTab('orders')">💊 用药</button>
-    <button class="m-tab" data-mtab="exams" onclick="switchMTab('exams')">📋 检查</button>
-    <button class="m-tab" data-mtab="labs" onclick="switchMTab('labs')">🔬 检验</button>
-    <button class="m-tab" data-mtab="io" onclick="switchMTab('io')">💧 出入量</button>
+<div class="m-bottom" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+  <div class="m-panel" style="max-height:280px;overflow:auto">
+    <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">📜</button></h4>
+    <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
+    <div id="ordHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
-  <div id="mtab-orders" class="m-tab-content">
-    <div class="m-panel">
-      <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 添加医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">📜 历史</button></h4>
-      <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
-      <div id="ordHist" class="hidden" style="margin-top:6px;max-height:220px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
-    </div>
+  <div class="m-panel" style="max-height:280px;overflow:auto">
+    <h4>📋 检查 <button class="secondary small" onclick="loadExams(event)">刷新</button><button class="secondary small" onclick="showAddExam()">+ 检查</button></h4>
+    <div id="mExams"><div class="empty" style="font-size:12px">-</div></div>
   </div>
-  <div id="mtab-exams" class="m-tab-content" style="display:none">
-    <div class="m-panel">
-      <h4>📋 检查 <button class="secondary small" onclick="loadExams(event)">刷新</button><button class="secondary small" onclick="showAddExam()">+ 添加检查</button></h4>
-      <div id="mExams"><div class="empty" style="font-size:12px">-</div></div>
-    </div>
+  <div class="m-panel" style="max-height:280px;overflow:auto">
+    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新</button><button class="secondary small" onclick="showAddLab()">+ 检验</button></h4>
+    <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
   </div>
-  <div id="mtab-labs" class="m-tab-content" style="display:none">
-    <div class="m-panel">
-      <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新</button><button class="secondary small" onclick="showAddLab()">+ 添加检验</button></h4>
-      <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
-    </div>
-  </div>
-  <div id="mtab-io" class="m-tab-content" style="display:none">
-    <div class="m-panel">
-      <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showAddIo()">+ 添加出入量</button></h4>
-      <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
-      <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
-      <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
-    </div>
+  <div class="m-panel" style="max-height:280px;overflow:auto">
+    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showAddIo()">+ 出入量</button></h4>
+    <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
+    <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
+    <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
   </div>
 </div>
 <div class="m-panel" id="mAssessPanel" style="display:none">
@@ -1377,10 +1364,10 @@ function connectWS(){try{ws=new WebSocket((location.protocol==="https:"?"wss://"
     else if(m.type==="status"){loadDevices();}
     else if(m.type==="alarm"){toast("<b>ALARM LV"+(m.level||2)+"</b> "+esc(m.device_id)+esc(m.reason||""),"alarm");alarmSound(m.level||2);showBanner(m.level||2,m.device_id,m.reason||"");if(m.device_id===DEV)paintAlarm(m.level||2);loadAlarms();}
     else if(m.type==="alarm_cleared"){toast("<b>RESOLVED</b> "+esc(m.device_id),"");if(m.device_id===DEV)paintAlarm(0);loadAlarms();}else if(m.type==="vital"){if(CURRENT_VIEW==="monitor"){refreshMonitor();}}
-    else if(m.type==="order"){if(CURRENT_VIEW==="monitor"){toast("💊 新医嘱推送");if(MT==="orders"||!MT)loadOrders();}}
-    else if(m.type==="lab"){if(CURRENT_VIEW==="monitor"){toast("🔬 新检验结果推送");if(MT==="labs")loadLabs();}}
-    else if(m.type==="exam"){if(CURRENT_VIEW==="monitor"){toast("📋 新检查报告推送");if(MT==="exams")loadExams();}}
-    else if(m.type==="io"){if(CURRENT_VIEW==="monitor"){toast("💧 新出入量推送");if(MT==="io")loadIo();}}
+    else if(m.type==="order"){if(CURRENT_VIEW==="monitor"){toast("💊 新医嘱推送");loadOrders();}}
+    else if(m.type==="lab"){if(CURRENT_VIEW==="monitor"){toast("🔬 新检验结果推送");loadLabs();}}
+    else if(m.type==="exam"){if(CURRENT_VIEW==="monitor"){toast("📋 新检查报告推送");loadExams();}}
+    else if(m.type==="io"){if(CURRENT_VIEW==="monitor"){toast("💧 新出入量推送");loadIo();}}
   };}
 
 if(TOKEN){api("/api/me").then(function(u){ME=u;SOUND=u.sound_alarm!==0;enterApp();}).catch(function(){showLogin();});}else{showLogin();}
@@ -2137,15 +2124,45 @@ function loadLabs(ev){_refreshBtn(ev,function(){
   }).catch(function(){});
 });}
 // 监护底部页签切换
+function showAddVital(){
+  var pid=MONITOR_PID;if(!pid){alert("请先选择患者");return;}
+  $("modalInner").innerHTML =
+    "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>ADD VITALS · 录入体征</h2>" +
+    "<div class='kv'>" +
+      "<label>心率 (bpm)</label><input id='vHr' type='number' step='1' placeholder='如 75'>" +
+      "<label>血氧 (%)</label><input id='vSpO2' type='number' step='0.1' placeholder='如 98'>" +
+      "<label>呼吸 (rpm)</label><input id='vRr' type='number' step='1' placeholder='如 16'>" +
+      "<label>收缩压 (mmHg)</label><input id='vSbp' type='number' step='1' placeholder='如 120'>" +
+      "<label>舒张压 (mmHg)</label><input id='vDbp' type='number' step='1' placeholder='如 80'>" +
+      "<label>体温 (℃)</label><input id='vTemp' type='number' step='0.1' placeholder='如 36.5'>" +
+      "<label>血糖 (mmol/L)</label><input id='vGlu' type='number' step='0.1' placeholder='如 5.5'>" +
+    "</div>" +
+    "<div style='margin-top:14px;display:flex;gap:8px'>" +
+      "<button onclick='doAddVital()'>保存</button>" +
+      "<button class='secondary' onclick='closeModal()'>取消</button>" +
+    "</div>";
+  showModal();
+}
+function doAddVital(){
+  var pid=MONITOR_PID;if(!pid)return;
+  var body={source:"manual"};
+  var hr=$("vHr").value,sp=$("vSpO2").value,rr=$("vRr").value;
+  var sbp=$("vSbp").value,dbp=$("vDbp").value,temp=$("vTemp").value,glu=$("vGlu").value;
+  if(hr)body.ecg_hr=parseFloat(hr);
+  if(sp)body.sp_o2=parseFloat(sp);
+  if(rr)body.rr_bpm=parseFloat(rr);
+  if(sbp)body.sbp=parseFloat(sbp);
+  if(dbp)body.dbp=parseFloat(dbp);
+  if(temp)body.temp_c=parseFloat(temp);
+  if(glu)body.glucose=parseFloat(glu);
+  if(!hr&&!sp&&!rr&&!sbp&&!dbp&&!temp&&!glu){alert("请至少填写一项体征数据");return;}
+  api("/api/patients/"+pid+"/vitals",{method:"POST",body:JSON.stringify(body)}).then(function(){
+    toast("体征数据已录入");closeModal();refreshMonitor();
+  }).catch(function(e){toast("录入失败: "+(e&&e.message||""),"alarm");});
+}
+
 function switchMTab(tab){
-  var tabs=["orders","exams","labs","io"];
-  tabs.forEach(function(t){
-    var c=document.getElementById("mtab-"+t);
-    if(c)c.style.display=(t===tab)?"":"none";
-    var b=document.querySelector(".m-tab[data-mtab='"+t+"']");
-    if(b)b.classList.toggle("active",t===tab);
-  });
-  // 切换时加载数据
+  // 底部面板已改为同时展示，此函数保留兼容但仅刷新数据
   if(tab==="orders")loadOrders();
   else if(tab==="exams")loadExams();
   else if(tab==="labs")loadLabs();

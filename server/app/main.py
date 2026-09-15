@@ -2892,6 +2892,7 @@ async def ingest_clinical(request: Request):
     - lab:   source, item_code, item_name, value, unit, ref_min, ref_max, result_ts, critical
     - exam:  source, exam_type, exam_name, result, report_url, operator, exam_ts
     - io:    direction, kind, amount_ml, amount_g, sub_type, route, note, source, operator, ts
+    - vital: source, ts, ecg_hr, sp_o2, rr_bpm, sbp, dbp, temp_c, glucose, ... (任意体征字段)
 
     写入 DB 后自动广播 WebSocket，监护界面实时刷新。
     """
@@ -2962,8 +2963,35 @@ async def ingest_clinical(request: Request):
         hub.broadcast_threadsafe({"type": "io", "patient_id": p["id"], "pid": pid, "io_id": rid})
         return {"ok": True, "data_type": "io", "id": rid}
 
+    elif data_type == "vital":
+        ts = payload.get("ts") or icu._now()
+        vital_fields = {k: v for k, v in payload.items()
+                        if k in ("sp_o2", "pr_hr", "ecg_hr", "ecg_st", "rr_bpm",
+                                 "etco2", "sbp", "dbp", "map_bp", "ibp",
+                                 "temp_c", "glucose", "hum_pct", "pres_hpa",
+                                 "k_mmol", "na_mmol", "cl_mmol", "ca_mmol",
+                                 "glucose_lab", "lactate", "ph", "pco2",
+                                 "po2", "hco3", "be") and v is not None}
+        if not vital_fields:
+            raise HTTPException(422, "vital: payload 中无有效体征字段")
+        icu.insert_vital(
+            p["id"], ts, payload.get("source", "external"),
+            source_device=payload.get("source_device") or None,
+            **vital_fields,
+        )
+        try:
+            _ensure_monitor_session(p["id"], payload.get("source_device") or "")
+        except Exception:
+            pass
+        try:
+            _check_vital_alarms(payload.get("source_device") or "", pid, vital_fields)
+        except Exception:
+            pass
+        hub.broadcast_threadsafe({"type": "vital", "patient_id": p["id"], "pid": pid, "ts": ts, "source": payload.get("source", "external")})
+        return {"ok": True, "data_type": "vital"}
+
     else:
-        raise HTTPException(422, f"未知 data_type: {data_type}，支持: order/lab/exam/io")
+        raise HTTPException(422, f"未知 data_type: {data_type}，支持: order/lab/exam/io/vital")
 
 
 @app.post("/api/devices/{device_id}/push-config", dependencies=[Depends(require_admin)])
@@ -3133,10 +3161,10 @@ async def tts_dispatch(device_id: str, body: dict):
 # exam(检查) patient(患者) doctor(医生)
 # 每类可配置: enabled, type(hl7/rest/db/ws), url, auth_type, auth_key,
 #             sync_interval(manual/hourly/daily/realtime), extra(自定义参数)
-_DS_TYPES = ["medication", "io_balance", "lab", "exam", "patient", "doctor"]
+_DS_TYPES = ["medication", "io_balance", "lab", "exam", "vital", "patient", "doctor"]
 _DS_LABELS = {
     "medication": "用药", "io_balance": "出入量", "lab": "检验/血气",
-    "exam": "检查", "patient": "患者", "doctor": "医生",
+    "exam": "检查", "vital": "体征", "patient": "患者", "doctor": "医生",
 }
 _DS_FIELDS = ["enabled", "type", "url", "auth_type", "auth_key",
               "sync_interval", "extra",
@@ -3524,6 +3552,7 @@ def add_vital(pid: str, body: VitalIn):
         "type": "vital", "patient_id": p["id"], "pid": pid,
         "ts": ts, "source": body.source,
     })
+    _push_to_external("vital", {"pid": pid, "ts": ts, "source": body.source, **kwargs})
     return {"ok": True}
 
 
