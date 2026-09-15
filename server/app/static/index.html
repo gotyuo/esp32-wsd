@@ -803,6 +803,12 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
         配置外部系统数据源，实现用药/出入量/检验/检查/患者/医生数据的自动同步与交互。
         支持 HL7 v2、HTTP REST API、数据库、WebSocket 四种接入方式。
       </p>
+      <div style="background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--sub)">
+        <b style="color:var(--green)">🔄 双向同步已启用</b><br>
+        <b>① 手工录入 → 外部系统</b>：在监护界面手工添加医嘱/检验/检查/出入量时，若对应数据源已启用且配置了 URL，数据自动 POST 推送到外部系统。<br>
+        <b>② 外部系统 → 监护界面</b>：外部系统通过 Webhook 推送新数据到 <code style="background:rgba(0,0,0,.1);padding:1px 4px;border-radius:3px">POST /api/ingest/clinical</code>，写入后 WebSocket 实时广播，监护界面自动刷新显示。<br>
+        <b>Webhook 格式</b>：<code style="background:rgba(0,0,0,.1);padding:1px 4px;border-radius:3px">{"pid":"P001","data_type":"order|lab|exam|io","payload":{...}}</code>
+      </div>
       <div id="dsCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px"></div>
     </div>
 </div>
@@ -1371,6 +1377,10 @@ function connectWS(){try{ws=new WebSocket((location.protocol==="https:"?"wss://"
     else if(m.type==="status"){loadDevices();}
     else if(m.type==="alarm"){toast("<b>ALARM LV"+(m.level||2)+"</b> "+esc(m.device_id)+esc(m.reason||""),"alarm");alarmSound(m.level||2);showBanner(m.level||2,m.device_id,m.reason||"");if(m.device_id===DEV)paintAlarm(m.level||2);loadAlarms();}
     else if(m.type==="alarm_cleared"){toast("<b>RESOLVED</b> "+esc(m.device_id),"");if(m.device_id===DEV)paintAlarm(0);loadAlarms();}else if(m.type==="vital"){if(CURRENT_VIEW==="monitor"){refreshMonitor();}}
+    else if(m.type==="order"){if(CURRENT_VIEW==="monitor"){toast("💊 新医嘱推送");if(MT==="orders"||!MT)loadOrders();}}
+    else if(m.type==="lab"){if(CURRENT_VIEW==="monitor"){toast("🔬 新检验结果推送");if(MT==="labs")loadLabs();}}
+    else if(m.type==="exam"){if(CURRENT_VIEW==="monitor"){toast("📋 新检查报告推送");if(MT==="exams")loadExams();}}
+    else if(m.type==="io"){if(CURRENT_VIEW==="monitor"){toast("💧 新出入量推送");if(MT==="io")loadIo();}}
   };}
 
 if(TOKEN){api("/api/me").then(function(u){ME=u;SOUND=u.sound_alarm!==0;enterApp();}).catch(function(){showLogin();});}else{showLogin();}

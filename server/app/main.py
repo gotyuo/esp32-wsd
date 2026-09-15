@@ -2875,6 +2875,97 @@ async def hl7_parse(request: Request):
     return _parse_hl7(text)
 
 
+# ---------- 临床数据 Webhook（外部系统 → EnvMon）----------
+@app.post("/api/ingest/clinical", dependencies=[Depends(require_admin)])
+async def ingest_clinical(request: Request):
+    """外部系统 (HIS/LIS/PACS) 推送临床数据的通用 webhook。
+
+    请求体 JSON 格式：
+    {
+      "pid": "P001",              // 患者编号（必填）
+      "data_type": "order",       // order / lab / exam / io（必填）
+      "payload": { ... }          // 对应类型的数据（必填）
+    }
+
+    data_type=payload 对应字段：
+    - order: order_no, drug_name, dosage, route, start_ts, end_ts, rate_mlph, operator
+    - lab:   source, item_code, item_name, value, unit, ref_min, ref_max, result_ts, critical
+    - exam:  source, exam_type, exam_name, result, report_url, operator, exam_ts
+    - io:    direction, kind, amount_ml, amount_g, sub_type, route, note, source, operator, ts
+
+    写入 DB 后自动广播 WebSocket，监护界面实时刷新。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "无法解析 JSON 请求体")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "请求体必须是 JSON 对象")
+
+    pid = body.get("pid")
+    data_type = body.get("data_type")
+    payload = body.get("payload")
+    if not pid or not data_type or not payload:
+        raise HTTPException(422, "必填字段: pid, data_type, payload")
+    if not isinstance(payload, dict):
+        raise HTTPException(422, "payload 必须是 JSON 对象")
+
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, f"患者 {pid} 不存在")
+
+    if data_type == "order":
+        oid = icu.order_insert(
+            p["id"], payload.get("source", "his"),
+            payload.get("order_no"), payload.get("drug_name"),
+            payload.get("dosage"), payload.get("route"),
+            payload.get("start_ts"), payload.get("end_ts"),
+            payload.get("rate_mlph"), operator=payload.get("operator"),
+        )
+        hub.broadcast_threadsafe({"type": "order", "patient_id": p["id"], "pid": pid, "order_id": oid})
+        return {"ok": True, "data_type": "order", "id": oid}
+
+    elif data_type == "lab":
+        lid = icu.lab_result_insert(
+            p["id"], payload.get("source", "lis"),
+            payload.get("item_code"), payload.get("item_name"),
+            payload.get("value"), payload.get("unit"),
+            payload.get("ref_min"), payload.get("ref_max"),
+            payload.get("result_ts"), 1 if payload.get("critical") else 0,
+        )
+        hub.broadcast_threadsafe({"type": "lab", "patient_id": p["id"], "pid": pid, "lab_id": lid})
+        return {"ok": True, "data_type": "lab", "id": lid}
+
+    elif data_type == "exam":
+        eid = icu.exam_insert(
+            p["id"], payload.get("source", "pacs"),
+            payload.get("exam_type"), payload.get("exam_name"),
+            payload.get("result", ""), payload.get("report_url", ""),
+            payload.get("operator"), payload.get("exam_ts"),
+        )
+        hub.broadcast_threadsafe({"type": "exam", "patient_id": p["id"], "pid": pid, "exam_id": eid})
+        return {"ok": True, "data_type": "exam", "id": eid}
+
+    elif data_type == "io":
+        direction = payload.get("direction")
+        if direction not in ("in", "out"):
+            raise HTTPException(422, "io: direction 必须为 in 或 out")
+        if not payload.get("kind"):
+            raise HTTPException(422, "io: kind 必填")
+        rid = icu.add_io_log(
+            p["id"], direction, payload["kind"],
+            payload.get("amount_ml"), payload.get("amount_g"),
+            payload.get("sub_type"), payload.get("route"),
+            payload.get("note"), payload.get("source", "external"),
+            payload.get("operator"), payload.get("ts"), payload.get("unique_id"),
+        )
+        hub.broadcast_threadsafe({"type": "io", "patient_id": p["id"], "pid": pid, "io_id": rid})
+        return {"ok": True, "data_type": "io", "id": rid}
+
+    else:
+        raise HTTPException(422, f"未知 data_type: {data_type}，支持: order/lab/exam/io")
+
+
 @app.post("/api/devices/{device_id}/push-config", dependencies=[Depends(require_admin)])
 def push_config(device_id: str):
     ok = bridge.push_config(device_id)
@@ -3490,6 +3581,35 @@ def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
     return {"patient_id": p["id"], "count": len(rows), "points": rows}
 
 
+
+# ---------- 临床数据双向同步 ----------
+def _push_to_external(ds_name: str, payload: dict):
+    """手工录入时，根据 datasource 配置推送到外部系统 (REST POST)。
+
+    ds_name: 数据源类型名 (medication / lab / exam / io_balance)
+    payload: 要推送的 JSON 数据
+    """
+    try:
+        raw = icu.list_settings_raw()
+        enabled = raw.get(f"datasource.{ds_name}.enabled", "")
+        if enabled not in ("true", "1"):
+            return  # 未启用，跳过
+        url = raw.get(f"datasource.{ds_name}.url", "")
+        if not url or not url.startswith("http"):
+            return  # 无有效 URL，跳过
+        auth_key = raw.get(f"datasource.{ds_name}.auth_key", "")
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("User-Agent", "envmon-sync/1.0")
+        if auth_key:
+            req.add_header("Authorization", f"Bearer {auth_key}")
+        resp = urllib.request.urlopen(req, timeout=10)
+        log.info("push_to_external[%s]: %s -> HTTP %s", ds_name, url, resp.status)
+    except Exception as e:
+        log.warning("push_to_external[%s] failed: %s", ds_name, e)
+
+
 # ---------- 医嘱 ----------
 @app.post("/api/patients/{pid}/orders", dependencies=[Depends(require_admin)])
 def add_order(pid: str, body: OrderIn):
@@ -3501,6 +3621,11 @@ def add_order(pid: str, body: OrderIn):
         body.route, body.start_ts, body.end_ts, body.rate_mlph,
         operator=body.operator or None,
     )
+    hub.broadcast_threadsafe({"type": "order", "patient_id": p["id"], "pid": pid, "order_id": oid})
+    _push_to_external("medication", {"pid": pid, "order_id": oid, "source": body.source,
+        "order_no": body.order_no, "drug_name": body.drug_name, "dosage": body.dosage,
+        "route": body.route, "start_ts": body.start_ts, "end_ts": body.end_ts,
+        "rate_mlph": body.rate_mlph, "operator": body.operator})
     return {"ok": True, "order_id": oid}
 
 
@@ -3536,6 +3661,11 @@ def add_lab(pid: str, body: LabResultIn):
         body.value, body.unit, body.ref_min, body.ref_max,
         body.result_ts or None, 1 if body.critical else 0,
     )
+    hub.broadcast_threadsafe({"type": "lab", "patient_id": p["id"], "pid": pid, "lab_id": lid})
+    _push_to_external("lab", {"pid": pid, "lab_id": lid, "source": body.source,
+        "item_code": body.item_code, "item_name": body.item_name, "value": body.value,
+        "unit": body.unit, "ref_min": body.ref_min, "ref_max": body.ref_max,
+        "result_ts": body.result_ts, "critical": body.critical})
     return {"ok": True, "lab_id": lid}
 
 
@@ -3562,6 +3692,11 @@ def add_exam(pid: str, body: ExamIn):
         p["id"], body.source, body.exam_type, body.exam_name,
         body.result, body.report_url, body.operator, body.exam_ts or None,
     )
+    hub.broadcast_threadsafe({"type": "exam", "patient_id": p["id"], "pid": pid, "exam_id": eid})
+    _push_to_external("exam", {"pid": pid, "exam_id": eid, "source": body.source,
+        "exam_type": body.exam_type, "exam_name": body.exam_name,
+        "result": body.result, "report_url": body.report_url,
+        "operator": body.operator, "exam_ts": body.exam_ts})
     return {"ok": True, "exam_id": eid}
 
 
@@ -3595,6 +3730,12 @@ def add_io(pid: str, body: Dict[str, Any]):
                               body.get("operator"), body.get("ts"), body.get("unique_id"))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    hub.broadcast_threadsafe({"type": "io", "patient_id": p["id"], "pid": pid, "io_id": rid})
+    _push_to_external("io_balance", {"pid": pid, "io_id": rid, "direction": body["direction"],
+        "kind": body["kind"], "amount_ml": body.get("amount_ml"), "amount_g": body.get("amount_g"),
+        "sub_type": body.get("sub_type"), "route": body.get("route"),
+        "note": body.get("note"), "source": body.get("source", "manual"),
+        "operator": body.get("operator"), "ts": body.get("ts")})
     return {"ok": True, "io_id": rid}
 
 
