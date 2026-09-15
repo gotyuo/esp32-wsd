@@ -433,6 +433,8 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <span><span style="display:inline-block;width:10px;height:2px;background:#ffd24a;vertical-align:middle"></span> RR</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#ff6b9d;vertical-align:middle"></span> TEMP</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#b48cff;vertical-align:middle"></span> GLU</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#00e5ff;vertical-align:middle"></span> HUM</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#00a3ff;vertical-align:middle"></span> PRESS</span>
     <span><span style="display:inline-block;width:6px;height:6px;background:#ff5470;border-radius:50%;vertical-align:middle"></span> 用药</span>
 </div>
 </div>
@@ -1878,7 +1880,9 @@ function drawMonitorTrend(){
     {key:'sp_o2', color:'#3fb6ff', label:'SpO2', range:[85,100]},
     {key:'rr_bpm', color:'#ffd24a', label:'RR', range:[8,30]},
     {key:'temp_c', color:'#ff6b9d', label:'TEMP', range:[35,39]},
-    {key:'glucose', color:'#b48cff', label:'GLU', range:[3,10]}
+    {key:'glucose', color:'#b48cff', label:'GLU', range:[3,10]},
+    {key:'hum_pct', color:'#00e5ff', label:'HUM', range:[20,90]},
+    {key:'pres_hpa', color:'#00a3ff', label:'PRESS', range:[980,1040]}
   ];
   series.forEach(function(s){
     var vals = pts.map(function(p){return p[s.key];}).filter(function(v){return v!=null && !isNaN(v);});
