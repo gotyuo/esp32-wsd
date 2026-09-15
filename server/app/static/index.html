@@ -1596,10 +1596,10 @@ function triggerBackupThenRefresh(){
 }
 function loadDataManage(){
   api("/api/backup?limit=50").then(function(d){
-    var list=(d&&d.backups)||[], tb=;
+    var list=(d&&d.backups)||[], tb=$("backupTable");
     if(!list.length){tb.innerHTML='<tr><td colspan="5" class="empty">暂无备份文件</td></tr>';return;}
     tb.innerHTML=list.map(function(b){
-      var fn=b.path.split("/").pop().split("\").pop();
+      var fn=b.path.split("/").pop();
       var sz=b.size_bytes?Math.round(b.size_bytes/1024)+" KB":"-";
       var sha=(b.sha256||"").substring(0,12)+"…";
       return '<tr>'
@@ -1613,7 +1613,7 @@ function loadDataManage(){
         +'</td></tr>';
     }).join("");
   }).catch(function(e){
-    var tb=;
+    var tb=$("backupTable");
     if(tb)tb.innerHTML='<tr><td colspan="5" class="empty" style="color:var(--red)">加载失败: '+esc(e&&e.message||e)+'</td></tr>';
   });
 }
@@ -1643,11 +1643,7 @@ function restoreBackup(input){
   var file=input.files[0];
   if(!file)return;
   if(!file.name.endsWith(".db")){toast("请选择 .db 数据库文件","alarm");input.value="";return;}
-  if(!confirm("⚠️ 确认恢复数据库？
-
-此操作将覆盖当前所有数据，不可撤销。
-恢复前会自动备份当前数据库。
-恢复后需要重启服务才能完全生效。"))return;
+  if(!confirm("⚠️ 确认恢复数据库？\n\n此操作将覆盖当前所有数据，不可撤销。\n恢复前会自动备份当前数据库。\n恢复后需要重启服务才能完全生效。"))return;
   var fd=new FormData();
   fd.append("file",file);
   fetch("/api/backup/restore",{
@@ -2615,8 +2611,9 @@ function testIngest(){
 function loadEncountersView(ev){_refreshBtn(ev,function(){
   api("/api/encounters?limit=200").then(function(d){
     var encs=d.encounters||[];
-    if(!encs.length){.innerHTML='<div class="empty">暂无就诊记录</div>';return;}
-    .innerHTML="<table><thead><tr><th>患者</th><th>床号</th><th>就诊号</th><th>开始</th><th>结束</th><th>持续</th><th>监护段</th><th>报警</th><th>状态</th><th>操作</th></tr></thead><tbody>"
+    var el=$("encountersList");
+    if(!encs.length){el.innerHTML='<div class="empty">暂无就诊记录</div>';return;}
+    el.innerHTML="<table><thead><tr><th>患者</th><th>床号</th><th>就诊号</th><th>开始</th><th>结束</th><th>持续</th><th>监护段</th><th>报警</th><th>状态</th><th>操作</th></tr></thead><tbody>"
       +encs.map(function(e){
         var st=e.end_ts?'<span class="ok">已出院</span>':'<span class="bad">在院</span>';
         return "<tr><td>"+esc(e.name||e.pid||"-")+"</td>"
@@ -2628,12 +2625,12 @@ function loadEncountersView(ev){_refreshBtn(ev,function(){
           +"<td>"+esc(e.session_count||0)+"</td>"
           +"<td>"+esc(e.alarm_count||0)+"</td>"
           +"<td>"+st+"</td>"
-          +"<td><button class='secondary small' onclick="showEncounterDetail("+e.id+")">详情</button>"
-          +(e.end_ts?'':" <button class='warn small' onclick="endEncounter("+e.id+")">出院</button>")
+          +"<td><button class='secondary small' onclick='showEncounterDetail("+e.id+")'>详情</button>"
+          +(e.end_ts?'':" <button class='warn small' onclick='endEncounter("+e.id+")'>出院</button>")
           +"</td></tr>";
       }).join("")
       +"</tbody></table>";
-  }).catch(function(){.innerHTML='<div class="empty">加载失败</div>';});
+  }).catch(function(){var el=$("encountersList");el.innerHTML='<div class="empty">加载失败</div>';});
 });}
 function showEncounterDetail(eid){
   api("/api/encounters/"+eid).then(function(d){
@@ -2643,7 +2640,7 @@ function showEncounterDetail(eid){
       return "<tr><td>"+fmtTime(s.start_ts)+"</td><td>"+(s.end_ts?fmtTime(s.end_ts):"-")+"</td>"
         +"<td>"+esc(s.duration_str||"-")+"</td><td>"+esc(s.device_id||"-")+"</td>"
         +"<td>"+st+"</td><td>"+esc(s.summary||"-")+"</td>"
-        +"<td><button class='secondary small' onclick="closeModal();showSessionDetail("+s.id+")">详情</button></td></tr>";
+        +"<td><button class='secondary small' onclick='closeModal();showSessionDetail("+s.id+")'>详情</button></td></tr>";
     }).join("");
     var alarmHtml=alarms.slice(0,50).map(function(a){
       var lv=a.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';
@@ -2651,7 +2648,7 @@ function showEncounterDetail(eid){
       return "<tr><td>"+fmtTime(a.ts)+"</td><td>"+esc(a.device_id||"-")+"</td>"
         +"<td>"+lv+"</td><td>"+esc(a.reason||"")+"</td><td>"+st+"</td></tr>";
     }).join("");
-    .innerHTML="<div style='max-height:70vh;overflow:auto'>"
+    $("modalInner").innerHTML="<div style='max-height:70vh;overflow:auto'>"
       +"<h2 style='font-size:14px;color:var(--sub);letter-spacing:1px'>就诊记录详情 · "+esc(e.pid||"-")+" "+esc(e.name||"")+"</h2>"
       +"<div class='grid' style='margin:8px 0 14px'>"
         +"<span>床号 <b>"+esc(e.bed_no||e.patient_bed||"-")+"</b></span>"
@@ -2668,7 +2665,7 @@ function showEncounterDetail(eid){
       +"<table style='font-size:11px'><thead><tr><th>时间</th><th>设备</th><th>级别</th><th>原因</th><th>状态</th></tr></thead><tbody>"+alarmHtml+"</tbody></table>"
       +"<div class='actions' style='margin-top:14px'><button class='secondary' onclick='closeModal()'>关闭</button></div>"
       +"</div>";
-    .classList.remove("hidden");
+    $("modalBox").classList.remove("hidden");
   }).catch(function(){toast("加载就诊记录失败","alarm");closeModal();});
 }
 function endEncounter(eid){
