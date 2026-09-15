@@ -678,8 +678,8 @@ def register_device(device_id: str, name: Optional[str] = None, ip_addr: Optiona
         return False
     execute(
         "INSERT OR IGNORE INTO devices (id, name, ip_addr, first_seen, online) "
-        "VALUES (?,?,?,DATETIME('now'),0)",
-        (device_id, name, ip_addr),
+        "VALUES (?,?,?,?,0)",
+        (device_id, name, ip_addr, utcnow()),  # BUG-009: 统一 ISO8601 UTC 格式
     )
     return True
 

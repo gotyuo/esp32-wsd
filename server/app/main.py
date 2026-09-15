@@ -2528,16 +2528,17 @@ async def telemetry_upload(request: Request):
     device_id = str(device_id)
 
     # 自动注册设备
-    ip_addr = data.get("ip") or data.get("ip_addr") or request.client.host if request.client else None
+    ip_addr = data.get("ip") or data.get("ip_addr") or (request.client.host if request.client else None)  # BUG-012: 修复运算符优先级
     fw = data.get("fw") or data.get("fw_version")
     db.upsert_device(device_id, fw_version=fw, ip_addr=ip_addr)
     db.set_device_online(device_id, True)
     db.set_device_seen(device_id, None)
 
     # 提取环境数据（兼容 t/h/p 和 temp_c/hum_pct/pres_hpa）
-    temp = data.get("t") or data.get("temp_c") or data.get("temp")
-    hum = data.get("h") or data.get("hum_pct") or data.get("hum")
-    pres = data.get("p") or data.get("pres_hpa") or data.get("pres")
+    # BUG-011: 显式判空避免 or 链吞掉合法 0 值
+    temp = next((v for v in (data.get("t"), data.get("temp_c"), data.get("temp")) if v is not None), None)
+    hum = next((v for v in (data.get("h"), data.get("hum_pct"), data.get("hum")) if v is not None), None)
+    pres = next((v for v in (data.get("p"), data.get("pres_hpa"), data.get("pres")) if v is not None), None)
     rssi = data.get("rssi")
     seq = data.get("seq")
     ts_in = data.get("ts")
@@ -2578,6 +2579,20 @@ async def telemetry_upload(request: Request):
 
 
 
+def _detect_source(data: dict) -> str:
+    """BUG-010: 根据固件信息动态判定数据源，不再硬编码 esp8266。"""
+    fw = (data.get("fw") or data.get("fw_version") or "").lower()
+    if "esp32" in fw or "esp32-s3" in fw:
+        return "esp32"
+    if "esp8266" in fw:
+        return "esp8266"
+    # 默认按 platform 字段或 UA 判定
+    platform = (data.get("platform") or "").lower()
+    if "esp32" in platform:
+        return "esp32"
+    return "esp8266"  # 向后兼容默认值
+
+
 @app.post("/api/vitals", dependencies=[Depends(require_device_auth)])
 async def vitals_upload(request: Request):
     """ESP8266 MAX30102 固件兼容端点（免 admin 认证，设备直接上报）。
@@ -2616,8 +2631,9 @@ async def vitals_upload(request: Request):
     db.set_device_seen(device_id, None)
 
     # 提取体征字段（兼容多种命名）
-    hr = data.get("pr_hr") or data.get("ecg_hr") or data.get("hr")
-    spo2 = data.get("sp_o2") or data.get("spo2")
+    # BUG-011: 显式判空避免 or 链吞掉合法 0 值
+    hr = next((v for v in (data.get("pr_hr"), data.get("ecg_hr"), data.get("hr")) if v is not None), None)
+    spo2 = next((v for v in (data.get("sp_o2"), data.get("spo2")) if v is not None), None)
     rr = data.get("rr_bpm")
     temp = data.get("temp_c")
     sbp = data.get("sbp")
@@ -2676,7 +2692,7 @@ async def vitals_upload(request: Request):
         target = rows[0]
         try:
             icu.insert_vital(
-                target["patient_id"], ts, "esp8266",
+                target["patient_id"], ts, _detect_source(data),  # BUG-010: 动态检测数据源
                 source_device=device_id,
                 **vital_vals,
             )
@@ -2692,7 +2708,7 @@ async def vitals_upload(request: Request):
                 pass
             hub.broadcast_threadsafe({
                 "type": "vital", "patient_id": target["patient_id"],
-                "pid": target["pid"], "ts": ts, "source": "esp8266",
+                "pid": target["pid"], "ts": ts, "source": _detect_source(data),  # BUG-010
             })
         except Exception as e:  # noqa: BLE001
             log.warning("vitals_upload: insert_vital failed: %s", e)
