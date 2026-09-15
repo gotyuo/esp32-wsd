@@ -2569,6 +2569,11 @@ async def vitals_upload(request: Request):
                 _ensure_monitor_session(target["patient_id"], device_id)
             except Exception:
                 pass
+            # 检查体征异常并记录报警
+            try:
+                _check_vital_alarms(device_id, target["pid"], data)
+            except Exception:
+                pass
             hub.broadcast_threadsafe({
                 "type": "vital", "patient_id": target["patient_id"],
                 "pid": target["pid"], "ts": ts, "source": "esp8266",
@@ -2583,13 +2588,13 @@ async def vitals_upload(request: Request):
     rssi = data.get("rssi")
     if temp_env is not None or hum_env is not None or pres_env is not None:
         try:
-            db.insert_telemetry(
-                device_id,
-                float(temp_env) if temp_env is not None else None,
-                float(hum_env) if hum_env is not None else None,
-                float(pres_env) if pres_env is not None else None,
-                rssi,
-            )
+            t_f = float(temp_env) if temp_env is not None else None
+            h_f = float(hum_env) if hum_env is not None else None
+            p_f = float(pres_env) if pres_env is not None else None
+            db.insert_telemetry(device_id, t_f, h_f, p_f, rssi)
+            # 检查环境报警
+            level, reason = check_alarm(device_id, t_f, h_f, p_f)
+            record_alarm_transition(device_id, level, reason, t_f, h_f, p_f)
         except Exception:
             pass
 
@@ -2655,6 +2660,11 @@ async def ingest(request: Request):
                     # 自动创建监护记录（若该患者无活跃会话）
                     try:
                         _ensure_monitor_session(p["id"], device_id or "")
+                    except Exception:
+                        pass
+                    # 检查体征异常并记录报警
+                    try:
+                        _check_vital_alarms(device_id or "", hl7_pid, vital_fields)
                     except Exception:
                         pass
                     hub.broadcast_threadsafe({
@@ -2726,15 +2736,23 @@ async def ingest(request: Request):
     if vital_fields and source == "json":
         try:
             rows = db.query_locked(
-                "SELECT patient_id FROM patient_devices WHERE device_id=?",
+                "SELECT pd.patient_id, p.pid FROM patient_devices pd "
+                "JOIN patients p ON p.id=pd.patient_id WHERE pd.device_id=?",
                 (device_id,))
             if rows:
-                pid = int(dict(rows[0])["patient_id"])
+                r0 = dict(rows[0])
+                pid = int(r0["patient_id"])
+                pid_str = r0.get("pid") or str(pid)
                 icu.insert_vital(pid, db.utcnow(), "ingest",
                                  source_device=device_id, **vital_fields)
                 # 自动创建监护记录（若该患者无活跃会话）
                 try:
                     _ensure_monitor_session(pid, device_id)
+                except Exception:
+                    pass
+                # 检查体征异常并记录报警
+                try:
+                    _check_vital_alarms(device_id, pid_str, vital_fields)
                 except Exception:
                     pass
         except Exception as e:  # noqa: BLE001
@@ -3310,6 +3328,11 @@ def add_vital(pid: str, body: VitalIn):
     # 自动创建监护记录（若该患者无活跃会话）
     try:
         _ensure_monitor_session(p["id"], body.source_device or "")
+    except Exception:
+        pass
+    # 检查体征异常并记录报警
+    try:
+        _check_vital_alarms(body.source_device or "", pid, kwargs)
     except Exception:
         pass
     hub.broadcast_threadsafe({
