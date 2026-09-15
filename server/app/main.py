@@ -3843,6 +3843,90 @@ def list_backups(limit: int = Query(20, ge=1, le=100)):
     return {"backups": icu.list_backups(limit)}
 
 
+@app.get("/api/backup/{filename}/download", dependencies=[Depends(require_admin)])
+def download_backup(filename: str):
+    """下载指定备份文件。"""
+    # 防止路径穿越
+    if "/" in filename or "\" in filename or ".." in filename:
+        raise HTTPException(400, "非法文件名")
+    filepath = os.path.join(icu.BACKUP_DIR, filename)
+    if not os.path.isfile(filepath):
+        raise HTTPException(404, "备份文件不存在")
+    return FileResponse(filepath, filename=filename,
+                        media_type="application/octet-stream")
+
+
+@app.delete("/api/backup/{filename}", dependencies=[Depends(require_admin)])
+def delete_backup(filename: str):
+    """删除指定备份文件。"""
+    if "/" in filename or "\" in filename or ".." in filename:
+        raise HTTPException(400, "非法文件名")
+    filepath = os.path.join(icu.BACKUP_DIR, filename)
+    if not os.path.isfile(filepath):
+        raise HTTPException(404, "备份文件不存在")
+    os.remove(filepath)
+    log.info("backup deleted: %s", filename)
+    return {"ok": True}
+
+
+@app.post("/api/backup/restore", dependencies=[Depends(require_admin)])
+async def restore_backup(file: UploadFile = File(...)):
+    """上传备份文件并恢复数据库。
+
+    流程：保存上传文件 → 校验是合法 SQLite → 备份当前库 → 替换 → 重连。
+    需要重启服务才能完全生效（重新执行 init_db / bootstrap_admin）。
+    """
+    import sqlite3 as _sqlite3
+    import tempfile
+    import shutil as _shutil
+
+    # 1. 保存上传文件到临时路径
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".db")
+    try:
+        with os.fdopen(tmp_fd, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise HTTPException(400, f"上传失败: {e}")
+
+    # 2. 校验是合法 SQLite 数据库
+    try:
+        test_conn = _sqlite3.connect(tmp_path)
+        tables = [r[0] for r in test_conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        test_conn.close()
+        if not tables:
+            raise ValueError("文件中没有数据库表")
+        if "users" not in tables:
+            raise ValueError("文件中缺少 users 表，不是有效的系统备份")
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise HTTPException(400, f"无效的数据库文件: {e}")
+
+    # 3. 备份当前数据库（恢复前的安全网）
+    try:
+        safety = icu.do_backup()
+        log.info("pre-restore safety backup: %s", safety["path"])
+    except Exception as e:
+        log.warning("pre-restore backup failed: %s", e)
+
+    # 4. 替换数据库文件
+    try:
+        _shutil.copy2(tmp_path, icu.DB_PATH)
+        log.info("database restored from uploaded file: %s", file.filename)
+    except Exception as e:
+        os.unlink(tmp_path)
+        raise HTTPException(500, f"恢复失败: {e}")
+    finally:
+        os.unlink(tmp_path)
+
+    return {"ok": True, "msg": "数据库已恢复，请重启服务使更改完全生效"}
+
+
 # ================================================================ ICU 重症监护路由组
 # ---------- 医生档案 ----------
 @app.get("/api/doctors", dependencies=[Depends(require_user)])

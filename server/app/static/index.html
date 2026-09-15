@@ -191,6 +191,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab" data-view="wechat" onclick="switchView('wechat')" id="tab-wechat">🏥 企业微信配置</span>
       <span class="vtab" data-view="ai" onclick="switchView('ai')" id="tab-ai">🧠 AI 模型</span>
       <span class="vtab" data-view="datasource" onclick="switchView('datasource')" id="tab-datasource">🔌 数据源</span>
+      <span class="vtab" data-view="data-mgr" onclick="switchView('data-mgr')" id="tab-data-mgr">💾 数据管理</span>
     </div>
   </div>
   <div class="left">
@@ -776,6 +777,27 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
       <div id="dsCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px"></div>
     </div>
 </div>
+
+  <!-- ============= 数据管理 ============= -->
+  <div id="view-data-mgr" class="hidden">
+    <div class="section">
+      <h2>💾 数据管理 / DATA MANAGEMENT
+        <div class="actions" style="margin-top:0">
+          <button onclick="triggerBackupThenRefresh()">📦 立即备份</button>
+          <button class="secondary" onclick="document.getElementById('restoreFile').click()">📥 导入恢复</button>
+          <input type="file" id="restoreFile" accept=".db" style="display:none" onchange="restoreBackup(this)">
+        </div>
+      </h2>
+      <p style="color:var(--sub);font-size:12px;margin:6px 0 14px">
+        数据库每天自动备份，保留 2 天。可手动备份、下载导出、删除旧备份，或上传备份文件恢复数据。
+        <br>⚠️ 恢复操作会覆盖当前数据库，请谨慎操作。恢复后需重启服务。
+      </p>
+      <table class="data" id="backupTable">
+        <thead><tr><th>文件名</th><th>大小</th><th>备份时间</th><th>SHA256</th><th>操作</th></tr></thead>
+        <tbody id="backupBody"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
   </div>
 
 <div id="modalBox" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:400">
@@ -839,8 +861,8 @@ function _refreshBtn(ev,fn){
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai","datasource"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);MONITOR_REFRESH_TIMER=setInterval(function(){if(CURRENT_VIEW==="monitor")refreshMonitor();},5000);}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}}
+  ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai","datasource","data-mgr"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);MONITOR_REFRESH_TIMER=setInterval(function(){if(CURRENT_VIEW==="monitor")refreshMonitor();},5000);}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}if(v==="data-mgr"){loadDataManage();}}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -1565,6 +1587,83 @@ function triggerBackup(){
   }).catch(function(e){toast("备份失败: "+e.message||e,"alarm");});
 }
 
+// ==================== 数据管理 ====================
+function triggerBackupThenRefresh(){
+  api("/api/backup",{method:"POST"}).then(function(d){
+    toast("✅ 备份完成 ("+Math.round(d.size/1024)+"KB)");
+    loadDataManage();
+  }).catch(function(e){toast("备份失败: "+(e&&e.message||e),"alarm");});
+}
+function loadDataManage(){
+  api("/api/backup?limit=50").then(function(d){
+    var list=(d&&d.backups)||[], tb=;
+    if(!list.length){tb.innerHTML='<tr><td colspan="5" class="empty">暂无备份文件</td></tr>';return;}
+    tb.innerHTML=list.map(function(b){
+      var fn=b.path.split("/").pop().split("\").pop();
+      var sz=b.size_bytes?Math.round(b.size_bytes/1024)+" KB":"-";
+      var sha=(b.sha256||"").substring(0,12)+"…";
+      return '<tr>'
+        +'<td style="font-size:11px">'+esc(fn)+'</td>'
+        +'<td>'+sz+'</td>'
+        +'<td>'+fmtTime(b.created_at)+'</td>'
+        +'<td style="font-size:10px;color:var(--dim);font-family:monospace">'+esc(sha)+'</td>'
+        +'<td style="white-space:nowrap">'
+        +'<button class="small" onclick="downloadBackup(\''+esc(fn)+'\')">⬇ 下载</button> '
+        +'<button class="danger small" onclick="deleteBackup(\''+esc(fn)+'\')">🗑 删除</button>'
+        +'</td></tr>';
+    }).join("");
+  }).catch(function(e){
+    var tb=;
+    if(tb)tb.innerHTML='<tr><td colspan="5" class="empty" style="color:var(--red)">加载失败: '+esc(e&&e.message||e)+'</td></tr>';
+  });
+}
+function downloadBackup(fn){
+  // 用 fetch + blob 方式下载（带鉴权头）
+  fetch("/api/backup/"+encodeURIComponent(fn)+"/download",{
+    headers:{"Authorization":"Bearer "+TOKEN}
+  }).then(function(r){
+    if(!r.ok)throw new Error("下载失败 ("+r.status+")");
+    return r.blob();
+  }).then(function(blob){
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");
+    a.href=url; a.download=fn; a.click();
+    URL.revokeObjectURL(url);
+    toast("✅ 下载已开始");
+  }).catch(function(e){toast("下载失败: "+(e&&e.message||e),"alarm");});
+}
+function deleteBackup(fn){
+  if(!confirm("确定删除备份文件 "+fn+"？此操作不可恢复。"))return;
+  api("/api/backup/"+encodeURIComponent(fn),{method:"DELETE"}).then(function(){
+    toast("已删除 "+fn);
+    loadDataManage();
+  }).catch(function(e){toast("删除失败: "+(e&&e.message||e),"alarm");});
+}
+function restoreBackup(input){
+  var file=input.files[0];
+  if(!file)return;
+  if(!file.name.endsWith(".db")){toast("请选择 .db 数据库文件","alarm");input.value="";return;}
+  if(!confirm("⚠️ 确认恢复数据库？
+
+此操作将覆盖当前所有数据，不可撤销。
+恢复前会自动备份当前数据库。
+恢复后需要重启服务才能完全生效。"))return;
+  var fd=new FormData();
+  fd.append("file",file);
+  fetch("/api/backup/restore",{
+    method:"POST",
+    headers:{"Authorization":"Bearer "+TOKEN},
+    body:fd
+  }).then(function(r){
+    if(!r.ok)return r.text().then(function(t){var d;try{d=JSON.parse(t)}catch(e){}throw new Error((d&&d.detail)||"恢复失败 ("+r.status+")");});
+    return r.json();
+  }).then(function(d){
+    toast("✅ "+(d.msg||"恢复成功")+"，请重启服务");
+    loadDataManage();
+  }).catch(function(e){toast("恢复失败: "+(e&&e.message||e),"alarm");});
+  input.value="";
+}
+
 // ==================== 实时监护 (Monitor) ====================
 var MONITOR_PID=null, MONITOR_VITALS={}, MONITOR_ORDERS=[], MONITOR_REFRESH_TIMER=null;
 function loadPatientsForMonitor(){
@@ -2103,7 +2202,7 @@ function loadSettingsForMenu(){
   if(isAdmin) $("mSettings").classList.remove("hidden");
   else $("mSettings").classList.add("hidden");
   // 需要管理员权限的标签页：非管理员隐藏，避免保存时报 403
-  ["access","doctors","remind","wechat","ai","datasource"].forEach(function(t){
+  ["access","doctors","remind","wechat","ai","datasource","data-mgr"].forEach(function(t){
     var el=$("tab-"+t);
     if(el) el.classList.toggle("hidden",!isAdmin);
   });
