@@ -60,6 +60,7 @@ SESSION_TTL_HOURS = int(os.environ.get("SESSION_TTL_HOURS", "168"))  # 7 天
 # 首个管理员引导（仅当 users 表为空时创建）
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "")
+ADMIN_RESET = os.environ.get("ADMIN_RESET", "")  # =1 时重置管理员密码
 PW_ROUNDS = 200_000  # PBKDF2-HMAC-SHA256 迭代次数
 
 
@@ -110,27 +111,46 @@ async def require_admin(request: Request,
 
 
 def bootstrap_admin() -> None:
-    """users 表为空时创建首个管理员。"""
-    if db.list_users():
-        return
+    """users 表为空时创建首个管理员；ADMIN_RESET=1 时重置管理员密码。"""
+    users = db.list_users()
+    # 确定密码：ADMIN_PASS 优先，否则默认 admin123
     if not ADMIN_PASS:
-        log.warning("============================================================")
-        log.warning("首次启动：未设置 ADMIN_PASS 环境变量，使用默认密码 admin/admin123")
-        log.warning("请立即登录后在【系统设置】中修改密码！")
-        log.warning("============================================================")
         password = "admin123"
     else:
         password = ADMIN_PASS
-    h, salt = hash_password(password)
-    db.create_user(ADMIN_USER, "系统管理员", h, salt, role="admin")
     masked = password[:1] + "****" if len(password) > 2 else "****"
-    log.info("bootstrap admin created: %s (password=%s)", ADMIN_USER, masked)
-    log.info("login endpoint: http://<host>:12090  username=%s", ADMIN_USER)
-    # 启动后自检：用刚生成的 hash 验证密码能否通过
-    if verify_password(password, salt, h):
-        log.info("bootstrap admin self-check PASS (password=admin123 verified)")
-    else:
-        log.error("bootstrap admin self-check FAIL — please check ADMIN_PASS env")
+
+    if not users:
+        # 首次启动：创建管理员
+        if not ADMIN_PASS:
+            log.warning("============================================================")
+            log.warning("首次启动：未设置 ADMIN_PASS 环境变量，使用默认密码 admin/admin123")
+            log.warning("请立即登录后在【系统设置】中修改密码！")
+            log.warning("============================================================")
+        h, salt = hash_password(password)
+        db.create_user(ADMIN_USER, "系统管理员", h, salt, role="admin")
+        log.info("bootstrap admin created: %s (password=%s)", ADMIN_USER, masked)
+        log.info("login endpoint: http://<host>:12090  username=%s", ADMIN_USER)
+        if verify_password(password, salt, h):
+            log.info("bootstrap admin self-check PASS (password verified)")
+        else:
+            log.error("bootstrap admin self-check FAIL — please check ADMIN_PASS env")
+        return
+
+    # ADMIN_RESET=1：重置管理员密码
+    if ADMIN_RESET == "1":
+        admin_user = db.get_user_by_name(ADMIN_USER)
+        if admin_user:
+            h, salt = hash_password(password)
+            db.update_password(admin_user["id"], h, salt)
+            log.info("ADMIN_RESET=1: admin password reset to %s", masked)
+            # 清除该用户所有会话，强制重新登录
+            db.execute("DELETE FROM sessions WHERE user_id=?", (admin_user["id"],))
+        else:
+            # 管理员用户不存在，重新创建
+            h, salt = hash_password(password)
+            db.create_user(ADMIN_USER, "系统管理员", h, salt, role="admin")
+            log.info("ADMIN_RESET=1: admin user recreated (password=%s)", masked)
 
 
 # ================================================================ WebSocket Hub
@@ -777,10 +797,16 @@ def handle_lab(device_id: str, payload: dict):
 
 # ================================================================ 定期备份
 async def _backup_loop():
-    """每 3 天备份一次，并清理 3 天前的旧备份。"""
+    """每天备份一次，启动时先执行一次首次备份。"""
     import asyncio as aio
+    # 启动时立即备份一次
+    try:
+        info = icu.do_backup()
+        log.info("startup backup: %s (%d bytes)", info["path"], info["size"])
+    except Exception as e:  # noqa: BLE001
+        log.error("startup backup failed: %s", e)
     while True:
-        await aio.sleep(3 * 24 * 3600)
+        await aio.sleep(24 * 3600)  # 每 24 小时备份一次
         try:
             info = icu.do_backup()
             log.info("scheduled backup: %s (%d bytes)", info["path"], info["size"])

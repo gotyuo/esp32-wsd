@@ -1029,8 +1029,8 @@ def do_backup() -> Dict:
         sha = hashlib.sha256(f.read()).hexdigest()
     run("INSERT INTO backup_log (path,size_bytes,sha256,created_at) VALUES (?,?,?,?)",
         (path, size, sha, now))
-    # 清理 3 天前的旧备份
-    cutoff = datetime.now(timezone.utc) - timedelta(days=3)
+    # 清理 2 天前的旧备份
+    cutoff = datetime.now(timezone.utc) - timedelta(days=2)
     kept = 0
     for fn in os.listdir(BACKUP_DIR):
         fp = os.path.join(BACKUP_DIR, fn)
