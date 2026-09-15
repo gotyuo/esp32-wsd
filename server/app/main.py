@@ -3847,7 +3847,7 @@ def list_backups(limit: int = Query(20, ge=1, le=100)):
 def download_backup(filename: str):
     """下载指定备份文件。"""
     # 防止路径穿越
-    if "/" in filename or "\" in filename or ".." in filename:
+    if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(400, "非法文件名")
     filepath = os.path.join(icu.BACKUP_DIR, filename)
     if not os.path.isfile(filepath):
@@ -3859,7 +3859,7 @@ def download_backup(filename: str):
 @app.delete("/api/backup/{filename}", dependencies=[Depends(require_admin)])
 def delete_backup(filename: str):
     """删除指定备份文件。"""
-    if "/" in filename or "\" in filename or ".." in filename:
+    if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(400, "非法文件名")
     filepath = os.path.join(icu.BACKUP_DIR, filename)
     if not os.path.isfile(filepath):
