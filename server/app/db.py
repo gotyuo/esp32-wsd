@@ -24,12 +24,20 @@ _lock = threading.Lock()
 @contextmanager
 def _locked_scope() -> Generator[sqlite3.Connection, None, None]:
     """临界区上下文：acquire _lock 并给出 db 的共享连接。
-    调用方在此区间内完成"检查 + 写入"，保证原子可见，杜绝并发去重漏判。"""
+    调用方在此区间内完成"检查 + 写入"，保证原子可见，杜绝并发去重漏判。
+    BUG-007 修复：异常路径先 rollback 再 release，避免锁泄漏导致全站死锁。"""
     _lock.acquire()
     try:
-        yield get_conn()
+        try:
+            yield get_conn()
+            get_conn().commit()
+        except Exception:
+            try:
+                get_conn().rollback()
+            except Exception:
+                pass
+            raise
     finally:
-        get_conn().commit()
         _lock.release()
 _conn: Optional[sqlite3.Connection] = None
 
@@ -421,16 +429,22 @@ def query(sql: str, params: tuple = ()) -> List[sqlite3.Row]:
 
 
 def query_locked(sql: str, params: tuple = ()) -> List[sqlite3.Row]:
-    """在已持有 _lock 的上下文中调用，直接执行（不重复加锁）。"""
-    return get_conn().execute(sql, params).fetchall()
+    """安全查询：内部加锁执行。BUG-008 修复：原实现假设调用方已持锁，
+    但同步路由并发调用时未持锁，与他线程写事务交错导致未定义行为。"""
+    with _lock:
+        return get_conn().execute(sql, params).fetchall()
 
 
 def query_one_locked(sql: str, params: tuple = ()) -> Optional[sqlite3.Row]:
-    return get_conn().execute(sql, params).fetchone()
+    """安全查询单行：内部加锁执行（BUG-008）。"""
+    with _lock:
+        return get_conn().execute(sql, params).fetchone()
 
 
 def query_locked_bool(sql: str, params: tuple = ()) -> bool:
-    return bool(get_conn().execute(sql, params).fetchone())
+    """安全查询布尔：内部加锁执行（BUG-008）。"""
+    with _lock:
+        return bool(get_conn().execute(sql, params).fetchone())
 
 
 # ================================================================ ICU vitals 原子写入
@@ -964,16 +978,19 @@ def ota_upload(
     sha256: str,
     binary: bytes,
 ) -> int:
-    """上传固件：写入表 + 切换 is_latest。返回新 image id。"""
-    # 先取消其它 is_latest
-    execute("UPDATE ota_images SET is_latest=0")
-    now = utcnow()
-    cur = get_conn().execute(
-        "INSERT INTO ota_images (version, size, sha256, uploaded, is_latest, binary) VALUES (?,?,?,?,1,?)",
-        (version, len(binary), sha256, now, binary),
-    )
-    oid = cur.lastrowid
-    get_conn().commit()
+    """上传固件：写入表 + 切换 is_latest。返回新 image id。
+    BUG-006 修复：UPDATE + INSERT 在同一 _lock 临界区内原子完成，
+    避免事务拆散导致 is_latest 全部丢失。"""
+    with _lock:
+        conn = get_conn()
+        conn.execute("UPDATE ota_images SET is_latest=0")
+        now = utcnow()
+        cur = conn.execute(
+            "INSERT INTO ota_images (version, size, sha256, uploaded, is_latest, binary) VALUES (?,?,?,?,1,?)",
+            (version, len(binary), sha256, now, binary),
+        )
+        oid = cur.lastrowid
+        conn.commit()
     return oid
 
 
