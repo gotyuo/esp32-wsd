@@ -857,7 +857,7 @@ var DASHBOARD_MODE="grid", AI_ASSESS=false, AI_SETTINGS={};
 function $(id){return document.getElementById(id)}
 function fmt(v,d){return (v==null||isNaN(v))?"--":Number(v).toFixed(d==null?1:d)}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
-function fmtTime(s){if(!s)return"--";var t=s.replace("T"," ").replace("Z","");return t.slice(0,19)+" (UTC+8)"}
+function fmtTime(s){if(!s)return"--";var d=new Date(s);if(isNaN(d.getTime()))return s;var off=d.getTimezoneOffset()*60000;var dt=new Date(d.getTime()+off+8*3600000);function p(n){return n<10?"0"+n:""+n;}return dt.getFullYear()+"-"+p(dt.getMonth()+1)+"-"+p(dt.getDate())+" "+p(dt.getHours())+":"+p(dt.getMinutes())+":"+p(dt.getSeconds())+" (UTC+8)"}
 function api(path,opt){opt=opt||{};opt.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opt.headers||{});opt.cache='no-store';return fetch(path,opt).then(function(r){if(r.status===401){showLogin();throw new Error("登录已过期，请重新登录");}if(r.status===403){throw new Error("需要管理员权限");}if(!r.ok){return r.text().then(function(t){var d;try{d=JSON.parse(t);}catch(e){}var msg=(d&&d.detail)||(d&&d.message)||("接口异常("+r.status+")");if(typeof msg==="object")msg=JSON.stringify(msg);throw new Error(msg);});}return r.json();});}
 
 function _refreshBtn(ev,fn){
@@ -885,8 +885,8 @@ function _refreshBtn(ev,fn){
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai","datasource","data-mgr"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);MONITOR_REFRESH_TIMER=setInterval(function(){if(CURRENT_VIEW==="monitor")refreshMonitor();},5000);}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}if(v==="data-mgr"){loadDataManage();}}
+  ["dashboard","monitor","patients","devices","encounters","sessions","alarms","hl7","access","doctors","remind","wechat","ai","datasource","data-mgr"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);MONITOR_REFRESH_TIMER=setInterval(function(){if(CURRENT_VIEW==="monitor")refreshMonitor();},5000);}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="encounters")loadEncountersView();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}if(v==="data-mgr"){loadDataManage();}}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -1239,7 +1239,7 @@ function loadTh(){api("/api/thresholds?device="+(DEV?encodeURIComponent(DEV):"*"
     $("sHum").textContent="正常区间 "+fmt(t.hum_min)+" ~ "+fmt(t.hum_max)+" %";
     $("sPres").textContent="正常区间 "+fmt(t.pres_min)+" ~ "+fmt(t.pres_max)+" hPa";
   }).catch(function(){});}
-function loadAlarms(ev){_refreshBtn(ev,function(){console.log("[loadAlarms] calling /api/alarms?limit=100, TOKEN="+TOKEN);return api("/api/alarms?limit=100").then(function(d){console.log("[loadAlarms] response:",d);var a=d.alarms||[],tb=$("alarmBody");if(!a.length){console.log("[loadAlarms] no alarms, showing empty msg");tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';var vals=[];if(x.temp_c!=null)vals.push(fmt(x.temp_c)+"℃");if(x.hum_pct!=null)vals.push(fmt(x.hum_pct)+"%");if(x.pres_hpa!=null)vals.push(fmt(x.pres_hpa)+"hPa");var valStr=vals.length?vals.join(" "):"-";return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+valStr+"</td><td>"+st+"</td></tr>";}).join("");}).catch(function(e){var tb=$("alarmBody");if(tb)tb.innerHTML="<tr><td colspan=6 class=empty>加载失败: "+(e&&e.message?e.message:"请检查网络")+"</td></tr>";});});}// 上端「刷新」：按当前视图刷新整个页面（不是所有视图都刷全部）。
+function loadAlarms(ev){_refreshBtn(ev,function(){return api("/api/alarms?limit=100").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';var vals=[];if(x.temp_c!=null)vals.push(fmt(x.temp_c)+"℃");if(x.hum_pct!=null)vals.push(fmt(x.hum_pct)+"%");if(x.pres_hpa!=null)vals.push(fmt(x.pres_hpa)+"hPa");var valStr=vals.length?vals.join(" "):"-";return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+valStr+"</td><td>"+st+"</td></tr>";}).join("");}).catch(function(e){var tb=$("alarmBody");if(tb)tb.innerHTML="<tr><td colspan=6 class=empty>加载失败: "+(e&&e.message?e.message:"请检查网络")+"</td></tr>";});});}// 上端「刷新」：按当前视图刷新整个页面（不是所有视图都刷全部）。
 // 原先 loadAll 无论当前在哪个视图都只调 loadDevices()（只刷新设备下拉框），
 // 表现为"点了没反应"——页面内容完全不变。区域内的「刷新」按钮仍只刷本区域，
 // 两级刷新各司其职。
@@ -2145,7 +2145,7 @@ function showAddVital(){
       "<button onclick='doAddVital()'>保存</button>" +
       "<button class='secondary' onclick='closeModal()'>取消</button>" +
     "</div>";
-  showModal();
+  $("modalBox").classList.remove("hidden");
 }
 function doAddVital(){
   var pid=MONITOR_PID;if(!pid)return;
