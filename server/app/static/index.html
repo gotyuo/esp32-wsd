@@ -2237,7 +2237,7 @@ function doAddVitalOne(param){
   }
   var oper=$("voOper").value.trim();
   if(oper)body.source_device=oper;
-  api("/api/patients/"+pid+"/vitals",{method:"POST",body:JSON.stringify(body)}).then(function(){
+  api("/api/patients/"+pid+"/vitals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
     toast((VITAL_LABELS[param]||param)+"已录入");closeModal();loadVitalOne(param);
     // 同步刷新底部最近录入列表和趋势图
     api("/api/patients/"+MONITOR_PID+"/vitals?hours=24").then(function(d){
@@ -2560,7 +2560,7 @@ function doAddVital(){
   if(temp)body.temp_c=parseFloat(temp);
   if(glu)body.glucose=parseFloat(glu);
   if(!hr&&!sp&&!rr&&!sbp&&!dbp&&!temp&&!glu){alert("请至少填写一项体征数据");return;}
-  api("/api/patients/"+pid+"/vitals",{method:"POST",body:JSON.stringify(body)}).then(function(){
+  api("/api/patients/"+pid+"/vitals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
     toast("体征数据已录入");closeModal();refreshMonitor();
   }).catch(function(e){toast("录入失败: "+(e&&e.message||""),"alarm");});
 }
