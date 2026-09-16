@@ -370,7 +370,6 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div style="flex:1"></div>
   <button class="small" onclick="probeDevices()">🔍 刷新设备状态</button>
   <button class="secondary small" onclick="refreshMonitor(event)">刷新监护</button>
-  <button class="secondary small" onclick="showAddVital()">+ 录入体征</button>
   <button class="secondary small" onclick="showIoForm()">+ 出入量</button>
   <button class="secondary small" id="mAssessBtn" onclick="assessPatient()">🤖 AI 评估</button>
 </div>
@@ -2195,10 +2194,58 @@ function loadVitalOne(param,ev){
 }
 // 录入单个体征：打开通用录入弹窗并聚焦对应输入框
 function addVitalOne(param){
-  showAddVital();
-  var fieldMap={ecg_hr:"vHr",sp_o2:"vSpO2",rr_bpm:"vRr",sbp:"vSbp",temp_c:"vTemp",glucose:"vGlu"};
-  var el=$(fieldMap[param]);
-  if(el)el.focus();
+  var pid=MONITOR_PID;if(!pid){alert("请先选择患者");return;}
+  var label=VITAL_LABELS[param]||param;
+  // 每个体征类型独立弹窗——只含该体征的输入框，不再共用 ADD VITALS
+  var fieldsHtml="";
+  if(param==="sbp"){
+    fieldsHtml="<label>收缩压 (mmHg) *</label><input id='voSbp' type='number' step='1' placeholder='如 120' autofocus>"
+      +"<label>舒张压 (mmHg)</label><input id='voDbp' type='number' step='1' placeholder='如 80'>";
+  }else if(param==="ecg_hr"){
+    fieldsHtml="<label>心率 (bpm) *</label><input id='voVal' type='number' step='1' placeholder='如 75' autofocus>";
+  }else if(param==="sp_o2"){
+    fieldsHtml="<label>血氧 (%) *</label><input id='voVal' type='number' step='0.1' placeholder='如 98' autofocus>";
+  }else if(param==="rr_bpm"){
+    fieldsHtml="<label>呼吸 (rpm) *</label><input id='voVal' type='number' step='1' placeholder='如 16' autofocus>";
+  }else if(param==="temp_c"){
+    fieldsHtml="<label>体温 (℃) *</label><input id='voVal' type='number' step='0.1' placeholder='如 36.5' autofocus>";
+  }else if(param==="glucose"){
+    fieldsHtml="<label>血糖 (mmol/L) *</label><input id='voVal' type='number' step='0.1' placeholder='如 5.5' autofocus>";
+  }
+  $("modalInner").innerHTML =
+    "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+label+" · 录入</h2>" +
+    "<div class='kv'>" + fieldsHtml +
+      "<label>操作者</label><input id='voOper' maxlength='64'>" +
+    "</div>" +
+    "<div style='font-size:11px;color:var(--dim);margin-top:8px'>患者 "+esc(pid)+" · 保存后即时刷新该卡片。</div>" +
+    "<div class='actions'><button onclick='doAddVitalOne(\""+param+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+  $("modalBox").classList.remove("hidden");
+}
+// 独立体征录入保存：只 POST 该体征字段，保存后只刷新对应卡片
+function doAddVitalOne(param){
+  var pid=MONITOR_PID;if(!pid)return;
+  var body={source:"manual"};
+  if(param==="sbp"){
+    var sbp=$("voSbp").value, dbp=$("voDbp").value;
+    if(!sbp){alert("请输入收缩压");return;}
+    body.sbp=parseFloat(sbp);
+    if(dbp)body.dbp=parseFloat(dbp);
+  }else{
+    var val=$("voVal").value;
+    if(!val){alert("请输入"+(VITAL_LABELS[param]||param)+"数据");return;}
+    body[param]=parseFloat(val);
+  }
+  var oper=$("voOper").value.trim();
+  if(oper)body.source_device=oper;
+  api("/api/patients/"+pid+"/vitals",{method:"POST",body:JSON.stringify(body)}).then(function(){
+    toast((VITAL_LABELS[param]||param)+"已录入");closeModal();loadVitalOne(param);
+    // 同步刷新底部最近录入列表和趋势图
+    api("/api/patients/"+MONITOR_PID+"/vitals?hours=24").then(function(d){
+      MONITOR_VITALS=d.points||[];
+      drawMonitorTrend();
+      renderVitalsList(MONITOR_VITALS);
+    }).catch(function(){});
+  }).catch(function(e){toast("录入失败: "+(e&&e.message||""),"alarm");});
 }
 // toggle 单体征历史（含最近记录+已删除记录）
 function toggleVitalOneHist(param){
@@ -2232,25 +2279,27 @@ function renderVitalOneHist(param){
         +"<span class='small'>"+fmtTime(p.ts)+"</span> "
         +"<b>"+val+"</b>"
         +(p.source==="manual"?" <span style='color:var(--blue);font-size:9px'>手</span>":"")
-        +(p.id&&ME&&ME.role==="admin"?" <span style='color:var(--red);cursor:pointer;font-size:9px' onclick='delVitalOne(\""+param+"\","+p.id+")'>删</span>":"")
+        +(p.id&&ME&&ME.role==="admin"?" <button class='danger small' onclick='delVitalOne(\""+param+"\","+p.id+")'>删</button>":"")
         +"</div>";
     }).join("");
   }
   // 已删除记录——从 API 取
-  html+="<div style='color:var(--sub);margin-top:4px;margin-bottom:2px'>已删除"+label+"</div><div id='voh_"+param+"'><span style='font-size:9px;color:var(--dim)'>加载中…</span></div>";
+  html+="<div id='voh_"+param+"'><span style='font-size:9px;color:var(--dim)'>加载中…</span></div>";
   box.innerHTML=html;
   api("/api/patients/"+MONITOR_PID+"/vitals/deleted").then(function(d){
     var deleted=(d.items||[]).filter(function(x){return x[param]!=null;});
     var sub=$("voh_"+param);
     if(!sub)return;
     if(!deleted.length){sub.innerHTML="<span style='font-size:9px;color:var(--dim)'>无</span>";return;}
-    sub.innerHTML=deleted.map(function(p){
+    sub.innerHTML="<div style='font-size:10px;color:var(--sub);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px'>已删除"+label+" ("+deleted.length+")</div>"
+    +deleted.map(function(p){
       var val=p[param];
       if(param==="sbp")val=p.sbp+(p.dbp?"/"+p.dbp:"/--");
-      return "<div style='padding:1px 0;border-bottom:1px solid var(--line);opacity:.5'>"
+      return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line);opacity:.6'>"
         +"<span class='small'>"+fmtTime(p.ts)+"</span> "
-        +"<span>"+val+"</span>"
-        +"<span style='color:var(--red);font-size:9px'> 已删</span>"
+        +"<b>"+val+"</b>"
+        +(p.source==="manual"?" <span style='color:var(--blue);font-size:9px'>手</span>":"")
+        +"<span class='small' style='color:var(--red)'> 已删除</span>"
         +"</div>";
     }).join("");
   }).catch(function(){
