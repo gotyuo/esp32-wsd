@@ -1839,20 +1839,30 @@ function setTrendHours(h){
     b.classList.toggle('active', parseInt(b.dataset.th)===h);
   });
   document.getElementById('mTrendRange').textContent = '最近'+h+'h';
-  drawMonitorTrend();
+  // 重新请求 API，按 hours 参数取对应时间窗口的数据，不依赖前端过滤缓存
+  if(!MONITOR_PID){drawMonitorTrend();return;}
+  api("/api/patients/"+MONITOR_PID+"/vitals?hours="+h).then(function(d){
+    MONITOR_VITALS=d.points||[];
+    // 同步刷新 sparkline
+    var cards=document.querySelectorAll("#mVitals .m-card");
+    cards.forEach(function(c){
+      var param=c.dataset.param;
+      var vals=(MONITOR_VITALS||[]).map(function(x){return x[param];}).filter(function(x){return x!=null;}).slice(-60);
+      var trendEl=c.querySelector(".trend");
+      var ar=trendArrow(vals);
+      trendEl.textContent=ar;
+      trendEl.style.color=(ar==="↗"?"#ffa300":(ar==="↘"?"#4fc3f7":"var(--sub)"));
+      paintSpark(c.querySelector(".m-spark"),vals);
+    });
+    drawMonitorTrend();
+    renderVitalsList(MONITOR_VITALS);
+  }).catch(function(){drawMonitorTrend();});
 }
 function drawMonitorTrend(){
   var canvas = document.getElementById('mTrendChart');
   if(!canvas) return;
-  var allPts = MONITOR_VITALS || [];
-  // 按 MONITOR_TREND_HOURS 筛选趋势数据范围
-  var pts = allPts;
-  if (allPts.length && MONITOR_TREND_HOURS) {
-    var cutoff = Date.now() - MONITOR_TREND_HOURS * 3600 * 1000;
-    pts = allPts.filter(function(p) {
-      return new Date(p.ts).getTime() >= cutoff;
-    });
-  }
+  var pts = MONITOR_VITALS || [];
+  // 数据已由 API 按 hours 参数返回对应时间窗口，前端不再二次过滤
   var ctx = canvas.getContext('2d');
   var W = canvas.width = canvas.clientWidth * 2;
   var H = canvas.height = canvas.clientHeight * 2;
@@ -1941,15 +1951,20 @@ function drawMonitorTrend(){
       ctx.restore();
     }
   });
-  // Time axis labels
+  // 时间轴标签：与 fmtTime 一致，统一显示 UTC+8 时间
+  function trendTimeLabel(ts){
+    var d=new Date(ts);if(isNaN(d.getTime()))return'?';
+    var dt=new Date(d.getTime()+8*3600000);
+    function p(n){return n<10?'0'+n:''+n;}
+    return p(dt.getMonth()+1)+'/'+p(dt.getDate())+' '+p(dt.getHours())+':'+p(dt.getMinutes());
+  }
   ctx.fillStyle = '#6f7ba0';
   ctx.font = '9px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(new Date(tMin).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), padL, h - 4);
+  ctx.fillText(trendTimeLabel(tMin), padL, h - 4);
   ctx.textAlign = 'right';
-  ctx.fillText(new Date(tMax).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), w - padR, h - 4);
+  ctx.fillText(trendTimeLabel(tMax), w - padR, h - 4);
 }
-
 function showAddOrder(){
   var pid=MONITOR_PID;if(!pid){alert("请先选择患者");return;}
   $("modalInner").innerHTML =
