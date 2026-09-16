@@ -2215,7 +2215,15 @@ function addVitalOne(param){
   $("modalInner").innerHTML =
     "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+label+" · 录入</h2>" +
     "<div class='kv'>" + fieldsHtml +
-      "<label>操作者</label><input id='voOper' maxlength='64'>" +
+      "<label>数据来源 *</label><select id='voSource'>" +
+        "<option value='manual'>手工录入</option>" +
+        "<option value='esp32'>设备同步(ESP32)</option>" +
+        "<option value='his'>HIS系统</option>" +
+        "<option value='ecg'>心电监护仪</option>" +
+        "<option value='ventilator'>呼吸机</option>" +
+        "<option value='lab'>检验系统</option>" +
+      "</select>" +
+      "<label>操作者/设备</label><input id='voOper' maxlength='64' placeholder='操作者姓名或设备编号'>" +
     "</div>" +
     "<div style='font-size:11px;color:var(--dim);margin-top:8px'>患者 "+esc(pid)+" · 保存后即时刷新该卡片。</div>" +
     "<div class='actions'><button onclick='doAddVitalOne(\""+param+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
@@ -2224,7 +2232,7 @@ function addVitalOne(param){
 // 独立体征录入保存：只 POST 该体征字段，保存后只刷新对应卡片
 function doAddVitalOne(param){
   var pid=MONITOR_PID;if(!pid)return;
-  var body={source:"manual"};
+  var body={source:$("voSource")?$("voSource").value:"manual"};
   if(param==="sbp"){
     var sbp=$("voSbp").value, dbp=$("voDbp").value;
     if(!sbp){alert("请输入收缩压");return;}
