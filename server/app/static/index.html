@@ -384,7 +384,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 </div>
 <div class="m-bottom" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
   <div class="m-panel" style="max-height:280px;overflow:auto">
-    <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">📜</button></h4>
+    <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">历史</button></h4>
     <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
     <div id="ordHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
@@ -2064,7 +2064,7 @@ function toggleOrderHistory(){
   var box=$("ordHist"),btn=$("ordHistBtn");if(!box)return;
   var show=box.classList.contains("hidden");
   box.classList.toggle("hidden",!show);
-  if(btn)btn.textContent=show?"关闭历史":"📜 历史";
+  if(btn)btn.textContent=show?"关闭历史":"历史";
   // 首次展开时若未加载则现取一次，保证数据是新的
   if(show&&!MONITOR_PID)return;
   if(show)loadOrders();
