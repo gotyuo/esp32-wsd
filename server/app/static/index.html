@@ -374,6 +374,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <button class="secondary small" onclick="showIoForm()">+ 出入量</button>
   <button class="secondary small" id="mAssessBtn" onclick="assessPatient()">🤖 AI 评估</button>
 </div>
+<h4 style="margin-top:6px">💓 体征 <button class="secondary small" onclick="loadVitals(event)">刷新</button><button class="secondary small" onclick="showAddVital()">+ 录入</button><button class="secondary small" id="vitalHistBtn" onclick="toggleVitalHistory()">历史</button></h4>
 <div class="m-grid" id="mVitals">
   <div class="m-card" data-param="ecg_hr"><div class="m-head"><span>💓 心率</span><span class="t">bpm</span></div><div class="m-val"><span class="v">--</span><span class="u">bpm</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
   <div class="m-card" data-param="sp_o2"><div class="m-head"><span>🩸 血氧</span><span class="t">%</span></div><div class="m-val"><span class="v">--</span><span class="u">%</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
@@ -2092,6 +2093,56 @@ function stopOrder(pid, oid){
 
 // ==================== 体征/检查/检验/出入量 软删除 + 历史 ====================
 
+// 体征独立刷新（不全量刷新整个监护页）
+function loadVitals(ev){_refreshBtn(ev,function(){
+  if(!MONITOR_PID)return;
+  api("/api/patients/"+MONITOR_PID+"/latest-signs").then(function(d){
+    var signs=d.signs||{};
+    var cards=document.querySelectorAll("#mVitals .m-card");
+    var bands={ecg_hr:[60,100],sp_o2:[95,100],rr_bpm:[12,25],sbp:[100,140],temp_c:[36.0,37.5],glucose:[3.9,6.1]};
+    cards.forEach(function(c){
+      var param=c.dataset.param;
+      var valEl=c.querySelector(".v");
+      var trendEl=c.querySelector(".trend");
+      c.classList.remove("warn","crit");
+      if(param==="sbp"){
+        var sbpS=signs["sbp"],dbpS=signs["dbp"];
+        var sv=sbpS?sbpS.value:null, dv=dbpS?dbpS.value:null;
+        valEl.textContent=(sv!=null&&dv!=null)?sv.toFixed(0)+"/"+dv.toFixed(0):"--";
+        if(sv!=null){
+          if(sv<90||sv>180)c.classList.add("crit");
+          else if(sv<100||sv>140)c.classList.add("warn");
+        }
+      }else{
+        var s=signs[param];
+        var v=s?s.value:null;
+        valEl.textContent=v==null||isNaN(v)?"--":v.toFixed(1);
+        if(v!=null&&bands[param]){
+          var b=bands[param];
+          if(v<b[0]-1.5*(b[1]-b[0])||v>b[1]+1.5*(b[1]-b[0]))c.classList.add("crit");
+          else if(v<b[0]||v>b[1])c.classList.add("warn");
+        }
+      }
+      trendEl.textContent="";
+    });
+  }).catch(function(){});
+  api("/api/patients/"+MONITOR_PID+"/vitals?hours=24").then(function(d){
+    MONITOR_VITALS=d.points||[];
+    var cards=document.querySelectorAll("#mVitals .m-card");
+    cards.forEach(function(c){
+      var param=c.dataset.param;
+      var vals=(MONITOR_VITALS||[]).map(function(x){return x[param];}).filter(function(x){return x!=null;}).slice(-60);
+      var trendEl=c.querySelector(".trend");
+      var ar=trendArrow(vals);
+      trendEl.textContent=ar;
+      trendEl.style.color=(ar==="↗"?"#ffa300":(ar==="↘"?"#4fc3f7":"var(--sub)"));
+      paintSpark(c.querySelector(".m-spark"),vals);
+    });
+    drawMonitorTrend();
+    renderVitalsList(MONITOR_VITALS);
+  }).catch(function(){});
+});}
+
 // --- 体征 ---
 function renderVitalsList(pts){
   var box=$("mVitalsList");if(!box)return;
@@ -2122,9 +2173,10 @@ function delVital(pid, vid){
   }).catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});
 }
 function toggleVitalHistory(){
-  var box=$("vitalHist");if(!box)return;
+  var box=$("vitalHist"),btn=$("vitalHistBtn");if(!box)return;
   var show=box.classList.contains("hidden");
   box.classList.toggle("hidden",!show);
+  if(btn)btn.textContent=show?"关闭历史":"历史";
   if(show){
     api("/api/patients/"+MONITOR_PID+"/vitals/deleted").then(function(d){
       renderVitalHistory(d.items||[]);
