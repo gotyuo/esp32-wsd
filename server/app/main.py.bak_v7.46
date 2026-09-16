@@ -2562,8 +2562,6 @@ async def telemetry_upload(request: Request):
         level, reason = check_alarm(device_id, temp_f, hum_f, pres_f)
         db.insert_telemetry(device_id, temp_f, hum_f, pres_f, rssi, level,
                             data.get("heap"), ts=ts_in, seq=seq)
-        # v7.46: REST API 上报后触发报警状态迁移（与 MQTT/vitals/ingest 一致）
-        record_alarm_transition(device_id, level, reason, temp_f, hum_f, pres_f)
     except Exception as e:
         log.warning("telemetry_upload: insert_telemetry failed: %s", e)
 
