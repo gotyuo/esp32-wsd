@@ -422,7 +422,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 <div style="margin-top:6px;max-height:160px;overflow:auto;font-size:11px" id="mVitalsList"><div class="empty" style="font-size:12px">-</div></div>
 <!-- 体征趋势曲线图 -->
 <div class="m-panel" id="mTrendPanel" style="margin-top:8px">
-  <h4>📈 体征趋势 / 用药时间线
+  <h4>📈 体征趋势
     <span style="font-size:10px;color:var(--dim);font-weight:400" id="mTrendRange">最近24h</span>
     <div style="margin-left:auto;display:flex;gap:4px">
       <button class="secondary small" data-th="1" onclick="setTrendHours(1)">1H</button>
@@ -439,8 +439,22 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <span><span style="display:inline-block;width:10px;height:2px;background:#b48cff;vertical-align:middle"></span> GLU</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#00e5ff;vertical-align:middle"></span> HUM</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#00a3ff;vertical-align:middle"></span> PRESS</span>
-    <span><span style="display:inline-block;width:6px;height:6px;background:#ff5470;border-radius:50%;vertical-align:middle"></span> 用药</span>
+  </div>
 </div>
+<div class="m-panel" id="mOrderTrendPanel" style="margin-top:8px">
+  <h4>💊 用药时间线
+    <span style="font-size:10px;color:var(--dim);font-weight:400" id="mOrderTrendRange">最近24h</span>
+    <div style="margin-left:auto;display:flex;gap:4px">
+      <button class="secondary small" data-oth="1" onclick="setOrderTrendHours(1)">1H</button>
+      <button class="secondary small" data-oth="6" onclick="setOrderTrendHours(6)">6H</button>
+      <button class="secondary small active" data-oth="24" onclick="setOrderTrendHours(24)">24H</button>
+    </div>
+  </h4>
+  <canvas id="mOrderTrendChart" style="width:100%;height:200px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:4px"></canvas>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--sub)">
+    <span><span style="display:inline-block;width:10px;height:6px;background:#ff5470;border-radius:2px;vertical-align:middle"></span> 运行中医嘱</span>
+    <span><span style="display:inline-block;width:10px;height:6px;background:#6f7ba0;border-radius:2px;vertical-align:middle"></span> 已停医嘱</span>
+  </div>
 </div>
 </div>
   <!-- ============= 患者管理 ============= -->
@@ -1761,6 +1775,7 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
       paintSpark(c.querySelector(".m-spark"),vals);
     });
     drawMonitorTrend();
+    drawOrderTrend();
     renderVitalsList(MONITOR_VITALS);
   }).catch(function(){});
   // 2) 环境数据（独立加载，不依赖体征API成功）
@@ -1925,31 +1940,143 @@ function drawMonitorTrend(){
     ctx.textAlign = 'right';
     ctx.fillText(s.label, padL - 4, padT + 8 + series.indexOf(s) * 12);
   });
-  // Draw medication markers
+  // 时间轴标签：与 fmtTime 一致，统一显示 UTC+8 时间
+  function trendTimeLabel(ts){
+    var d=new Date(ts);if(isNaN(d.getTime()))return'?';
+    var dt=new Date(d.getTime()+8*3600000);
+    function p(n){return n<10?'0'+n:''+n;}
+    return p(dt.getMonth()+1)+'/'+p(dt.getDate())+' '+p(dt.getHours())+':'+p(dt.getMinutes());
+  }
+  ctx.fillStyle = '#6f7ba0';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(trendTimeLabel(tMin), padL, h - 4);
+  ctx.textAlign = 'right';
+  ctx.fillText(trendTimeLabel(tMax), w - padR, h - 4);
+}
+
+// ==================== 用药时间线曲线图 ====================
+var MONITOR_ORDER_TREND_HOURS = 24;
+// 用药时间线 1H/6H/24H 切换：重新请求 orders 并重绘
+function setOrderTrendHours(h){
+  MONITOR_ORDER_TREND_HOURS = h;
+  document.querySelectorAll('#mOrderTrendPanel [data-oth]').forEach(function(b){
+    b.classList.toggle('active', parseInt(b.dataset.oth)===h);
+  });
+  document.getElementById('mOrderTrendRange').textContent = '最近'+h+'h';
+  if(!MONITOR_PID){drawOrderTrend();return;}
+  api("/api/patients/"+MONITOR_PID+"/orders").then(function(d){
+    MONITOR_ORDERS=d.orders||[];
+    drawOrderTrend();
+  }).catch(function(){drawOrderTrend();});
+}
+// 独立绘制用药时间线图
+// 横轴=时间，纵轴=药品条目，每个医嘱画一条水平线段(start→end)，标注药品名+剂量+泵速
+function drawOrderTrend(){
+  var canvas = document.getElementById('mOrderTrendChart');
+  if(!canvas) return;
   var orders = MONITOR_ORDERS || [];
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width = canvas.clientWidth * 2;
+  var H = canvas.height = canvas.clientHeight * 2;
+  ctx.scale(2, 2);
+  var w = W/2, h = H/2;
+  ctx.clearRect(0, 0, w, h);
+  if(!orders.length){
+    ctx.fillStyle = '#6f7ba0';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无医嘱数据', w/2, h/2);
+    return;
+  }
+  // 时间范围：取所有医嘱的 start_ts/end_ts 的最小/最大值，加上当前时间窗口
+  var now = Date.now();
+  var hours = MONITOR_ORDER_TREND_HOURS || 24;
+  var tWindowStart = now - hours * 3600 * 1000;
+  var tWindowEnd = now;
+  var tMin = tWindowStart, tMax = tWindowEnd;
   orders.forEach(function(o){
-    if(!o.start_ts) return;
-    var t = new Date(o.start_ts).getTime();
-    if(t < tMin || t > tMax) return;
-    var x = padL + ((t - tMin) / (tMax - tMin)) * pw;
-    ctx.strokeStyle = '#ff5470';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + ph); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#ff5470';
-    ctx.beginPath(); ctx.arc(x, padT, 3, 0, 2*Math.PI); ctx.fill();
-    // Drug name label (rotated)
-    if(o.drug_name){
-      ctx.save();
-      ctx.translate(x, padT + ph);
-      ctx.rotate(-Math.PI/4);
-      ctx.fillStyle = '#ff5470';
-      ctx.font = '8px sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(o.drug_name.substring(0, 8), 0, 4);
-      ctx.restore();
+    var s = new Date(o.start_ts).getTime();
+    var e = o.end_ts ? new Date(o.end_ts).getTime() : now;
+    if(s < tMin) tMin = s;
+    if(e > tMax) tMax = e;
+  });
+  // 限制 tMin 不早于窗口起点 -1h（避免时间轴拉太长）
+  if(tMin < tWindowStart - 3600000) tMin = tWindowStart - 3600000;
+  if(tMax < tWindowEnd) tMax = tWindowEnd;
+  if(tMax === tMin) tMax = tMin + 60000;
+  // 布局
+  var padL = 120, padR = 12, padT = 10, padB = 20;
+  var pw = w - padL - padR, ph = h - padT - padB;
+  // 按药品分组，每个药品一行
+  // 取最近 hours 内有活动的医嘱（start_ts 在窗口内 或 status=active）
+  var visible = orders.filter(function(o){
+    var s = new Date(o.start_ts).getTime();
+    var e = o.end_ts ? new Date(o.end_ts).getTime() : now;
+    return e >= tWindowStart && s <= tWindowEnd;
+  });
+  if(!visible.length){
+    ctx.fillStyle = '#6f7ba0';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('该时间窗口内无医嘱', w/2, h/2);
+    return;
+  }
+  // 去重药品名，每个药品一行
+  var drugNames = [];
+  visible.forEach(function(o){
+    var name = (o.drug_name||'?').substring(0, 12);
+    if(drugNames.indexOf(name) < 0) drugNames.push(name);
+  });
+  var rowH = Math.min(24, ph / Math.max(drugNames.length, 1));
+  // Grid lines
+  ctx.strokeStyle = '#1a2a44';
+  ctx.lineWidth = 0.5;
+  for(var i = 0; i <= 4; i++){
+    var y = padT + (ph/4)*i;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w-padR, y); ctx.stroke();
+  }
+  // 画每个医嘱的时间线段
+  visible.forEach(function(o){
+    var name = (o.drug_name||'?').substring(0, 12);
+    var rowIdx = drugNames.indexOf(name);
+    var y = padT + rowIdx * rowH + rowH/2;
+    var s = new Date(o.start_ts).getTime();
+    var e = o.end_ts ? new Date(o.end_ts).getTime() : now;
+    var x1 = padL + Math.max(0, ((s - tMin) / (tMax - tMin)) * pw);
+    var x2 = padL + Math.min(pw, ((e - tMin) / (tMax - tMin)) * pw);
+    if(x2 < x1) x2 = x1 + 4; // 最小宽度
+    var isActive = o.status === 'active';
+    var color = isActive ? '#ff5470' : '#6f7ba0';
+    // 线段
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2, y);
+    ctx.stroke();
+    // 起点圆点
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x1, y, 3, 0, 2*Math.PI); ctx.fill();
+    // 终点：运行中画箭头，已停画圆点
+    if(isActive){
+      ctx.beginPath();
+      ctx.moveTo(x2, y);
+      ctx.lineTo(x2 - 5, y - 3);
+      ctx.lineTo(x2 - 5, y + 3);
+      ctx.closePath(); ctx.fill();
+    }else{
+      ctx.beginPath(); ctx.arc(x2, y, 3, 0, 2*Math.PI); ctx.fill();
     }
+    // 药品名标签（左侧）
+    ctx.fillStyle = color;
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'right';
+    var label = name;
+    if(o.dosage) label += ' ' + (o.dosage||'').substring(0, 8);
+    if(o.rate_mlph != null) label += ' (' + o.rate_mlph.toFixed(0) + 'mL/h)';
+    ctx.fillText(label, padL - 4, y + 3);
   });
   // 时间轴标签：与 fmtTime 一致，统一显示 UTC+8 时间
   function trendTimeLabel(ts){
@@ -2043,6 +2170,7 @@ function loadOrders(ev){_refreshBtn(ev,function(){
     MONITOR_ORDERS=all;
     var ord=all.filter(function(o){return o.status==="active";}).slice(0,10);
     drawMonitorTrend();
+    drawOrderTrend();
     if(!ord.length){$("mOrders").innerHTML='<div class="empty" style="font-size:12px">无运行中医嘱</div>';}
     else{
       $("mOrders").innerHTML=ord.map(function(o){
@@ -2152,6 +2280,7 @@ function loadVitals(ev){_refreshBtn(ev,function(){
       paintSpark(c.querySelector(".m-spark"),vals);
     });
     drawMonitorTrend();
+    drawOrderTrend();
     renderVitalsList(MONITOR_VITALS);
   }).catch(function(){});
 });}
