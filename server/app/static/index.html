@@ -382,7 +382,6 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 体温</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
   <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 血糖</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
 </div>
-<div style="margin-top:6px;max-height:160px;overflow:auto;font-size:11px" id="mVitalsList"><div class="empty" style="font-size:12px">-</div></div>
 <div id="vitalHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
 <div class="m-bottom" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
   <div class="m-panel" style="max-height:280px;overflow:auto">
@@ -421,6 +420,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="a-actions" id="mActions"></div>
   <div class="a-disclaimer">⚠️ <span id="mDisclaimer"></span></div>
 </div>
+<div style="margin-top:6px;max-height:160px;overflow:auto;font-size:11px" id="mVitalsList"><div class="empty" style="font-size:12px">-</div></div>
 <!-- 体征趋势曲线图 -->
 <div class="m-panel" id="mTrendPanel" style="margin-top:8px">
   <h4>📈 体征趋势 / 用药时间线
