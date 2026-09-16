@@ -1710,7 +1710,7 @@ function restoreBackup(input){
 }
 
 // ==================== 实时监护 (Monitor) ====================
-var MONITOR_PID=null, MONITOR_VITALS={}, MONITOR_ORDERS=[], MONITOR_REFRESH_TIMER=null;
+var MONITOR_PID=null, MONITOR_VITALS=[], MONITOR_ORDERS=[], MONITOR_REFRESH_TIMER=null;
 function loadPatientsForMonitor(){
   api("/api/patients").then(function(d){
     var ps=d.patients||[];
@@ -2338,6 +2338,7 @@ function loadVitalOne(param,ev){
   });
 }
 // 录入单个体征：打开通用录入弹窗并聚焦对应输入框
+var _vitalCache={}; // 缓存同步/实时获取拉到的数据 {param:{value,dbp,ts,source,device}}
 function addVitalOne(param){
   var pid=MONITOR_PID;if(!pid){alert("请先选择患者");return;}
   var label=VITAL_LABELS[param]||param;
@@ -2358,26 +2359,60 @@ function addVitalOne(param){
     fieldsHtml="<label>血糖 (mmol/L) *</label><input id='voVal' type='number' step='0.1' placeholder='如 5.5' autofocus>";
   }
   $("modalInner").innerHTML =
-    "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+label+" · 录入</h2>" +
-    "<div class='kv'>" + fieldsHtml +
-      "<label>数据来源 *</label><select id='voSource'>" +
-        "<option value='manual'>手工录入</option>" +
-        "<option value='esp32'>设备同步(ESP32)</option>" +
+    "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+label+" · 数据录入</h2>" +
+    "<div style='display:flex;gap:4px;margin-bottom:14px'>" +
+      "<span class='chip active' onclick='switchVitalTab(\"manual\")' id='vtab-manual'>📝 录入</span>" +
+      "<span class='chip' onclick='switchVitalTab(\"sync\")' id='vtab-sync'>🔄 同步数据</span>" +
+      "<span class='chip' onclick='switchVitalTab(\"esp\")' id='vtab-esp'>📡 实时获取</span>" +
+    "</div>" +
+    // ---- Tab 1: 手工录入 ----
+    "<div id='vpane-manual' class='kv'>" + fieldsHtml +
+      "<label>操作者/设备</label><input id='voOper' maxlength='64' placeholder='操作者姓名或设备编号'>" +
+    "</div>" +
+    "<div style='font-size:11px;color:var(--dim);margin-top:8px'>患者 "+esc(pid)+" · 保存后即时刷新该卡片及趋势图。</div>" +
+    "<div class='actions' id='vact-manual'><button onclick='doAddVitalOne(\""+param+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>" +
+    // ---- Tab 2: 同步数据 ----
+    "<div id='vpane-sync' class='kv hidden'>" +
+      "<label>数据来源 *</label><select id='voSyncSource'>" +
         "<option value='his'>HIS系统</option>" +
         "<option value='ecg'>心电监护仪</option>" +
         "<option value='ventilator'>呼吸机</option>" +
         "<option value='lab'>检验系统</option>" +
       "</select>" +
-      "<label>操作者/设备</label><input id='voOper' maxlength='64' placeholder='操作者姓名或设备编号'>" +
     "</div>" +
-    "<div style='font-size:11px;color:var(--dim);margin-top:8px'>患者 "+esc(pid)+" · 保存后即时刷新该卡片。</div>" +
-    "<div class='actions'><button onclick='doAddVitalOne(\""+param+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+    "<div id='syncResult' style='font-size:12px;color:var(--dim);margin-top:8px;min-height:20px'>点击「查询最新」从所选系统拉取最近一条"+label+"数据</div>" +
+    "<div class='actions hidden' id='vact-sync'>" +
+      "<button onclick='fetchSyncVital(\""+param+"\")'>🔍 查询最新</button>" +
+      "<button onclick='doSyncVitalOne(\""+param+"\")' id='syncSaveBtn' disabled>保存</button>" +
+      "<button class='secondary' onclick='closeModal()'>取消</button>" +
+    "</div>" +
+    // ---- Tab 3: 实时获取(ESP32) ----
+    "<div id='vpane-esp' class='hidden'>" +
+      "<div id='espDeviceList' style='font-size:12px;color:var(--dim);margin-bottom:8px'>加载设备列表...</div>" +
+    "</div>" +
+    "<div id='espResult' style='font-size:12px;color:var(--dim);margin-top:8px;min-height:20px'>点击「获取实时数据」从ESP32设备拉取最近一条"+label+"数据</div>" +
+    "<div class='actions hidden' id='vact-esp'>" +
+      "<button onclick='fetchEspVital(\""+param+"\")'>📡 获取实时数据</button>" +
+      "<button onclick='doEspVitalOne(\""+param+"\")' id='espSaveBtn' disabled>保存</button>" +
+      "<button class='secondary' onclick='closeModal()'>取消</button>" +
+    "</div>";
   $("modalBox").classList.remove("hidden");
+  // 自动加载绑定设备列表（供实时获取页签展示）
+  _loadEspDevicesForModal(pid);
 }
-// 独立体征录入保存：只 POST 该体征字段，保存后只刷新对应卡片
+// 录入弹窗页签切换——切换不需要填数据，互不干扰
+function switchVitalTab(tab){
+  ["manual","sync","esp"].forEach(function(t){
+    var pane=$("vpane-"+t),act=$("vact-"+t),btn=$("vtab-"+t);
+    if(pane)pane.classList.toggle("hidden",t!==tab);
+    if(act)act.classList.toggle("hidden",t!==tab);
+    if(btn)btn.classList.toggle("active",t===tab);
+  });
+}
+// 手工录入保存：source=manual，从输入框取值
 function doAddVitalOne(param){
   var pid=MONITOR_PID;if(!pid)return;
-  var body={source:$("voSource")?$("voSource").value:"manual"};
+  var body={source:"manual"};
   if(param==="sbp"){
     var sbp=$("voSbp").value, dbp=$("voDbp").value;
     if(!sbp){alert("请输入收缩压");return;}
@@ -2388,18 +2423,120 @@ function doAddVitalOne(param){
     if(!val){alert("请输入"+(VITAL_LABELS[param]||param)+"数据");return;}
     body[param]=parseFloat(val);
   }
-  var oper=$("voOper").value.trim();
+  var oper=$("voOper")?$("voOper").value.trim():"";
   if(oper)body.source_device=oper;
+  _postVitalAndRefresh(param,body);
+}
+// 同步数据：从外部系统(HIS/ECG/呼吸机/检验)查询最新一条该体征数据
+function fetchSyncVital(param){
+  var pid=MONITOR_PID;if(!pid)return;
+  var src=$("voSyncSource")?$("voSyncSource").value:"his";
+  var srcLabel={his:"HIS系统",ecg:"心电监护仪",ventilator:"呼吸机",lab:"检验系统"}[src]||src;
+  var el=$("syncResult"),btn=$("syncSaveBtn");
+  if(el){el.textContent="查询中...";el.style.color="var(--dim)";}
+  if(btn)btn.disabled=true;
+  api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
+    var pts=d.points||[],found=null;
+    for(var i=pts.length-1;i>=0;i--){
+      if(pts[i].source===src&&pts[i][param]!=null){found=pts[i];break;}
+    }
+    if(!found){
+      if(el){el.textContent="暂无"+srcLabel+"的"+(VITAL_LABELS[param]||param)+"数据";el.style.color="var(--red)";}
+      return;
+    }
+    var valStr=param==="sbp"?(found.sbp+(found.dbp?"/"+found.dbp:"")):found[param];
+    _vitalCache[param]={value:found[param],dbp:found.dbp,ts:found.ts,source:src,device:found.source_device};
+    if(el){
+      el.innerHTML=srcLabel+"最新数据：<b style='color:var(--txt)'>"+valStr+"</b> "+(found.source_device?"("+esc(found.source_device)+")":"")+"<br>采集时间："+fmtTime(found.ts);
+      el.style.color="var(--green)";
+    }
+    if(btn)btn.disabled=false;
+  }).catch(function(e){
+    if(el){el.textContent="查询失败: "+(e&&e.message||"");el.style.color="var(--red)";}
+  });
+}
+// 同步数据保存：用拉取到的值写入，source=所选系统
+function doSyncVitalOne(param){
+  var pid=MONITOR_PID;if(!pid)return;
+  var c=_vitalCache[param];
+  if(!c||c.value==null){alert("请先查询数据");return;}
+  var src=$("voSyncSource")?$("voSyncSource").value:"his";
+  var body={source:src};
+  body[param]=c.value;
+  if(param==="sbp"&&c.dbp!=null)body.dbp=c.dbp;
+  if(c.device)body.source_device=c.device;
+  _postVitalAndRefresh(param,body);
+}
+// 实时获取：从ESP32设备上报的数据中查询最新一条该体征
+function fetchEspVital(param){
+  var pid=MONITOR_PID;if(!pid)return;
+  var el=$("espResult"),btn=$("espSaveBtn");
+  if(el){el.textContent="获取中...";el.style.color="var(--dim)";}
+  if(btn)btn.disabled=true;
+  api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
+    var pts=d.points||[],found=null;
+    for(var i=pts.length-1;i>=0;i--){
+      if(pts[i].source==="esp32"&&pts[i][param]!=null){found=pts[i];break;}
+    }
+    if(!found){
+      if(el){el.textContent="暂无ESP32设备的"+(VITAL_LABELS[param]||param)+"数据，请确认设备已绑定并上报数据";el.style.color="var(--red)";}
+      return;
+    }
+    var valStr=param==="sbp"?(found.sbp+(found.dbp?"/"+found.dbp:"")):found[param];
+    _vitalCache[param]={value:found[param],dbp:found.dbp,ts:found.ts,source:"esp32",device:found.source_device};
+    if(el){
+      el.innerHTML="ESP32最新数据：<b style='color:var(--txt)'>"+valStr+"</b> "+(found.source_device?"("+esc(found.source_device)+")":"")+"<br>采集时间："+fmtTime(found.ts);
+      el.style.color="var(--green)";
+    }
+    if(btn)btn.disabled=false;
+  }).catch(function(e){
+    if(el){el.textContent="获取失败: "+(e&&e.message||"");el.style.color="var(--red)";}
+  });
+}
+// 实时获取保存：用拉取到的值写入，source=esp32
+function doEspVitalOne(param){
+  var pid=MONITOR_PID;if(!pid)return;
+  var c=_vitalCache[param];
+  if(!c||c.value==null){alert("请先获取数据");return;}
+  var body={source:"esp32"};
+  body[param]=c.value;
+  if(param==="sbp"&&c.dbp!=null)body.dbp=c.dbp;
+  if(c.device)body.source_device=c.device;
+  _postVitalAndRefresh(param,body);
+}
+// 统一保存+刷新：POST体征数据，成功后刷新卡片+趋势图(全量数据，曲线连续)
+function _postVitalAndRefresh(param,body){
+  var pid=MONITOR_PID;if(!pid)return;
   api("/api/patients/"+pid+"/vitals",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(){
     toast((VITAL_LABELS[param]||param)+"已录入");closeModal();loadVitalOne(param);
-    // 同步刷新底部最近录入列表和趋势图
-    api("/api/patients/"+MONITOR_PID+"/vitals?hours=24").then(function(d){
+    // 趋势图取全量数据(所有来源)，保证曲线连续不断
+    api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
       MONITOR_VITALS=d.points||[];
       drawMonitorTrend();
       renderVitalsList(MONITOR_VITALS);
     }).catch(function(){});
   }).catch(function(e){toast("录入失败: "+(e&&e.message||""),"alarm");});
 }
+// 加载患者绑定设备列表（供实时获取页签展示）
+function _loadEspDevicesForModal(pid){
+  api("/api/patients/"+pid+"/devices").then(function(d){
+    var devs=d.devices||[],el=$("espDeviceList");
+    if(!el)return;
+    if(!devs.length){
+      el.innerHTML="该患者未绑定ESP32设备。<span style='color:var(--blue);cursor:pointer;text-decoration:underline' onclick='closeModal();linkDev(\""+pid+"\")'>前往绑定</span>";
+      return;
+    }
+    var html="绑定设备：";
+    devs.forEach(function(dv){
+      var online=dv.latest_telemetry&&dv.latest_telemetry.ts;
+      html+="<span style='margin-right:8px'><b>"+esc(dv.device_id)+"</b> "+(online?"<span style='color:var(--green)'>●在线</span>":"<span style='color:var(--red)'>○离线</span>")+"</span>";
+    });
+    el.innerHTML=html;
+  }).catch(function(){
+    var el=$("espDeviceList");if(el)el.innerHTML="设备列表加载失败";
+  });
+}
+
 // toggle 单体征历史（含最近记录+已删除记录）
 function toggleVitalOneHist(param){
   var card=document.querySelector('.m-card[data-param="'+param+'"]');

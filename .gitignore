@@ -43,3 +43,4 @@ firmware/lib/
 firmware/-
 eink_esp/
 max30102_esp8266/
+server/envmon.db
