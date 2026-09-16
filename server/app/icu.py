@@ -297,8 +297,8 @@ def patient_vitals(patient_id: int, start: str, end: str,
     if not fields:
         fields = VITAL_FIELDS
     cols = ", ".join([f for f in fields if f in VITAL_FIELDS])
-    sql = (f"SELECT ts, {cols}, source, source_device, alarm_flag "
-           f"FROM vitals WHERE patient_id=? AND ts>=? AND ts<=? ORDER BY ts ASC")
+    sql = (f"SELECT id, ts, {cols}, source, source_device, alarm_flag "
+           f"FROM vitals WHERE patient_id=? AND ts>=? AND ts<=? AND deleted=0 ORDER BY ts ASC")
     return fetchall(sql, (patient_id, start, end))
 
 def patient_vitals_latest(patient_id: int, limit: int = 100,
@@ -307,8 +307,8 @@ def patient_vitals_latest(patient_id: int, limit: int = 100,
     if not fields:
         fields = VITAL_FIELDS
     cols = ", ".join([f for f in fields if f in VITAL_FIELDS])
-    sql = (f"SELECT ts, {cols}, source, alarm_flag "
-           f"FROM vitals WHERE patient_id=? ORDER BY ts DESC LIMIT ?")
+    sql = (f"SELECT id, ts, {cols}, source, alarm_flag "
+           f"FROM vitals WHERE patient_id=? AND deleted=0 ORDER BY ts DESC LIMIT ?")
     rows = fetchall(sql, (patient_id, limit))
     rows.reverse()  # ASC 顺序，与 patient_vitals 一致
     return rows
@@ -358,6 +358,50 @@ def order_stop(order_id: int) -> bool:
     return r > 0
 
 
+# ---------- 软删除（体征/检验/检查/出入量）----------
+def vital_delete(vital_id: int) -> bool:
+    r = run("UPDATE vitals SET deleted=1 WHERE id=? AND deleted=0", (vital_id,))
+    return r > 0
+
+def lab_result_delete(lab_id: int) -> bool:
+    r = run("UPDATE lab_results SET deleted=1 WHERE id=? AND deleted=0", (lab_id,))
+    return r > 0
+
+def exam_delete(exam_id: int) -> bool:
+    r = run("UPDATE exams SET deleted=1 WHERE id=? AND deleted=0", (exam_id,))
+    return r > 0
+
+def io_log_delete(io_id: int) -> bool:
+    r = run("UPDATE io_log SET deleted=1 WHERE id=? AND deleted=0", (io_id,))
+    return r > 0
+
+# ---------- 已删除记录历史查询 ----------
+def vitals_deleted(patient_id: int, limit: int = 50) -> List[Dict]:
+    return fetchall(
+        "SELECT id, ts, ecg_hr, sp_o2, rr_bpm, sbp, dbp, temp_c, glucose, source "
+        "FROM vitals WHERE patient_id=? AND deleted=1 ORDER BY ts DESC LIMIT ?",
+        (patient_id, limit),
+    )
+
+def lab_results_deleted(patient_id: int, limit: int = 50) -> List[Dict]:
+    return fetchall(
+        "SELECT * FROM lab_results WHERE patient_id=? AND deleted=1 ORDER BY result_ts DESC LIMIT ?",
+        (patient_id, limit),
+    )
+
+def exams_deleted(patient_id: int, limit: int = 50) -> List[Dict]:
+    return fetchall(
+        "SELECT * FROM exams WHERE patient_id=? AND deleted=1 ORDER BY exam_ts DESC LIMIT ?",
+        (patient_id, limit),
+    )
+
+def io_log_deleted(patient_id: int, limit: int = 50) -> List[Dict]:
+    return fetchall(
+        "SELECT * FROM io_log WHERE patient_id=? AND deleted=1 ORDER BY ts DESC LIMIT ?",
+        (patient_id, limit),
+    )
+
+
 # ---------- LIS 检验 ----------
 def lab_result_insert(patient_id: int, source: str = "lis",
                       item_code: str = None, item_name: str = None,
@@ -385,12 +429,12 @@ def lab_results_for_patient(patient_id: int, result_ts_start: str = None,
                             result_ts_end: str = None) -> List[Dict]:
     if result_ts_start and result_ts_end:
         return fetchall(
-            "SELECT * FROM lab_results WHERE patient_id=? AND result_ts>=? AND result_ts<=? "
+            "SELECT * FROM lab_results WHERE patient_id=? AND result_ts>=? AND result_ts<=? AND deleted=0 "
             "ORDER BY result_ts DESC",
             (patient_id, result_ts_start, result_ts_end),
         )
     return fetchall(
-        "SELECT * FROM lab_results WHERE patient_id=? ORDER BY result_ts DESC",
+        "SELECT * FROM lab_results WHERE patient_id=? AND deleted=0 ORDER BY result_ts DESC",
         (patient_id,),
     )
 
@@ -411,7 +455,7 @@ def exam_insert(patient_id: int, source: str = "manual",
 
 def exams_for_patient(patient_id: int) -> List[Dict]:
     return fetchall(
-        "SELECT * FROM exams WHERE patient_id=? ORDER BY exam_ts DESC",
+        "SELECT * FROM exams WHERE patient_id=? AND deleted=0 ORDER BY exam_ts DESC",
         (patient_id,),
     )
 
@@ -434,7 +478,7 @@ def add_io_log(patient_id: int, direction: str, kind: str, amount_ml: float,
 def list_io_log(patient_id: int, hours: int = 72) -> List[Dict]:
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(hours, 1))).strftime("%Y-%m-%dT%H:%M:%SZ")
     return fetchall(
-        "SELECT * FROM io_log WHERE patient_id=? AND ts>? ORDER BY ts ASC",
+        "SELECT * FROM io_log WHERE patient_id=? AND ts>? AND deleted=0 ORDER BY ts ASC",
         (patient_id, cutoff),
     )
 

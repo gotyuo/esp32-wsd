@@ -446,6 +446,14 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
     except Exception as e:
         _log.warning("BUG-017 index creation skipped: %s", e)
 
+    # v7.47: 软删除支持——体征/检验/检查/出入量加 deleted 列，0=正常 1=已删除。
+    # 删除后数据保留可查历史，与用药软停(stopped)模式一致。
+    for _tbl in ("vitals", "lab_results", "exams", "io_log"):
+        if not _has_col(conn, _tbl, "deleted"):
+            conn.execute(f"ALTER TABLE {_tbl} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+            _log.info("migration v7.47: added %s.deleted column (soft delete)", _tbl)
+    conn.commit()
+
 
 def query(sql: str, params: tuple = ()) -> List[sqlite3.Row]:
     with _lock:

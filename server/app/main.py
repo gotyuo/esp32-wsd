@@ -4302,3 +4302,83 @@ def message_stat():
 def clear_messages():
     n = db.message_clear()
     return {"ok": True, "cleared": n}
+
+
+# ===== v7.46.4: Delete + History endpoints for monitor tabs =====
+
+@app.delete("/api/patients/{pid}/vitals/{vid}", dependencies=[Depends(require_admin)])
+def delete_vital(pid: str, vid: int):
+    """软删除生命体征记录"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    ok = icu.vital_delete(vid)
+    if not ok:
+        raise HTTPException(404, "记录不存在")
+    return {"ok": True}
+
+@app.get("/api/patients/{pid}/vitals/deleted")
+def list_deleted_vitals(pid: str):
+    """查询已删除的生命体征记录"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return {"items": icu.vitals_deleted(p["id"])}
+
+@app.delete("/api/patients/{pid}/labs/{lid}", dependencies=[Depends(require_admin)])
+def delete_lab(pid: str, lid: int):
+    """软删除检验/血气记录"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    ok = icu.lab_result_delete(lid)
+    if not ok:
+        raise HTTPException(404, "记录不存在")
+    return {"ok": True}
+
+@app.get("/api/patients/{pid}/labs/deleted")
+def list_deleted_labs(pid: str):
+    """查询已删除的检验记录"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return {"items": icu.lab_results_deleted(p["id"])}
+
+@app.delete("/api/patients/{pid}/exams/{eid}", dependencies=[Depends(require_admin)])
+def delete_exam(pid: str, eid: int):
+    """软删除检查记录"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    ok = icu.exam_delete(eid)
+    if not ok:
+        raise HTTPException(404, "记录不存在")
+    return {"ok": True}
+
+@app.get("/api/patients/{pid}/exams/deleted")
+def list_deleted_exams(pid: str):
+    """查询已删除的检查记录"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return {"items": icu.exams_deleted(p["id"])}
+
+@app.delete("/api/patients/{pid}/io/{iid}", dependencies=[Depends(require_admin)])
+def delete_io(pid: str, iid: int):
+    """软删除出入量记录"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    ok = icu.io_log_delete(iid)
+    if not ok:
+        raise HTTPException(404, "记录不存在")
+    return {"ok": True}
+
+@app.get("/api/patients/{pid}/io/deleted")
+def list_deleted_io(pid: str):
+    """查询已删除的出入量记录"""
+    p = icu.patient_by_pid(pid)
+    if not p:
+        raise HTTPException(404, "患者不存在")
+    return {"items": icu.io_log_deleted(p["id"])}
+
