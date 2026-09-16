@@ -515,7 +515,8 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
           <button class="secondary small" onclick="loadMonitorSessionsView(event)">刷新监护记录</button>
         </div>
       </h2>
-      <div id="sessionsList"><div class="empty">加载中…</div></div>
+      <div id="sessionsCurrent"></div>
+      <div id="sessionsHistory"></div>
     </div>
   </div>
 
@@ -3359,25 +3360,46 @@ function endEncounter(eid){
   }).catch(function(e){toast("出院失败: "+(e.message||""),"alarm");});
 }
 
+function _sessionRowHtml(s){
+  var st=s.end_ts?'<span class="ok">已结束</span>':'<span class="bad">进行中</span>';
+  return "<tr><td>"+esc(s.name||s.pid||"-")+"</td>"
+    +"<td>"+esc(s.bed_no||"-")+"</td>"
+    +"<td>"+esc(s.device_id||"-")+"</td>"
+    +"<td>"+fmtTime(s.start_ts)+"</td>"
+    +"<td>"+(s.end_ts?fmtTime(s.end_ts):"-")+"</td>"
+    +"<td>"+esc(s.duration_str||"-")+"</td>"
+    +"<td>"+st+"</td>"
+    +"<td>"+esc(s.summary||"-")+"</td>"
+    +"<td><button class='secondary small' onclick=\"showSessionDetail("+s.id+")\">详情</button></td></tr>";
+}
+function _sessionTableHtml(rows){
+  return "<table><thead><tr><th>患者</th><th>床号</th><th>设备</th><th>开始时间</th><th>结束时间</th><th>持续</th><th>状态</th><th>摘要</th><th>操作</th></tr></thead><tbody>"
+    +rows.map(_sessionRowHtml).join("")
+    +"</tbody></table>";
+}
 function loadMonitorSessionsView(ev){_refreshBtn(ev,function(){
   api("/api/monitor/sessions?limit=200").then(function(d){
     var sessions=d.sessions||[];
-    if(!sessions.length){$("sessionsList").innerHTML='<div class="empty">暂无监护记录</div>';return;}
-    $("sessionsList").innerHTML="<table><thead><tr><th>患者</th><th>床号</th><th>设备</th><th>开始时间</th><th>结束时间</th><th>持续</th><th>状态</th><th>摘要</th><th>操作</th></tr></thead><tbody>"
-      +sessions.map(function(s){
-        var st=s.end_ts?'<span class="ok">已结束</span>':'<span class="bad">进行中</span>';
-        return "<tr><td>"+esc(s.name||s.pid||"-")+"</td>"
-          +"<td>"+esc(s.bed_no||"-")+"</td>"
-          +"<td>"+esc(s.device_id||"-")+"</td>"
-          +"<td>"+fmtTime(s.start_ts)+"</td>"
-          +"<td>"+(s.end_ts?fmtTime(s.end_ts):"-")+"</td>"
-          +"<td>"+esc(s.duration_str||"-")+"</td>"
-          +"<td>"+st+"</td>"
-          +"<td>"+esc(s.summary||"-")+"</td>"
-          +"<td><button class='secondary small' onclick=\"showSessionDetail("+s.id+")\">详情</button></td></tr>";
-      }).join("")
-      +"</tbody></table>";
-  }).catch(function(){$("sessionsList").innerHTML='<div class="empty">加载失败</div>';});
+    var current=sessions.filter(function(s){return !s.end_ts;});
+    var history=sessions.filter(function(s){return !!s.end_ts;});
+    // 当前监护记录
+    if(current.length){
+      $("sessionsCurrent").innerHTML='<h3 style="font-size:13px;margin:8px 0;color:var(--sub)">🟢 当前监护记录 ('+current.length+')</h3>'
+        +_sessionTableHtml(current);
+    }else{
+      $("sessionsCurrent").innerHTML='<h3 style="font-size:13px;margin:8px 0;color:var(--sub)">🟢 当前监护记录 (0)</h3><div class="empty">无进行中的监护记录</div>';
+    }
+    // 历史监护记录
+    if(history.length){
+      $("sessionsHistory").innerHTML='<h3 style="font-size:13px;margin:16px 0 8px;color:var(--sub)">📜 历史监护记录 ('+history.length+')</h3>'
+        +_sessionTableHtml(history);
+    }else{
+      $("sessionsHistory").innerHTML='<h3 style="font-size:13px;margin:16px 0 8px;color:var(--sub)">📜 历史监护记录 (0)</h3><div class="empty">无历史监护记录</div>';
+    }
+  }).catch(function(){
+    $("sessionsCurrent").innerHTML='<div class="empty">加载失败</div>';
+    $("sessionsHistory").innerHTML='';
+  });
 });}
 function showSessionDetail(sid){
   api("/api/monitor/sessions/"+sid).then(function(d){
