@@ -382,6 +382,8 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 体温</span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
   <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 血糖</span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas></div>
 </div>
+<div style="margin-top:6px;max-height:160px;overflow:auto;font-size:11px" id="mVitalsList"><div class="empty" style="font-size:12px">-</div></div>
+<div id="vitalHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
 <div class="m-bottom" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
   <div class="m-panel" style="max-height:280px;overflow:auto">
     <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">历史</button></h4>
@@ -389,18 +391,21 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <div id="ordHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
   <div class="m-panel" style="max-height:280px;overflow:auto">
-    <h4>📋 检查 <button class="secondary small" onclick="loadExams(event)">刷新</button><button class="secondary small" onclick="showAddExam()">+ 检查</button></h4>
+    <h4>📋 检查 <button class="secondary small" onclick="loadExams(event)">刷新</button><button class="secondary small" onclick="showAddExam()">+ 检查</button><button class="secondary small" id="examHistBtn" onclick="toggleExamHistory()">历史</button></h4>
     <div id="mExams"><div class="empty" style="font-size:12px">-</div></div>
+    <div id="examHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
   <div class="m-panel" style="max-height:280px;overflow:auto">
-    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新</button><button class="secondary small" onclick="showAddLab()">+ 检验</button></h4>
+    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新</button><button class="secondary small" onclick="showAddLab()">+ 检验</button><button class="secondary small" id="labHistBtn" onclick="toggleLabHistory()">历史</button></h4>
     <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
+    <div id="labHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
   <div class="m-panel" style="max-height:280px;overflow:auto">
-    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showAddIo()">+ 出入量</button></h4>
+    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showAddIo()">+ 出入量</button><button class="secondary small" id="ioHistBtn" onclick="toggleIoHistory()">历史</button></h4>
     <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
     <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
     <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
+    <div id="ioHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
 </div>
 <div class="m-panel" id="mAssessPanel" style="display:none">
@@ -1757,6 +1762,7 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
       paintSpark(c.querySelector(".m-spark"),vals);
     });
     drawMonitorTrend();
+    renderVitalsList(MONITOR_VITALS);
   }).catch(function(){});
   // 2) 环境数据（独立加载，不依赖体征API成功）
   api("/api/patients/"+pid+"/devices").then(function(dd){
@@ -2083,6 +2089,172 @@ function stopOrder(pid, oid){
     toast("停医嘱失败: "+(e&&e.message||""),"alarm");
   });
 }
+
+// ==================== 体征/检查/检验/出入量 软删除 + 历史 ====================
+
+// --- 体征 ---
+function renderVitalsList(pts){
+  var box=$("mVitalsList");if(!box)return;
+  var recent=(pts||[]).slice(-10).reverse();
+  if(!recent.length){box.innerHTML='<div class="empty" style="font-size:12px">暂无体征记录</div>';return;}
+  box.innerHTML="<div style='font-size:10px;color:var(--sub);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px'>最近录入 ("+recent.length+")</div>"
+    +recent.map(function(p){
+      var parts=[];
+      if(p.ecg_hr!=null)parts.push("HR "+p.ecg_hr);
+      if(p.sp_o2!=null)parts.push("SpO2 "+p.sp_o2);
+      if(p.rr_bpm!=null)parts.push("RR "+p.rr_bpm);
+      if(p.sbp!=null)parts.push("BP "+p.sbp+"/"+(p.dbp!=null?p.dbp:"--"));
+      if(p.temp_c!=null)parts.push("T "+p.temp_c);
+      if(p.glucose!=null)parts.push("Glu "+p.glucose);
+      return "<div style='padding:1px 0;border-bottom:1px solid var(--line)'>"
+        +"<span class='small'>"+fmtTime(p.ts)+"</span> "
+        +"<span>"+parts.join(" ")+"</span>"
+        +(p.source==="manual"?" <span class='small' style='color:var(--blue)'>手</span>":"")
+        +(p.id&&ME&&ME.role==="admin"?" <button class='danger small' onclick='delVital(\""+esc(MONITOR_PID)+"\","+p.id+")'>删</button>":"")
+        +"</div>";
+    }).join("");
+}
+function delVital(pid, vid){
+  if(!confirm("删除该体征记录？\n（软删除，可在历史中查看）"))return;
+  api("/api/patients/"+pid+"/vitals/"+vid,{method:"DELETE"}).then(function(d){
+    if(d&&d.ok){toast("体征记录已删除");refreshMonitor();}
+    else toast("删除失败","alarm");
+  }).catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});
+}
+function toggleVitalHistory(){
+  var box=$("vitalHist");if(!box)return;
+  var show=box.classList.contains("hidden");
+  box.classList.toggle("hidden",!show);
+  if(show){
+    api("/api/patients/"+MONITOR_PID+"/vitals/deleted").then(function(d){
+      renderVitalHistory(d.items||[]);
+    }).catch(function(){box.innerHTML='<div class="empty" style="font-size:11px">加载失败</div>';});
+  }
+}
+function renderVitalHistory(items){
+  var box=$("vitalHist");if(!box)return;
+  if(!items.length){box.innerHTML='<div class="empty" style="font-size:11px">无已删除体征记录</div>';return;}
+  box.innerHTML="<div style='font-size:10px;color:var(--sub);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px'>已删除体征 ("+items.length+")</div>"
+    +items.map(function(p){
+      var parts=[];
+      if(p.ecg_hr!=null)parts.push("HR "+p.ecg_hr);
+      if(p.sp_o2!=null)parts.push("SpO2 "+p.sp_o2);
+      if(p.rr_bpm!=null)parts.push("RR "+p.rr_bpm);
+      if(p.sbp!=null)parts.push("BP "+p.sbp);
+      if(p.temp_c!=null)parts.push("T "+p.temp_c);
+      if(p.glucose!=null)parts.push("Glu "+p.glucose);
+      return "<div style='font-size:11px;padding:1px 0;border-bottom:1px solid var(--line);opacity:.6'>"
+        +"<span class='small'>"+fmtTime(p.ts)+"</span> "
+        +"<span>"+parts.join(" ")+"</span>"
+        +"<span class='small' style='color:var(--red)'> 已删除</span>"
+        +"</div>";
+    }).join("");
+}
+
+// --- 检查 ---
+function delExam(pid, eid){
+  if(!confirm("删除该检查记录？\n（软删除，可在历史中查看）"))return;
+  api("/api/patients/"+pid+"/exams/"+eid,{method:"DELETE"}).then(function(d){
+    if(d&&d.ok){toast("检查记录已删除");loadExams();}
+    else toast("删除失败","alarm");
+  }).catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});
+}
+function toggleExamHistory(){
+  var box=$("examHist"),btn=$("examHistBtn");if(!box)return;
+  var show=box.classList.contains("hidden");
+  box.classList.toggle("hidden",!show);
+  if(btn)btn.textContent=show?"关闭历史":"历史";
+  if(show){
+    api("/api/patients/"+MONITOR_PID+"/exams/deleted").then(function(d){
+      renderExamHistory(d.items||[]);
+    }).catch(function(){box.innerHTML='<div class="empty" style="font-size:11px">加载失败</div>';});
+  }
+}
+function renderExamHistory(items){
+  var box=$("examHist");if(!box)return;
+  if(!items.length){box.innerHTML='<div class="empty" style="font-size:11px">无已删除检查记录</div>';return;}
+  var typeMap={ct:"CT",mri:"MRI",xray:"X光",ultrasound:"超声",ecg:"心电图",endoscopy:"内镜",other:"其他"};
+  box.innerHTML="<div style='font-size:10px;color:var(--sub);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px'>已删除检查 ("+items.length+")</div>"
+    +items.map(function(e){
+      var tn=typeMap[e.exam_type]||e.exam_type||"-";
+      return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line);opacity:.6'>"
+        +"<span class='small'>"+fmtTime(e.exam_ts)+"</span> "
+        +"<span class='badge' style='font-size:10px'>"+esc(tn)+"</span> "
+        +"<b>"+esc(e.exam_name||"-")+"</b> "
+        +"<span style='color:var(--sub)'>"+esc(e.result||"")+"</span>"
+        +"<span class='small' style='color:var(--red)'> 已删除</span>"
+        +"</div>";
+    }).join("");
+}
+
+// --- 检验 ---
+function delLab(pid, lid){
+  if(!confirm("删除该检验记录？\n（软删除，可在历史中查看）"))return;
+  api("/api/patients/"+pid+"/labs/"+lid,{method:"DELETE"}).then(function(d){
+    if(d&&d.ok){toast("检验记录已删除");loadLabs();}
+    else toast("删除失败","alarm");
+  }).catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});
+}
+function toggleLabHistory(){
+  var box=$("labHist"),btn=$("labHistBtn");if(!box)return;
+  var show=box.classList.contains("hidden");
+  box.classList.toggle("hidden",!show);
+  if(btn)btn.textContent=show?"关闭历史":"历史";
+  if(show){
+    api("/api/patients/"+MONITOR_PID+"/labs/deleted").then(function(d){
+      renderLabHistory(d.items||[]);
+    }).catch(function(){box.innerHTML='<div class="empty" style="font-size:11px">加载失败</div>';});
+  }
+}
+function renderLabHistory(items){
+  var box=$("labHist");if(!box)return;
+  if(!items.length){box.innerHTML='<div class="empty" style="font-size:11px">无已删除检验记录</div>';return;}
+  box.innerHTML="<div style='font-size:10px;color:var(--sub);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px'>已删除检验 ("+items.length+")</div>"
+    +items.map(function(l){
+      var v=l.value!=null?l.value.toFixed(2)+" "+esc(l.unit||""):"--";
+      return "<div style='font-size:11px;padding:1px 0;border-bottom:1px solid var(--line);opacity:.6'>"
+        +"<span class='small'>"+fmtTime(l.result_ts)+"</span> "
+        +"<b>"+esc(l.item_name||l.item_code||"-")+"</b> "
+        +"<span>"+v+"</span>"
+        +"<span class='small' style='color:var(--red)'> 已删除</span>"
+        +"</div>";
+    }).join("");
+}
+
+// --- 出入量 ---
+function delIo(pid, iid){
+  if(!confirm("删除该出入量记录？\n（软删除，可在历史中查看）"))return;
+  api("/api/patients/"+pid+"/io/"+iid,{method:"DELETE"}).then(function(d){
+    if(d&&d.ok){toast("出入量记录已删除");loadIo();}
+    else toast("删除失败","alarm");
+  }).catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});
+}
+function toggleIoHistory(){
+  var box=$("ioHist"),btn=$("ioHistBtn");if(!box)return;
+  var show=box.classList.contains("hidden");
+  box.classList.toggle("hidden",!show);
+  if(btn)btn.textContent=show?"关闭历史":"历史";
+  if(show){
+    api("/api/patients/"+MONITOR_PID+"/io/deleted").then(function(d){
+      renderIoHistory(d.items||[]);
+    }).catch(function(){box.innerHTML='<div class="empty" style="font-size:11px">加载失败</div>';});
+  }
+}
+function renderIoHistory(items){
+  var box=$("ioHist");if(!box)return;
+  if(!items.length){box.innerHTML='<div class="empty" style="font-size:11px">无已删除出入量记录</div>';return;}
+  box.innerHTML="<div style='font-size:10px;color:var(--sub);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px'>已删除出入量 ("+items.length+")</div>"
+    +items.map(function(e){
+      var amt=(e.amount_ml||0).toFixed(0)+" mL";
+      var dir=e.direction==="in"?"<span style='color:#4fc3f7'>IN</span>":"<span style='color:#ef5350'>OUT</span>";
+      return "<div style='font-size:11px;padding:1px 0;border-bottom:1px solid var(--line);opacity:.6'>"
+        +"<span class='small'>"+fmtTime(e.ts)+"</span> "
+        +dir+" "+esc(e.kind)+" "+esc(e.sub_type||"")+" "
+        +"<span>"+amt+"</span>"
+        +"<span class='small' style='color:var(--red)'> 已删除</span>"
+        +"</div>";
+    }).join("");
+}
 function loadIo(ev){_refreshBtn(ev,function(){
   var pid=MONITOR_PID;if(!pid)return;
   Promise.all([
@@ -2105,7 +2277,9 @@ function loadIo(ev){_refreshBtn(ev,function(){
       var dir=e.direction==="in"?"<span style='color:#4fc3f7'>IN</span>":"<span style='color:#ef5350'>OUT</span>";
       return "<div style='display:flex;justify-content:space-between;padding:1px 0'>"
         +"<span>"+fmtTime(e.ts)+" "+dir+" "+esc(e.kind)+" "+esc(e.sub_type||"")+"</span>"
-        +"<span>"+amt+"</span></div>";
+        +"<span>"+amt
+        +(ME&&ME.role==="admin"?" <button class='danger small' onclick='delIo(\""+esc(pid)+"\","+e.id+")'>删</button>":"")
+        +"</span></div>";
     }).join("")||"<div class='empty' style='font-size:11px'>暂无记录</div>";
   }).catch(function(){});
 });}
@@ -2123,6 +2297,7 @@ function loadLabs(ev){_refreshBtn(ev,function(){
         +"<span"+cls+">"+v+"</span>"
         +"<span class='small'> ["+l.ref_min+"~"+l.ref_max+"]</span>"
         +(l.critical?"<span class='badge-crit' style='margin-left:4px'>CRIT</span>":"")
+        +(ME&&ME.role==="admin"?" <button class='danger small' onclick='delLab(\""+esc(pid)+"\","+l.id+")'>删</button>":"")
       +"</div>";
     }).join("");
   }).catch(function(){});
@@ -2189,6 +2364,7 @@ function loadExams(ev){_refreshBtn(ev,function(){
         +"<b>"+esc(e.exam_name||"-")+"</b> "
         +"<span style='color:var(--sub)'>"+esc(e.result||"")+"</span>"
         +url
+        +(ME&&ME.role==="admin"?" <button class='danger small' onclick='delExam(\""+esc(pid)+"\","+e.id+")'>删</button>":"")
         +"</div>";
     }).join("");
   }).catch(function(){var box=$("mExams");if(box)box.innerHTML='<div class="empty" style="font-size:12px">加载失败</div>';});
