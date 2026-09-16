@@ -2423,32 +2423,37 @@ function switchModalWxTab(t){
   if(a)a.classList.toggle('hidden',t!=='app');
 }
 function saveSettingsAI(){
+  var _apiKey=$("sAIKey").value;
   var body={
     "ai.enabled":$("sAIEn").checked?"true":"false",
     "ai.provider":$("sAIProv").value,
     "ai.base_url":$("sAIBase").value.trim(),
     "ai.model":$("sAIMdl").value.trim(),
-    "ai.api_key":$("sAIKey").value,
     "ai.timeout":$("sAITimeout").value.trim()||"30",
     "ai.max_tokens":$("sAIMaxTokens").value.trim()||"512",
     "ai.system_prompt":$("sAIPrompt").value,
     "ai.prompt":$("sAIPrompt").value,
     "ai.push_wechat":$("sAIPushWx")&&$("sAIPushWx").checked?"1":"0",
   };
+  // 脱敏值含 ****** 或 (已保存) 标记，跳过不提交以保留已保存的真实 key
+  if(_apiKey && !_apiKey.includes("******") && !_apiKey.includes("(已保存)")){ body["ai.api_key"] = _apiKey; }
   api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
     .then(function(){toast("AI 配置已保存");loadSettings();loadAiSettings();closeModal();})
     .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
 }
 function saveSettingsWx(){
+  var _wxSecret=$("sWxSecret").value;
+  var _wxAesKey=$("sWxAesKey").value;
   var body={
     "wechat.enabled":$("sWxEn").checked?"1":"0",
     "wechat.webhook_url":$("sWxUrl").value.trim(),
     "wechat.corp_id":$("sWxCorp").value.trim(),
     "wechat.agent_id":$("sWxAgent").value.trim(),
-    "wechat.secret":$("sWxSecret").value,
     "wechat.token":$("sWxToken").value.trim(),
-    "wechat.aes_key":$("sWxAesKey").value,
   };
+  // 脱敏值含 ****** 或 (已保存) 标记，跳过不提交以保留已保存的真实值
+  if(_wxSecret && !_wxSecret.includes("******") && !_wxSecret.includes("(已保存)")){ body["wechat.secret"] = _wxSecret; }
+  if(_wxAesKey && !_wxAesKey.includes("******") && !_wxAesKey.includes("(已保存)")){ body["wechat.aes_key"] = _wxAesKey; }
   api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
     .then(function(){toast("企业微信配置已保存");loadSettings();loadWechatTab();closeModal();})
     .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
@@ -3277,9 +3282,9 @@ async function saveAiSettings(){
   const ids = ['enabled','provider','base_url','model','api_key','timeout','max_tokens','system_prompt','push_wechat','push_doctor_id'];
   const body = {};
   ids.forEach(id=>{ body['ai.'+id] = (document.getElementById('s-ai.'+id).value || ''); });
-  // ****** 是脱敏占位符，跳过不提交以保留已保存的真实 key
+  // 脱敏值含 ****** 或 (已保存) 标记，跳过不提交以保留已保存的真实 key
   { const _k = document.getElementById('s-ai.api_key').value || '';
-    if (_k === '******') { delete body['ai.api_key']; }
+    if (_k.includes('******') || _k.includes('(已保存)')) { delete body['ai.api_key']; }
     else { body['ai.api_key'] = _k; }
   }
   // ai.enabled 统一存为 'true'/'false'，与设置菜单 saveSettings() 和所有检查逻辑一致

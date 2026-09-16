@@ -1798,6 +1798,23 @@ def patients_summary():
     return {"patients": out, "total": len(out)}
 
 
+# 敏感 key 脱敏：显示首尾明码 + 中间 ****** + (已保存)，空则返回空
+_SENSITIVE_KEYS = {"ai.api_key", "wechat.secret", "wechat.aes_key"}
+
+
+def _mask_secret(raw: str) -> str:
+    """首尾各露明码，中间用 ****** 替代，尾部追加 (已保存)。
+    空 → 空字符串；太短（<=8字符）→ ******(已保存)。"""
+    if not raw:
+        return ""
+    s = str(raw)
+    if len(s) <= 8:
+        return "******(已保存)"
+    head = s[:3]
+    tail = s[-4:]
+    return f"{head}******{tail}(已保存)"
+
+
 @app.get("/api/settings/{key}", dependencies=[Depends(require_admin)])
 def get_setting_route(key: str):
     """按 key 读取设置（原始字符串，不做类型转换）。"""
@@ -1816,7 +1833,9 @@ def list_settings():
     placeholders = ",".join(["?"] * len(keys))
     rows = db.query(f"SELECT key, updated_at FROM app_settings WHERE key IN ({placeholders})", tuple(keys))
     updated = {dict(r)["key"]: dict(r).get("updated_at") for r in rows}
-    out = [{"key": k, "value": raw.get(k, ""), "updated_at": updated.get(k)} for k in keys]
+    out = [{"key": k,
+            "value": (_mask_secret(raw.get(k, "")) if k in _SENSITIVE_KEYS else raw.get(k, "")),
+            "updated_at": updated.get(k)} for k in keys]
     return {"settings": out}
 
 
@@ -2318,7 +2337,7 @@ def ai_settings(user: Dict = Depends(require_admin)):
     keys = ["ai.enabled", "ai.provider", "ai.base_url", "ai.model",
             "ai.api_key", "ai.timeout", "ai.max_tokens", "ai.system_prompt"]
     return {
-        "ai_settings": {k: ("******" if k == "ai.api_key" and raw.get(k, "") else raw.get(k, "")) for k in keys},
+        "ai_settings": {k: (_mask_secret(raw.get(k, "")) if k in _SENSITIVE_KEYS else raw.get(k, "")) for k in keys},
         "providers": [
             {"value": "openai", "label": "OpenAI (api.openai.com)"},
             {"value": "deepseek", "label": "DeepSeek (api.deepseek.com)"},
