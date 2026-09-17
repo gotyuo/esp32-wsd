@@ -3527,6 +3527,43 @@ function _sessionTableHtml(rows){
     +rows.map(_sessionRowHtml).join("")
     +"</tbody></table>";
 }
+var _sessionsHistoryRest=[];
+var _historyDetailPageNum=0;
+var _HISTORY_DETAIL_PAGE_SIZE=10;
+function _renderHistoryDetailPage(){
+  var total=_sessionsHistoryRest.length;
+  var totalPages=Math.ceil(total/_HISTORY_DETAIL_PAGE_SIZE)||1;
+  if(_historyDetailPageNum>=totalPages)_historyDetailPageNum=totalPages-1;
+  if(_historyDetailPageNum<0)_historyDetailPageNum=0;
+  var startIdx=_historyDetailPageNum*_HISTORY_DETAIL_PAGE_SIZE;
+  var pageRows=_sessionsHistoryRest.slice(startIdx,startIdx+_HISTORY_DETAIL_PAGE_SIZE);
+  var pg="";
+  if(totalPages>1){
+    pg="<div style='margin-top:8px;text-align:center;font-size:12px'>"
+      +"共 "+total+" 条，第 "+(_historyDetailPageNum+1)+" / "+totalPages+" 页 "
+      +(_historyDetailPageNum>0?"<button class='secondary small' onclick='_historyDetailGoto("+(_historyDetailPageNum-1)+")'>上一页</button> ":"")
+      +(_historyDetailPageNum<totalPages-1?"<button class='secondary small' onclick='_historyDetailGoto("+(_historyDetailPageNum+1)+")'>下一页</button>":"")
+      +"</div>";
+  }
+  $("sessionsHistoryDetail").innerHTML=_sessionTableHtml(pageRows)+pg;
+}
+function _historyDetailGoto(page){
+  _historyDetailPageNum=page;
+  _renderHistoryDetailPage();
+}
+function _toggleHistoryDetail(){
+  var el=$("sessionsHistoryDetail");
+  var btn=$("historyDetailToggle");
+  if(el.classList.contains("hidden")){
+    el.classList.remove("hidden");
+    _historyDetailPageNum=0;
+    _renderHistoryDetailPage();
+    if(btn)btn.textContent="🔼 折叠历史记录（明细）";
+  }else{
+    el.classList.add("hidden");
+    if(btn)btn.textContent="📂 展开历史记录（明细）(剩余 "+_sessionsHistoryRest.length+" 条)";
+  }
+}
 function loadMonitorSessionsView(ev){_refreshBtn(ev,function(){
   api("/api/monitor/sessions?limit=200").then(function(d){
     var sessions=d.sessions||[];
@@ -3539,10 +3576,20 @@ function loadMonitorSessionsView(ev){_refreshBtn(ev,function(){
     }else{
       $("sessionsCurrent").innerHTML='<h3 style="font-size:13px;margin:8px 0;color:var(--sub)">🟢 当前监护记录 (0)</h3><div class="empty">无进行中的监护记录</div>';
     }
-    // 历史监护记录
+    // 历史监护记录 — 仅显示最近10条，其余折叠到"历史记录（明细）"中，每页10条
+    var latest10=history.slice(0,10);
+    _sessionsHistoryRest=history.slice(10);
     if(history.length){
-      $("sessionsHistory").innerHTML='<h3 style="font-size:13px;margin:16px 0 8px;color:var(--sub)">📜 历史监护记录 ('+history.length+')</h3>'
-        +_sessionTableHtml(history);
+      var histHtml='<h3 style="font-size:13px;margin:16px 0 8px;color:var(--sub)">📜 历史监护记录 ('+history.length+')</h3>';
+      if(latest10.length){histHtml+=_sessionTableHtml(latest10);}
+      if(_sessionsHistoryRest.length>0){
+        histHtml+='<div style="margin:12px 0 8px">'
+          +'<button id="historyDetailToggle" class="secondary small" onclick="_toggleHistoryDetail()">'
+          +'📂 展开历史记录（明细）(剩余 '+_sessionsHistoryRest.length+' 条)'
+          +'</button></div>'
+          +'<div id="sessionsHistoryDetail" class="hidden"></div>';
+      }
+      $("sessionsHistory").innerHTML=histHtml;
     }else{
       $("sessionsHistory").innerHTML='<h3 style="font-size:13px;margin:16px 0 8px;color:var(--sub)">📜 历史监护记录 (0)</h3><div class="empty">无历史监护记录</div>';
     }
