@@ -833,16 +833,31 @@ def handle_lab(device_id: str, payload: dict):
 
 # ================================================================ 定期备份
 async def _backup_loop():
-    """每天备份一次，启动时先执行一次首次备份。"""
+    """每天凌晨 2:00（容器本地时区）自动备份，启动时先执行一次首次备份。"""
     import asyncio as aio
+
+    def _secs_until_next_2am() -> float:
+        """计算距下一个本地凌晨 2:00 的秒数。"""
+        # 容器 TZ=Asia/Shanghai，用本地时间计算
+        now_local = datetime.now()
+        target = now_local.replace(hour=2, minute=0, second=0, microsecond=0)
+        if now_local >= target:
+            # 今天 2:00 已过，目标设为明天 2:00
+            target += timedelta(days=1)
+        delta = (target - now_local).total_seconds()
+        return max(delta, 60)  # 至少 60 秒，避免极端边界
+
     # 启动时立即备份一次
     try:
         info = icu.do_backup()
         log.info("startup backup: %s (%d bytes)", info["path"], info["size"])
     except Exception as e:  # noqa: BLE001
         log.error("startup backup failed: %s", e)
+
     while True:
-        await aio.sleep(24 * 3600)  # 每 24 小时备份一次
+        wait = _secs_until_next_2am()
+        log.info("next scheduled backup in %.0f seconds (at 02:00 local)", wait)
+        await aio.sleep(wait)
         try:
             info = icu.do_backup()
             log.info("scheduled backup: %s (%d bytes)", info["path"], info["size"])
