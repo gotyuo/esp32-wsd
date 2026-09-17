@@ -374,7 +374,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div style="flex:1"></div>
   <button class="small" onclick="probeDevices()">🔍 刷新设备状态</button>
   <button class="secondary small" onclick="refreshMonitor(event)">刷新监护</button>
-  <button class="secondary small" onclick="showIoForm()">+ 出入量</button>
+  <button class="secondary small" onclick="showIoForm('in')">+ 入量</button><button class="secondary small" onclick="showIoForm('out')">+ 出量</button>
   <button class="secondary small" id="mAssessBtn" onclick="assessPatient()">🤖 AI 评估</button>
 </div>
 <div class="m-grid" id="mVitals">
@@ -403,7 +403,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <div id="labHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
   <div class="m-panel" style="max-height:280px;overflow:auto">
-    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showAddIo()">+ 出入量</button><button class="secondary small" id="ioHistBtn" onclick="toggleIoHistory()">历史</button></h4>
+    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showIoForm('in')">+ 入量</button><button class="secondary small" onclick="showIoForm('out')">+ 出量</button><button class="secondary small" id="ioHistBtn" onclick="toggleIoHistory()">历史</button></h4>
     <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
     <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
     <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
@@ -3059,7 +3059,7 @@ function doAddExam(){
   }).catch(function(e){toast("保存失败: "+(e.message||""),"alarm");});
 }
 
-function showIoForm(){
+function showIoForm(dir){
   var pid=MONITOR_PID;if(!pid){toast("请先选择患者");return;}
   $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>IO · "+esc(pid)+"</h2>"
     +"<div class='kv'>"
@@ -3077,6 +3077,7 @@ function showIoForm(){
       +"<label>操作者</label><input id='ioOper' maxlength='64'>"
     +"</div>"
     +"<div class='actions'><button onclick='submitIo(\""+pid+"\")'>录入</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+  if(dir){var ioDirSel=$("ioDir");if(ioDirSel)ioDirSel.value=dir;}
   $("modalBox").classList.remove("hidden");
 }
 function submitIo(pid){
