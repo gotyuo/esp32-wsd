@@ -435,11 +435,14 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 <!-- 体征趋势曲线图 -->
 <div class="m-panel" id="mTrendPanel" style="margin-top:8px">
   <h4>📈 体征趋势
-    <span style="font-size:10px;color:var(--dim);font-weight:400" id="mTrendRange">最近24h</span>
-    <div style="margin-left:auto;display:flex;gap:4px">
-      <button class="secondary small" data-th="1" onclick="setTrendHours(1)">1H</button>
-      <button class="secondary small" data-th="6" onclick="setTrendHours(6)">6H</button>
-      <button class="secondary small active" data-th="24" onclick="setTrendHours(24)">24H</button>
+    <span style="font-size:10px;color:var(--dim);font-weight:400" id="mTrendRange">最近24小时</span>
+    <div style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap">
+      <button class="secondary small" data-th="0.5" onclick="setTrendHours(0.5)">30分</button>
+      <button class="secondary small" data-th="1" onclick="setTrendHours(1)">1时</button>
+      <button class="secondary small" data-th="3" onclick="setTrendHours(3)">3时</button>
+      <button class="secondary small" data-th="6" onclick="setTrendHours(6)">6时</button>
+      <button class="secondary small" data-th="12" onclick="setTrendHours(12)">12时</button>
+      <button class="secondary small active" data-th="24" onclick="setTrendHours(24)">24时</button>
     </div>
   </h4>
   <div id="mTrendWrap" style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:8px"></div>
@@ -1883,8 +1886,8 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
     });
   }).catch(function(){});
   // 1b) 历史体征数据 — 仅用于趋势线/sparkline，不影响卡片数值
-  api("/api/patients/"+pid+"/vitals?hours=24").then(function(d){
-    MONITOR_VITALS=d.points||[];
+  api("/api/patients/"+pid+"/vitals?hours="+MONITOR_TREND_HOURS).then(function(d){
+    MONITOR_VITALS=windowFilterTrend(MONITOR_TREND_HOURS,d.points||[]);
     var cards=document.querySelectorAll("#mVitals .m-card");
     cards.forEach(function(c){
       var param=c.dataset.param;
@@ -1969,16 +1972,18 @@ function paintSpark(c,vals){
 }
 
 var MONITOR_TREND_HOURS = 24;
+var _TREND_HOUR_LABELS={0.5:"最近30分钟",1:"最近1小时",3:"最近3小时",6:"最近6小时",12:"最近12小时",24:"最近24小时"};
+function windowFilterTrend(h,pts){var cutoff=Date.now()-h*3600*1000;return pts.filter(function(x){var t=new Date(x.ts).getTime();return !isNaN(t)&&t>=cutoff;});}
 function setTrendHours(h){
   MONITOR_TREND_HOURS = h;
   document.querySelectorAll('#mTrendPanel [data-th]').forEach(function(b){
-    b.classList.toggle('active', parseInt(b.dataset.th)===h);
+    b.classList.toggle('active', parseFloat(b.dataset.th)===h);
   });
-  document.getElementById('mTrendRange').textContent = '最近'+h+'h';
+  document.getElementById('mTrendRange').textContent = _TREND_HOUR_LABELS[h]||('最近'+h+'h');
   // 重新请求 API，按 hours 参数取对应时间窗口的数据，不依赖前端过滤缓存
   if(!MONITOR_PID){drawMonitorTrend();return;}
   api("/api/patients/"+MONITOR_PID+"/vitals?hours="+h).then(function(d){
-    MONITOR_VITALS=d.points||[];
+    MONITOR_VITALS=windowFilterTrend(h,d.points||[]);
     // 同步刷新 sparkline
     var cards=document.querySelectorAll("#mVitals .m-card");
     cards.forEach(function(c){

@@ -3654,7 +3654,7 @@ def add_vital(pid: str, body: VitalIn):
 @app.get("/api/patients/{pid}/vitals", dependencies=[Depends(require_user)])
 def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
                fields: str = Query("", description="逗号分隔字段名"),
-               hours: Optional[int] = Query(None, ge=1)):
+               hours: Optional[float] = Query(None, ge=0.1)):
     p = icu.patient_by_pid(pid)
     if not p:
         raise HTTPException(404, "患者不存在")
