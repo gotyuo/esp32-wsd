@@ -2071,34 +2071,39 @@ function drawMonitorTrend(){
       var gy = padT + (ph/3)*i;
       ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w-padR, gy); ctx.stroke();
     }
-    // 单点：画圆点 + 数值
-    if(vals.length === 1){
-      var p0 = valPts[0];
-      var lx = padL + ((new Date(p0.ts).getTime() - tMin)/(tMax - tMin))*pw;
-      var ly = padT + ph - ((p0[key] - lo)/(hi - lo))*ph;
-      ctx.beginPath(); ctx.arc(lx, ly, 3, 0, 2*Math.PI); ctx.fillStyle=s.color; ctx.fill();
-      ctx.fillStyle = s.color; ctx.font = 'bold 11px Consolas,monospace'; ctx.textAlign = 'left';
-      ctx.fillText(String(p0[key]), lx + 5, ly + 4);
-      return;
-    }
-    // 曲线
-    ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    var started = false, ptCount = 0, lastX = 0, lastY = 0;
+    // 曲线：按数据缺口分段绘制（缺口超过窗口5%且≥30分钟则断开），避免直线补足长空缺
+    var pairs = [];
     pts.forEach(function(p){
-      if(p[key]==null || isNaN(p[key])) return;
-      var t = new Date(p.ts).getTime();
-      var x = padL + ((t - tMin)/(tMax - tMin)) * pw;
-      var y = padT + ph - ((p[key] - lo)/(hi - lo)) * ph;
-      if(!started){ ctx.moveTo(x,y); started=true; } else { ctx.lineTo(x,y); }
-      ptCount++; lastX=x; lastY=y;
+      if(p[key]!=null && !isNaN(p[key])) pairs.push({t:new Date(p.ts).getTime(), v:p[key]});
     });
-    if(ptCount >= 2) ctx.stroke();
-    // 最新值标注在曲线末端（避免起点处扎堆）
-    if(ptCount >= 2){
-      var lastVal = vals[vals.length-1];
+    var maxGap = Math.max(30*60*1000, (tMax - tMin) * 0.05);
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;
+    ctx.fillStyle = s.color;
+    var lastX = 0, lastY = 0;
+    function drawSeg(seg){
+      if(!seg.length) return;
+      function px(p){ return padL + ((p.t - tMin)/(tMax - tMin)) * pw; }
+      function py(p){ return padT + ph - ((p.v - lo)/(hi - lo)) * ph; }
+      if(seg.length >= 2){
+        ctx.beginPath();
+        seg.forEach(function(p,i){ if(i===0) ctx.moveTo(px(p),py(p)); else ctx.lineTo(px(p),py(p)); });
+        ctx.stroke();
+      }
+      seg.forEach(function(p){ ctx.beginPath(); ctx.arc(px(p), py(p), 2, 0, 2*Math.PI); ctx.fill(); });
+      var lp = seg[seg.length-1];
+      lastX = px(lp); lastY = py(lp);
+    }
+    var seg = [];
+    pairs.forEach(function(pair){
+      if(seg.length && (pair.t - seg[seg.length-1].t) > maxGap){ drawSeg(seg); seg = []; }
+      seg.push(pair);
+    });
+    drawSeg(seg);
+    // 最新值标注在最后数据点旁
+    if(pairs.length){
+      var lastVal = pairs[pairs.length-1].v;
       ctx.fillStyle = s.color; ctx.font = 'bold 11px Consolas,monospace'; ctx.textAlign = 'left';
-      ctx.fillText(String(lastVal), Math.min(lastX + 5, w - padR - 30), lastY + 4);
+      ctx.fillText(String(lastVal), Math.min(lastX + 6, w - padR - 34), lastY + 4);
     }
     // 时间轴（UTC+8）
     ctx.fillStyle = '#6f7ba0'; ctx.font = '9px sans-serif';
