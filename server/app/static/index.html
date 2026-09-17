@@ -331,6 +331,12 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 #view-monitor .io-bar .in{background:#4fc3f7}
 #view-monitor .io-bar .out{background:#ef5350}
 #view-monitor .io-row{display:flex;justify-content:space-between;font-size:11px;color:var(--sub);padding:1px 0}
+#view-monitor .io-btn{font-weight:700;border:1px solid}
+#view-monitor .io-in{background:#1256b3;border-color:#3f8cff;color:#fff}
+#view-monitor .io-in:hover{background:#186ad8}
+#view-monitor .io-out{background:#b3202c;border-color:#ff6b6b;color:#fff}
+#view-monitor .io-out:hover{background:#d22b39}
+#view-monitor .io-sep{width:1px;height:16px;background:var(--line);margin:0 2px;flex-shrink:0}
 #view-monitor .ai-block{margin-top:8px;background:rgba(124,77,255,.08);border:1px solid rgba(124,77,255,.35);border-radius:5px;overflow:hidden}
 #view-monitor .ai-block.details{border-left:3px solid var(--purple)}
 #view-monitor .ai-block.error{background:rgba(255,171,0,.08);border-color:rgba(255,171,0,.4)}
@@ -403,7 +409,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <div id="labHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
   <div class="m-panel" style="max-height:280px;overflow:auto">
-    <h4>💧 出入量 <span id="mIoNet" style="font-weight:700">--</span> <button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" onclick="showIoForm('in')">+ 入量</button><button class="secondary small" onclick="showIoForm('out')">+ 出量</button><button class="secondary small" id="ioHistBtn" onclick="toggleIoHistory()">历史</button></h4>
+    <h4 style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>💧 出入量</span><span style="font-weight:700">净 <span id="mIoNet">--</span></span><span style="margin-left:auto;display:flex;align-items:center;gap:5px"><button class="small io-btn io-in" onclick="showIoForm('in')">+ 入量</button><button class="small io-btn io-out" onclick="showIoForm('out')">+ 出量</button><span class="io-sep"></span><button class="secondary small" onclick="loadIo(event)">刷新</button><button class="secondary small" id="ioHistBtn" onclick="toggleIoHistory()">历史</button></span></h4>
     <div class="io-bar" id="mIoBar"><div class="in"></div><div class="out"></div></div>
     <div class="io-row"><span>入 <b id="mIoIn">--</b></span><span>出 <b id="mIoOut">--</b></span><span>净 <b id="mIoNet2">--</b></span></div>
     <div id="mIoList" style="max-height:120px;overflow:auto;font-size:11px;margin-top:4px"></div>
