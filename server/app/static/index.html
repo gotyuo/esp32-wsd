@@ -431,7 +431,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
   <div class="a-actions" id="mActions"></div>
   <div class="a-disclaimer">⚠️ <span id="mDisclaimer"></span></div>
 </div>
-<div style="margin-top:6px;max-height:160px;overflow:auto;font-size:11px" id="mVitalsList"><div class="empty" style="font-size:12px">-</div></div>
+<div style="margin-top:6px;max-height:340px;overflow:auto;font-size:11px" id="mVitalsList"><div class="empty" style="font-size:12px">-</div></div>
 <!-- 体征趋势曲线图 -->
 <div class="m-panel" id="mTrendPanel" style="margin-top:8px">
   <h4>📈 体征趋势
@@ -2766,7 +2766,7 @@ function renderVitalsList(pts){
   var box=$("mVitalsList");if(!box)return;
   var recent=(pts||[]).slice(-10).reverse();
   if(!recent.length){box.innerHTML='<div class="empty" style="font-size:12px">暂无体征记录</div>';return;}
-  box.innerHTML="<div style='font-size:10px;color:var(--sub);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px'>最近录入 ("+recent.length+")</div>"
+  box.innerHTML="<div style='font-size:12px;font-weight:700;color:var(--sub);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px'>最近录入 ("+recent.length+")</div>"
     +recent.map(function(p){
       var parts=[];
       if(p.ecg_hr!=null)parts.push("HR "+p.ecg_hr);
@@ -2775,13 +2775,79 @@ function renderVitalsList(pts){
       if(p.sbp!=null)parts.push("BP "+p.sbp+"/"+(p.dbp!=null?p.dbp:"--"));
       if(p.temp_c!=null)parts.push("T "+p.temp_c);
       if(p.glucose!=null)parts.push("Glu "+p.glucose);
+      if(!parts.length)parts.push("—");
       return "<div style='padding:1px 0;border-bottom:1px solid var(--line)'>"
         +"<span class='small'>"+fmtTime(p.ts)+"</span> "
         +"<span>"+parts.join(" ")+"</span>"
         +(p.source==="manual"?" <span class='small' style='color:var(--blue)'>手</span>":"")
         +(p.id&&ME&&ME.role==="admin"?" <button class='danger small' onclick='delVital(\""+esc(MONITOR_PID)+"\","+p.id+")'>删</button>":"")
         +"</div>";
-    }).join("");
+    }).join("")
+    +"<div style='margin-top:5px;text-align:right'><button class='secondary small' onclick='showVitalsHistory()'>更多最近录入…</button></div>";
+}
+// 全部体征录入历史（弹窗分页，每页10条）
+var VIT_HIST_ALL=[],VIT_HIST_PAGE=0,VIT_HIST_PAGE_SIZE=10;
+function showVitalsHistory(){
+  if(!MONITOR_PID){toast("请先选择患者");return;}
+  $("modalInner").innerHTML="<div style='color:var(--sub);font-size:12px;padding:8px'>加载历史录入…</div>";
+  $("modalBox").classList.remove("hidden");
+  api("/api/patients/"+MONITOR_PID+"/vitals?hours=8760").then(function(d){
+    VIT_HIST_ALL=d.points||[];
+    VIT_HIST_PAGE=0;
+    renderVitalsHistoryModal();
+  }).catch(function(e){toast("加载历史失败: "+(e&&e.message||""),"alarm");});
+}
+function _vitalRowHtml(p){
+  var parts=[];
+  if(p.ecg_hr!=null)parts.push("HR "+p.ecg_hr);
+  if(p.sp_o2!=null)parts.push("SpO2 "+p.sp_o2);
+  if(p.rr_bpm!=null)parts.push("RR "+p.rr_bpm);
+  if(p.sbp!=null)parts.push("BP "+p.sbp+"/"+(p.dbp!=null?p.dbp:"--"));
+  if(p.temp_c!=null)parts.push("T "+p.temp_c);
+  if(p.glucose!=null)parts.push("Glu "+p.glucose);
+  if(!parts.length)parts.push("—");
+  return "<div style='padding:3px 0;border-bottom:1px solid var(--line)'>"
+    +"<span class='small'>"+fmtTime(p.ts)+"</span> "
+    +"<span>"+parts.join(" ")+"</span>"
+    +(p.source==="manual"?" <span class='small' style='color:var(--blue)'>手</span>":"")
+    +(p.id&&ME&&ME.role==="admin"?" <button class='danger small' onclick='delVitalHist(\""+esc(MONITOR_PID)+"\","+p.id+")'>删</button>":"")
+    +"</div>";
+}
+function renderVitalsHistoryModal(){
+  var total=VIT_HIST_ALL.length;
+  var all=VIT_HIST_ALL.slice().reverse(); // 新→旧
+  var totalPages=Math.max(1,Math.ceil(total/VIT_HIST_PAGE_SIZE));
+  if(VIT_HIST_PAGE>=totalPages)VIT_HIST_PAGE=totalPages-1;
+  if(VIT_HIST_PAGE<0)VIT_HIST_PAGE=0;
+  var pageRows=all.slice(VIT_HIST_PAGE*VIT_HIST_PAGE_SIZE,(VIT_HIST_PAGE+1)*VIT_HIST_PAGE_SIZE);
+  var bodyHtml=pageRows.map(_vitalRowHtml).join("");
+  if(!bodyHtml)bodyHtml="<div class='empty' style='font-size:12px'>暂无体征记录</div>";
+  var pg="";
+  if(totalPages>1){
+    pg="<div style='margin-top:10px;text-align:center;font-size:12px'>"
+      +"共 "+total+" 条，第 "+(VIT_HIST_PAGE+1)+" / "+totalPages+" 页 "
+      +(VIT_HIST_PAGE>0?"<button class='secondary small' onclick='vitHistGoto("+(VIT_HIST_PAGE-1)+")'>上一页</button> ":"")
+      +(VIT_HIST_PAGE<totalPages-1?"<button class='secondary small' onclick='vitHistGoto("+(VIT_HIST_PAGE+1)+")'>下一页</button>":"")
+      +"</div>";
+  }
+  $("modalInner").innerHTML="<h2 style='font-size:15px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>📋 体征录入历史 · "+esc(MONITOR_PID)+"（共 "+total+" 条）</h2>"
+    +"<div style='max-height:420px;overflow:auto;font-size:11px;border:1px solid var(--line);border-radius:4px;padding:6px 8px'>"
+    +"<div style='font-size:12px;font-weight:700;color:var(--sub);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px'>最近录入 (第 "+(VIT_HIST_PAGE+1)+" 页 · "+pageRows.length+" 条)</div>"
+    +bodyHtml
+    +"</div>"
+    +pg
+    +"<div style='text-align:right;margin-top:10px'><button class='secondary' onclick='closeModal()'>关闭</button></div>";
+}
+function vitHistGoto(page){
+  VIT_HIST_PAGE=page;
+  renderVitalsHistoryModal();
+}
+function delVitalHist(pid,vid){
+  if(!confirm("删除该体征记录？\n（软删除，可在历史中查看）"))return;
+  api("/api/patients/"+pid+"/vitals/"+vid,{method:"DELETE"}).then(function(d){
+    if(d&&d.ok){toast("体征记录已删除");showVitalsHistory();}
+    else toast("删除失败","alarm");
+  }).catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});
 }
 function delVital(pid, vid){
   if(!confirm("删除该体征记录？\n（软删除，可在历史中查看）"))return;
