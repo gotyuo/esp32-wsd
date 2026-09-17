@@ -941,7 +941,7 @@ function loadDashboardGrid(ev){_refreshBtn(ev,function(){
       card+='<div class="pc-foot"><span class="pc-devs">设备 <span class="ok">'+(p.online_device_count||0)+'</span>/'+((p.devices||[]).length)+'</span><button class="secondary small" onclick="event.stopPropagation();jumpToMonitor(\''+esc(p.pid)+'\')">进入监护</button></div></div>';
       var _orders = p.orders || [];
       var _ordStr = _orders.length ? _orders.slice(0,3).map(function(o){
-        return (o.drug_name || "-") + (o.rate_mlph != null ? "@" + o.rate_mlph.toFixed(1) + "mL/h" : "");
+        return (o.drug_name || "-") + (o.rate_mlph != null && !isNaN(Number(o.rate_mlph)) ? "@" + Number(o.rate_mlph).toFixed(1) + "mL/h" : "");
       }).join(" · ") : "";
       var _ordDiv = _ordStr ? '<div style="font-size:10px;color:#b388ff;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">💊 ' + _ordStr + '</div>' : '';
       card += _ordDiv;
@@ -1582,7 +1582,7 @@ function showPatientDetail(pid){
     var ordHtml=ord.slice(0,15).map(function(o){
       return "<tr><td>"+fmtTime(o.start_ts)+"</td><td>"+esc(o.order_no||"-")+"</td>"
         +"<td><b>"+esc(o.drug_name||"-")+"</b></td><td>"+esc(o.dosage||"-")+"</td>"
-        +"<td>"+esc(o.route||"-")+"</td><td>"+(o.rate_mlph!=null?o.rate_mlph.toFixed(1):"-")+"</td>"
+        +"<td>"+esc(o.route||"-")+"</td><td>"+(o.rate_mlph!=null&&!isNaN(Number(o.rate_mlph))?Number(o.rate_mlph).toFixed(1):"-")+"</td>"
         +"<td>"+(o.status==="active"?"<span style='color:var(--green)'>运行中</span>":"<span style='color:var(--sub)'>已停</span>")+"</td>"
         +"<td><button class='danger small' onclick='stopOrder(\""+pid+"\", "+o.id+")'>停</button></td></tr>";
     }).join("");
@@ -2036,13 +2036,9 @@ function drawOrderTrend(){
     ctx.fillText('该时间窗口内无医嘱', w/2, h/2);
     return;
   }
-  // 去重药品名，每个药品一行
-  var drugNames = [];
-  visible.forEach(function(o){
-    var name = (o.drug_name||'?').substring(0, 12);
-    if(drugNames.indexOf(name) < 0) drugNames.push(name);
-  });
-  var rowH = Math.min(24, ph / Math.max(drugNames.length, 1));
+  // 每条医嘱独立一行（同名药品不合并，避免同时间多条医嘱重叠）
+  var numRows = visible.length;
+  var rowH = Math.min(24, ph / Math.max(numRows, 1));
   // Grid lines
   ctx.strokeStyle = '#1a2a44';
   ctx.lineWidth = 0.5;
@@ -2050,10 +2046,10 @@ function drawOrderTrend(){
     var y = padT + (ph/4)*i;
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w-padR, y); ctx.stroke();
   }
-  // 画每个医嘱的时间线段
-  visible.forEach(function(o){
+  // 画每个医嘱的时间线段（每条医嘱独立一行）
+  visible.forEach(function(o, idx){
     var name = (o.drug_name||'?').substring(0, 12);
-    var rowIdx = drugNames.indexOf(name);
+    var rowIdx = idx;
     var y = padT + rowIdx * rowH + rowH/2;
     var s = new Date(o.start_ts).getTime();
     var e = o.end_ts ? new Date(o.end_ts).getTime() : now;
@@ -2089,7 +2085,7 @@ function drawOrderTrend(){
     ctx.textAlign = 'right';
     var label = name;
     if(o.dosage) label += ' ' + (o.dosage||'').substring(0, 8);
-    if(o.rate_mlph != null) label += ' (' + o.rate_mlph.toFixed(0) + 'mL/h)';
+    if(o.rate_mlph != null) { var _r = Number(o.rate_mlph); if(!isNaN(_r)) label += ' (' + _r.toFixed(0) + 'mL/h)'; }
     ctx.fillText(label, padL - 4, y + 3);
   });
   // 时间轴标签：与 fmtTime 一致，统一显示 UTC+8 时间
@@ -2188,7 +2184,7 @@ function loadOrders(ev){_refreshBtn(ev,function(){
     if(!ord.length){$("mOrders").innerHTML='<div class="empty" style="font-size:12px">无运行中医嘱</div>';}
     else{
       $("mOrders").innerHTML=ord.map(function(o){
-        var pump=o.rate_mlph!=null?" <span class='badge' style='font-size:10px'>泵速 "+o.rate_mlph.toFixed(1)+" mL/h</span>":"";
+        var pump=(o.rate_mlph!=null&&!isNaN(Number(o.rate_mlph)))?" <span class='badge' style='font-size:10px'>泵速 "+Number(o.rate_mlph).toFixed(1)+" mL/h</span>":"";
         // 原写法 "...开 "+fmtTime(o.start_ts)+pump?":":"" 会把三元当作整个 map
         // 回调的返回值，导致整行 HTML 被丢弃、面板只渲染出一个个冒号。这里去掉
         // pump 条件显示（泵速已在上一行 badge 显示，重复无意义）。
@@ -2216,7 +2212,7 @@ function renderOrderHistory(all){
       return "<div style='font-size:11px;padding:2px 0;border-bottom:1px solid var(--line);opacity:.75'>"
         +"<span class='small'>"+fmtTime(o.start_ts)+"</span> "
         +"<b>"+esc(o.drug_name||"-")+"</b> "+esc(o.dosage||"")+esc(o.route||"")
-        +(o.rate_mlph!=null?" <span class='small'>(泵速 "+o.rate_mlph.toFixed(1)+")</span>":"")
+        +(o.rate_mlph!=null&&!isNaN(Number(o.rate_mlph))?" <span class='small'>(泵速 "+Number(o.rate_mlph).toFixed(1)+")</span>":"")
         +"<span class='small'> → 停 "+fmtTime(o.end_ts)+"</span>"
         +(o.operator?" <span class='small'>("+esc(o.operator)+")</span>":"")
         +"</div>";
