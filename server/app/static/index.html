@@ -435,6 +435,8 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
     <span><span style="display:inline-block;width:10px;height:2px;background:#21d07a;vertical-align:middle"></span> HR</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#3fb6ff;vertical-align:middle"></span> SpO2</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#ffd24a;vertical-align:middle"></span> RR</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#ff5470;vertical-align:middle"></span> BP</span>
+    <span><span style="display:inline-block;width:10px;height:2px;background:#e89a8a;vertical-align:middle"></span> DBP</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#ff6b9d;vertical-align:middle"></span> TEMP</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#b48cff;vertical-align:middle"></span> GLU</span>
     <span><span style="display:inline-block;width:10px;height:2px;background:#00e5ff;vertical-align:middle"></span> HUM</span>
@@ -1910,6 +1912,8 @@ function drawMonitorTrend(){
     {key:'ecg_hr', color:'#21d07a', label:'HR', range:[40,140]},
     {key:'sp_o2', color:'#3fb6ff', label:'SpO2', range:[85,100]},
     {key:'rr_bpm', color:'#ffd24a', label:'RR', range:[8,30]},
+    {key:'sbp', color:'#ff5470', label:'BP', range:[60,200]},
+    {key:'dbp', color:'#e89a8a', label:'DBP', range:[40,120]},
     {key:'temp_c', color:'#ff6b9d', label:'TEMP', range:[35,39]},
     {key:'glucose', color:'#b48cff', label:'GLU', range:[3,10]},
     {key:'hum_pct', color:'#00e5ff', label:'HUM', range:[20,90]},
@@ -1927,14 +1931,23 @@ function drawMonitorTrend(){
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     var started = false;
+    var ptCount = 0, lastX = 0, lastY = 0;
     pts.forEach(function(p){
       if(p[s.key] == null || isNaN(p[s.key])) return;
       var t = new Date(p.ts).getTime();
       var x = padL + ((t - tMin) / (tMax - tMin)) * pw;
       var y = padT + ph - ((p[s.key] - lo) / (hi - lo)) * ph;
       if(!started){ ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+      ptCount++; lastX = x; lastY = y;
     });
-    ctx.stroke();
+    // 至少2个点才画线；只有1个点时画圆点，否则录入第一条数据后看不到曲线
+    if(ptCount >= 2) ctx.stroke();
+    if(ptCount === 1){
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 3, 0, 2 * Math.PI);
+      ctx.fillStyle = s.color;
+      ctx.fill();
+    }
     // Label
     ctx.fillStyle = s.color;
     ctx.font = '9px sans-serif';
