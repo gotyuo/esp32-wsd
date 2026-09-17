@@ -112,9 +112,13 @@ function envBar(env){
  if(envBox)envBox.innerHTML=html;
 }
 function ageLabel(a){if(a==null)return'';return a<60?a+'s前':(a/60|0)+'m前'}
+var TOKEN=localStorage.getItem("envmon_token")||"";
 async function tick(){
  try{
-  const r=await fetch('/api/dashboard?'+Date.now());const d=await r.json();
+  const r=await fetch('/api/dashboard?'+Date.now(),{headers:{"Authorization":"Bearer "+TOKEN}});
+  if(r.status===401){GRID.innerHTML='<div class="empty">未登录：请先在主界面登录后，再打开大屏</div>';return;}
+  if(!r.ok){throw new Error("接口异常("+r.status+")");}
+  const d=await r.json();
   STATE.patients=d.patients||[];
   if(STATE.mode==='grid'){
     GRID.innerHTML=(STATE.patients.length)?STATE.patients.map(card).join(''):'<div class="empty">暂无患者数据（请先在管理端添加患者并关联设备）</div>';

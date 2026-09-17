@@ -2223,7 +2223,7 @@ def dashboard_page():
                         headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
 
 
-@app.get("/api/dashboard", dependencies=[Depends(require_user)])
+@app.get("/api/dashboard")
 def dashboard_data():
     """大屏数据：每个患者最新体征 + 环境 + 报警。公开端点，供投屏刷新。"""
     import sqlite3 as _sqlite3
