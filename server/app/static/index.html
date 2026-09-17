@@ -528,6 +528,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <h2>🚨 报警记录 <button class="secondary small" onclick="loadAlarms(event)">刷新报警</button> <span style="font-size:11px;color:var(--dim);font-weight:400">含环境报警 + 体征报警</span></h2>
       <table><thead><tr><th>时间</th><th>设备</th><th>级别</th><th>原因</th><th>数值</th><th>状态</th></tr></thead>
         <tbody id="alarmBody"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody></table>
+      <div id="alarmHistoryWrap" style="margin-top:16px"></div>
     </div>
   </div>
 
@@ -1260,7 +1261,75 @@ function loadTh(){api("/api/thresholds?device="+(DEV?encodeURIComponent(DEV):"*"
     $("sHum").textContent="正常区间 "+fmt(t.hum_min)+" ~ "+fmt(t.hum_max)+" %";
     $("sPres").textContent="正常区间 "+fmt(t.pres_min)+" ~ "+fmt(t.pres_max)+" hPa";
   }).catch(function(){});}
-function loadAlarms(ev){_refreshBtn(ev,function(){return api("/api/alarms?limit=100").then(function(d){var a=d.alarms||[],tb=$("alarmBody");if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';return;}tb.innerHTML=a.map(function(x){var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';var vals=[];if(x.temp_c!=null)vals.push(fmt(x.temp_c)+"℃");if(x.hum_pct!=null)vals.push(fmt(x.hum_pct)+"%");if(x.pres_hpa!=null)vals.push(fmt(x.pres_hpa)+"hPa");var valStr=vals.length?vals.join(" "):"-";return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+valStr+"</td><td>"+st+"</td></tr>";}).join("");}).catch(function(e){var tb=$("alarmBody");if(tb)tb.innerHTML="<tr><td colspan=6 class=empty>加载失败: "+(e&&e.message?e.message:"请检查网络")+"</td></tr>";});});}// 上端「刷新」：按当前视图刷新整个页面（不是所有视图都刷全部）。
+var _alarmHistoryRest=[];
+var _alarmHistoryPageNum=0;
+var _ALARM_HISTORY_PAGE_SIZE=10;
+function _alarmRowHtml(x){
+  var lv=x.level==2?'<span class="lvl lvl2">LV2</span>':'<span class="lvl lvl1">LV1</span>';
+  var st=x.cleared_at?'<span class="ok">已恢复 '+fmtTime(x.cleared_at)+'</span>':'<span class="bad">持续中</span>';
+  var vals=[];if(x.temp_c!=null)vals.push(fmt(x.temp_c)+"℃");if(x.hum_pct!=null)vals.push(fmt(x.hum_pct)+"%");if(x.pres_hpa!=null)vals.push(fmt(x.pres_hpa)+"hPa");
+  var valStr=vals.length?vals.join(" "):"-";
+  return "<tr><td>"+fmtTime(x.ts)+"</td><td>"+esc(x.device_id)+"</td><td>"+lv+"</td><td>"+esc(x.reason||"")+"</td><td>"+valStr+"</td><td>"+st+"</td></tr>";
+}
+function _alarmTableHtml(rows){
+  return "<table><thead><tr><th>时间</th><th>设备</th><th>级别</th><th>原因</th><th>数值</th><th>状态</th></tr></thead><tbody>"
+    +rows.map(_alarmRowHtml).join("")
+    +"</tbody></table>";
+}
+function _renderAlarmHistoryPage(){
+  var total=_alarmHistoryRest.length;
+  var totalPages=Math.ceil(total/_ALARM_HISTORY_PAGE_SIZE)||1;
+  if(_alarmHistoryPageNum>=totalPages)_alarmHistoryPageNum=totalPages-1;
+  if(_alarmHistoryPageNum<0)_alarmHistoryPageNum=0;
+  var startIdx=_alarmHistoryPageNum*_ALARM_HISTORY_PAGE_SIZE;
+  var pageRows=_alarmHistoryRest.slice(startIdx,startIdx+_ALARM_HISTORY_PAGE_SIZE);
+  var pg="";
+  if(totalPages>1){
+    pg="<div style='margin-top:8px;text-align:center;font-size:12px'>"
+      +"共 "+total+" 条，第 "+(_alarmHistoryPageNum+1)+" / "+totalPages+" 页 "
+      +(_alarmHistoryPageNum>0?"<button class='secondary small' onclick='_alarmHistoryGoto("+(_alarmHistoryPageNum-1)+")'>上一页</button> ":"")
+      +(_alarmHistoryPageNum<totalPages-1?"<button class='secondary small' onclick='_alarmHistoryGoto("+(_alarmHistoryPageNum+1)+")'>下一页</button>":"")
+      +"</div>";
+  }
+  $("alarmHistoryDetail").innerHTML=_alarmTableHtml(pageRows)+pg;
+}
+function _alarmHistoryGoto(page){
+  _alarmHistoryPageNum=page;
+  _renderAlarmHistoryPage();
+}
+function _toggleAlarmHistory(){
+  var el=$("alarmHistoryDetail");
+  var btn=$("alarmHistoryToggle");
+  if(el.classList.contains("hidden")){
+    el.classList.remove("hidden");
+    _alarmHistoryPageNum=0;
+    _renderAlarmHistoryPage();
+    if(btn)btn.textContent="🔼 折叠报警历史记录";
+  }else{
+    el.classList.add("hidden");
+    if(btn)btn.textContent="📂 展开报警历史记录(剩余 "+_alarmHistoryRest.length+" 条)";
+  }
+}
+function loadAlarms(ev){_refreshBtn(ev,function(){return api("/api/alarms?limit=100").then(function(d){
+  var a=d.alarms||[],tb=$("alarmBody");
+  if(!a.length){tb.innerHTML='<tr><td colspan="6" class="empty">暂无报警记录</td></tr>';
+    $("alarmHistoryWrap").innerHTML="";return;}
+  // 最近10条
+  var latest10=a.slice(0,10);
+  _alarmHistoryRest=a.slice(10);
+  tb.innerHTML=latest10.map(_alarmRowHtml).join("");
+  // 历史记录折叠区
+  var hw=$("alarmHistoryWrap");
+  if(_alarmHistoryRest.length>0){
+    hw.innerHTML='<div style="margin:12px 0 8px">'
+      +'<button id="alarmHistoryToggle" class="secondary small" onclick="_toggleAlarmHistory()">'
+      +'📂 展开报警历史记录(剩余 '+_alarmHistoryRest.length+' 条)'
+      +'</button></div>'
+      +'<div id="alarmHistoryDetail" class="hidden"></div>';
+  }else{
+    hw.innerHTML="";
+  }
+}).catch(function(e){var tb=$("alarmBody");if(tb)tb.innerHTML="<tr><td colspan=6 class=empty>加载失败: "+(e&&e.message?e.message:"请检查网络")+"</td></tr>";});});}// 上端「刷新」：按当前视图刷新整个页面（不是所有视图都刷全部）。
 // 原先 loadAll 无论当前在哪个视图都只调 loadDevices()（只刷新设备下拉框），
 // 表现为"点了没反应"——页面内容完全不变。区域内的「刷新」按钮仍只刷本区域，
 // 两级刷新各司其职。
