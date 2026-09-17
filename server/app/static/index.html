@@ -337,6 +337,8 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 #view-monitor .io-out{background:#b3202c;border-color:#ff6b6b;color:#fff}
 #view-monitor .io-out:hover{background:#d22b39}
 #view-monitor .io-sep{width:1px;height:16px;background:var(--line);margin:0 2px;flex-shrink:0}
+#view-monitor .add-btn{background:var(--blue);border:1px solid #5ea6ff;color:#00141f;font-weight:700}
+#view-monitor .add-btn:hover{filter:brightness(1.1)}
 #view-monitor .ai-block{margin-top:8px;background:rgba(124,77,255,.08);border:1px solid rgba(124,77,255,.35);border-radius:5px;overflow:hidden}
 #view-monitor .ai-block.details{border-left:3px solid var(--purple)}
 #view-monitor .ai-block.error{background:rgba(255,171,0,.08);border-color:rgba(255,171,0,.4)}
@@ -394,17 +396,17 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 <div id="vitalHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
 <div class="m-bottom" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
   <div class="m-panel" style="max-height:280px;overflow:auto">
-    <h4>💊 用药 <button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" onclick="showAddOrder()">+ 医嘱</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">历史</button></h4>
+    <h4 style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>💊 用药</span><span style="margin-left:auto;display:flex;align-items:center;gap:5px"><button class="small add-btn" onclick="showAddOrder()">+ 医嘱</button><span class="io-sep"></span><button class="secondary small" onclick="loadOrders(event)">刷新</button><button class="secondary small" id="ordHistBtn" onclick="toggleOrderHistory()">历史</button></span></h4>
     <div id="mOrders"><div class="empty" style="font-size:12px">-</div></div>
     <div id="ordHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
   <div class="m-panel" style="max-height:280px;overflow:auto">
-    <h4>📋 检查 <button class="secondary small" onclick="loadExams(event)">刷新</button><button class="secondary small" onclick="showAddExam()">+ 检查</button><button class="secondary small" id="examHistBtn" onclick="toggleExamHistory()">历史</button></h4>
+    <h4 style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>📋 检查</span><span style="margin-left:auto;display:flex;align-items:center;gap:5px"><button class="small add-btn" onclick="showAddExam()">+ 检查</button><span class="io-sep"></span><button class="secondary small" onclick="loadExams(event)">刷新</button><button class="secondary small" id="examHistBtn" onclick="toggleExamHistory()">历史</button></span></h4>
     <div id="mExams"><div class="empty" style="font-size:12px">-</div></div>
     <div id="examHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
   <div class="m-panel" style="max-height:280px;overflow:auto">
-    <h4>🔬 检验 / 血气 <button class="secondary small" onclick="loadLabs(event)">刷新</button><button class="secondary small" onclick="showAddLab()">+ 检验</button><button class="secondary small" id="labHistBtn" onclick="toggleLabHistory()">历史</button></h4>
+    <h4 style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>🔬 检验 / 血气</span><span style="margin-left:auto;display:flex;align-items:center;gap:5px"><button class="small add-btn" onclick="showAddLab()">+ 检验</button><span class="io-sep"></span><button class="secondary small" onclick="loadLabs(event)">刷新</button><button class="secondary small" id="labHistBtn" onclick="toggleLabHistory()">历史</button></span></h4>
     <div id="mLabs"><div class="empty" style="font-size:12px">-</div></div>
     <div id="labHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
   </div>
