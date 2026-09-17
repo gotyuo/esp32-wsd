@@ -2380,7 +2380,7 @@ function addVitalOne(param){
         "<option value='lab'>检验系统</option>" +
       "</select>" +
     "</div>" +
-    "<div id='syncResult' style='font-size:12px;color:var(--dim);margin-top:8px;min-height:20px'>点击「查询最新」从所选系统拉取最近一条"+label+"数据</div>" +
+    "<div id='syncResult' class='hidden' style='font-size:12px;color:var(--dim);margin-top:8px;min-height:20px'>点击「查询最新」从所选系统拉取最近一条"+label+"数据</div>" +
     "<div class='actions hidden' id='vact-sync'>" +
       "<button onclick='fetchSyncVital(\""+param+"\")'>🔍 查询最新</button>" +
       "<button onclick='doSyncVitalOne(\""+param+"\")' id='syncSaveBtn' disabled>保存</button>" +
@@ -2390,7 +2390,7 @@ function addVitalOne(param){
     "<div id='vpane-esp' class='hidden'>" +
       "<div id='espDeviceList' style='font-size:12px;color:var(--dim);margin-bottom:8px'>加载设备列表...</div>" +
     "</div>" +
-    "<div id='espResult' style='font-size:12px;color:var(--dim);margin-top:8px;min-height:20px'>点击「获取实时数据」从ESP32设备拉取最近一条"+label+"数据</div>" +
+    "<div id='espResult' class='hidden' style='font-size:12px;color:var(--dim);margin-top:8px;min-height:20px'>点击「获取实时数据」从ESP32设备拉取最近一条"+label+"数据</div>" +
     "<div class='actions hidden' id='vact-esp'>" +
       "<button onclick='fetchEspVital(\""+param+"\")'>📡 获取实时数据</button>" +
       "<button onclick='doEspVitalOne(\""+param+"\")' id='espSaveBtn' disabled>保存</button>" +
@@ -2408,6 +2408,10 @@ function switchVitalTab(tab){
     if(act)act.classList.toggle("hidden",t!==tab);
     if(btn)btn.classList.toggle("active",t===tab);
   });
+  // 结果提示区域随页签切换显隐，避免在其他页签下残留提示文字
+  var syncRes=$("syncResult"),espRes=$("espResult");
+  if(syncRes)syncRes.classList.toggle("hidden",tab!=="sync");
+  if(espRes)espRes.classList.toggle("hidden",tab!=="esp");
 }
 // 手工录入保存：source=manual，从输入框取值
 function doAddVitalOne(param){
