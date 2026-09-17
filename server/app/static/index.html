@@ -698,8 +698,9 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
           <div class="actions" style="margin-top:8px"><button onclick="doRemind()">发送提醒</button></div>
         </div>
         <div>
-          <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--orange)">📋 最近提醒记录</h3>
+          <h3 style="font-size:13px;margin:0 0 8px 0;color:var(--orange)">📋 最近提醒记录（最近5条）</h3>
           <div id="rmdHistory" style="max-height:360px;overflow:auto;background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px"><div class="empty">-</div></div>
+          <div style="margin-top:6px;text-align:right"><button class="secondary small" onclick="showRemindHistory()">📜 历史提醒记录</button></div>
         </div>
       </div>
     </div>
@@ -4197,21 +4198,50 @@ function onRemindPatientChanged(){
     if(match){docSel.value=match.value;}
   }
 }
+var REMIND_ALL=[],REMIND_PAGE=0,REMIND_PAGE_SIZE=5;
+function _remindRowHtml(x){
+  var flag=(x.sent_to_device?"<span class='ok'>🔊 设备</span>":"")+(x.sent_to_wechat?" <span class='ok'>📱 微信</span>":"");
+  var who=x.doctor_name||"-";
+  return "<div style='padding:6px 0;border-bottom:1px dashed var(--line)'>"+
+    "<div><b>"+esc(x.patient_id)+"</b> · <span style='color:var(--blue)'>"+esc(who)+"</span> · <span style='color:var(--dim)'>"+fmtTime(x.created_at)+"</span></div>"+
+    "<div style='margin-top:2px'>"+esc(x.text)+"</div>"+
+    "<div style='margin-top:2px;color:var(--dim)'>"+flag+" · 设备 "+esc(x.device_id||"-")+"</div>"+
+  "</div>";
+}
 function loadRemindHistory(){
-  api("/api/reminders?limit=30").then(function(d){
-    var list=d.reminders||[];
-    if(!list.length){$("rmdHistory").innerHTML='<div class="empty">暂无</div>';return;}
-    $("rmdHistory").innerHTML=list.map(function(x){
-      var flag = (x.sent_to_device?"<span class='ok'>🔊 设备</span>":"")+(x.sent_to_wechat?" <span class='ok'>📱 微信</span>":"");
-      var who = x.doctor_name||"-";
-      return "<div style='padding:6px 0;border-bottom:1px dashed var(--line)'>"+
-        "<div><b>"+esc(x.patient_id)+"</b> · <span style='color:var(--blue)'>"+esc(who)+"</span> · <span style='color:var(--dim)'>"+fmtTime(x.created_at)+"</span></div>"+
-        "<div style='margin-top:2px'>"+esc(x.text)+"</div>"+
-        "<div style='margin-top:2px;color:var(--dim)'>"+flag+" · 设备 "+esc(x.device_id||"-")+"</div>"+
-      "</div>";
-    }).join("");
+  api("/api/reminders?limit=500").then(function(d){
+    REMIND_ALL=d.reminders||[];
+    if(!REMIND_ALL.length){$("rmdHistory").innerHTML='<div class="empty">暂无</div>';return;}
+    $("rmdHistory").innerHTML=REMIND_ALL.slice(0,5).map(_remindRowHtml).join("");
   }).catch(function(e){$("rmdHistory").innerHTML='<div class="empty" style="color:var(--red)">加载失败</div>';});
 }
+function showRemindHistory(){
+  if(!REMIND_ALL.length){toast("暂无历史提醒记录");return;}
+  REMIND_PAGE=0;
+  renderRemindHistoryModal();
+}
+function renderRemindHistoryModal(){
+  var total=REMIND_ALL.length;
+  var totalPages=Math.max(1,Math.ceil(total/REMIND_PAGE_SIZE));
+  if(REMIND_PAGE>=totalPages)REMIND_PAGE=totalPages-1;
+  if(REMIND_PAGE<0)REMIND_PAGE=0;
+  var pageRows=REMIND_ALL.slice(REMIND_PAGE*REMIND_PAGE_SIZE,(REMIND_PAGE+1)*REMIND_PAGE_SIZE);
+  var body=pageRows.map(_remindRowHtml).join("");
+  if(!body)body="<div class='empty'>暂无</div>";
+  var pg="";
+  if(totalPages>1){
+    pg="<div style='margin-top:10px;text-align:center;font-size:12px'>"
+      +"共 "+total+" 条，第 "+(REMIND_PAGE+1)+" / "+totalPages+" 页 "
+      +(REMIND_PAGE>0?"<button class='secondary small' onclick='remindHistGoto("+(REMIND_PAGE-1)+")'>上一页</button> ":"")
+      +(REMIND_PAGE<totalPages-1?"<button class='secondary small' onclick='remindHistGoto("+(REMIND_PAGE+1)+")'>下一页</button>":"")
+      +"</div>";
+  }
+  $("modalInner").innerHTML="<h2 style='font-size:15px;margin-bottom:12px;color:var(--sub);letter-spacing:1px'>📜 历史提醒记录（共 "+total+" 条）</h2>"
+    +"<div style='max-height:420px;overflow:auto;font-size:11px;border:1px solid var(--line);border-radius:4px;padding:6px 8px'>"+body+"</div>"
+    +pg
+    +"<div style='text-align:right;margin-top:10px'><button class='secondary' onclick='closeModal()'>关闭</button></div>";
+}
+function remindHistGoto(page){ REMIND_PAGE=page; renderRemindHistoryModal(); }
 function doRemind(){
   var p=$("rmdPatient"), t=$("rmdText");
   if(!p||!p.value){toast("请选择患者","alarm");return;}
