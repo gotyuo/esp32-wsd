@@ -1794,6 +1794,16 @@ def patients_summary():
                            "role": d.get("role"), "online": bool(d.get("online")),
                            "fw": d.get("fw_version")} for d in devs]
         row["online_device_count"] = sum(1 for d in devs if d.get("online"))
+        # 运行中医嘱（监护屏网格卡片用药摘要）
+        try:
+            active_orders = conn.execute(
+                "SELECT drug_name, dosage, route, rate_mlph, status "
+                "FROM orders WHERE patient_id=? AND status='active' ORDER BY start_ts DESC LIMIT 5",
+                (row["id"],)
+            ).fetchall()
+            row["orders"] = [dict(o) for o in active_orders] if active_orders else []
+        except Exception:
+            row["orders"] = []
         out.append(row)
     return {"patients": out, "total": len(out)}
 
