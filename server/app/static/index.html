@@ -517,8 +517,12 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
           <button class="secondary small" onclick="loadMonitorSessionsView(event)">刷新监护记录</button>
         </div>
       </h2>
+      <div style="display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:0">
+        <span class="vtab active" id="subtab-sessions-current" onclick="_switchSessionTab('current')">🟢 监护记录</span>
+        <span class="vtab" id="subtab-sessions-history" onclick="_switchSessionTab('history')">📜 历史监护记录</span>
+      </div>
       <div id="sessionsCurrent"></div>
-      <div id="sessionsHistory"></div>
+      <div id="sessionsHistory" class="hidden"></div>
     </div>
   </div>
 
@@ -3596,72 +3600,68 @@ function _sessionTableHtml(rows){
     +rows.map(_sessionRowHtml).join("")
     +"</tbody></table>";
 }
-var _sessionsHistoryRest=[];
-var _historyDetailPageNum=0;
-var _HISTORY_DETAIL_PAGE_SIZE=10;
-function _renderHistoryDetailPage(){
-  var total=_sessionsHistoryRest.length;
-  var totalPages=Math.ceil(total/_HISTORY_DETAIL_PAGE_SIZE)||1;
-  if(_historyDetailPageNum>=totalPages)_historyDetailPageNum=totalPages-1;
-  if(_historyDetailPageNum<0)_historyDetailPageNum=0;
-  var startIdx=_historyDetailPageNum*_HISTORY_DETAIL_PAGE_SIZE;
-  var pageRows=_sessionsHistoryRest.slice(startIdx,startIdx+_HISTORY_DETAIL_PAGE_SIZE);
+var _sessionsHistoryAll=[];
+var _sessionHistoryPageNum=0;
+var _SESSION_HISTORY_PAGE_SIZE=10;
+var _sessionCurrentTab="current";
+function _switchSessionTab(tab){
+  _sessionCurrentTab=tab;
+  var curTab=$("subtab-sessions-current");
+  var histTab=$("subtab-sessions-history");
+  var curBox=$("sessionsCurrent");
+  var histBox=$("sessionsHistory");
+  if(tab==="current"){
+    curTab.classList.add("active");histTab.classList.remove("active");
+    curBox.classList.remove("hidden");histBox.classList.add("hidden");
+  }else{
+    histTab.classList.add("active");curTab.classList.remove("active");
+    histBox.classList.remove("hidden");curBox.classList.add("hidden");
+  }
+}
+function _renderSessionHistoryPage(){
+  var total=_sessionsHistoryAll.length;
+  var totalPages=Math.ceil(total/_SESSION_HISTORY_PAGE_SIZE)||1;
+  if(_sessionHistoryPageNum>=totalPages)_sessionHistoryPageNum=totalPages-1;
+  if(_sessionHistoryPageNum<0)_sessionHistoryPageNum=0;
+  var startIdx=_sessionHistoryPageNum*_SESSION_HISTORY_PAGE_SIZE;
+  var pageRows=_sessionsHistoryAll.slice(startIdx,startIdx+_SESSION_HISTORY_PAGE_SIZE);
   var pg="";
   if(totalPages>1){
     pg="<div style='margin-top:8px;text-align:center;font-size:12px'>"
-      +"共 "+total+" 条，第 "+(_historyDetailPageNum+1)+" / "+totalPages+" 页 "
-      +(_historyDetailPageNum>0?"<button class='secondary small' onclick='_historyDetailGoto("+(_historyDetailPageNum-1)+")'>上一页</button> ":"")
-      +(_historyDetailPageNum<totalPages-1?"<button class='secondary small' onclick='_historyDetailGoto("+(_historyDetailPageNum+1)+")'>下一页</button>":"")
+      +"共 "+total+" 条，第 "+(_sessionHistoryPageNum+1)+" / "+totalPages+" 页 "
+      +(_sessionHistoryPageNum>0?"<button class='secondary small' onclick='_sessionHistoryGoto("+(_sessionHistoryPageNum-1)+")'>上一页</button> ":"")
+      +(_sessionHistoryPageNum<totalPages-1?"<button class='secondary small' onclick='_sessionHistoryGoto("+(_sessionHistoryPageNum+1)+")'>下一页</button>":"")
       +"</div>";
   }
-  $("sessionsHistoryDetail").innerHTML=_sessionTableHtml(pageRows)+pg;
+  $("sessionsHistory").innerHTML='<h3 style="font-size:13px;margin:8px 0;color:var(--sub)">📜 历史监护记录 ('+total+')</h3>'
+    +_sessionTableHtml(pageRows)+pg;
 }
-function _historyDetailGoto(page){
-  _historyDetailPageNum=page;
-  _renderHistoryDetailPage();
-}
-function _toggleHistoryDetail(){
-  var el=$("sessionsHistoryDetail");
-  var btn=$("historyDetailToggle");
-  if(el.classList.contains("hidden")){
-    el.classList.remove("hidden");
-    _historyDetailPageNum=0;
-    _renderHistoryDetailPage();
-    if(btn)btn.textContent="🔼 折叠历史记录（明细）";
-  }else{
-    el.classList.add("hidden");
-    if(btn)btn.textContent="📂 展开历史记录（明细）(剩余 "+_sessionsHistoryRest.length+" 条)";
-  }
+function _sessionHistoryGoto(page){
+  _sessionHistoryPageNum=page;
+  _renderSessionHistoryPage();
 }
 function loadMonitorSessionsView(ev){_refreshBtn(ev,function(){
   api("/api/monitor/sessions?limit=200").then(function(d){
     var sessions=d.sessions||[];
     var current=sessions.filter(function(s){return !s.end_ts;});
     var history=sessions.filter(function(s){return !!s.end_ts;});
-    // 当前监护记录
+    _sessionsHistoryAll=history;
+    // 监护记录（当前进行中）
     if(current.length){
-      $("sessionsCurrent").innerHTML='<h3 style="font-size:13px;margin:8px 0;color:var(--sub)">🟢 当前监护记录 ('+current.length+')</h3>'
+      $("sessionsCurrent").innerHTML='<h3 style="font-size:13px;margin:8px 0;color:var(--sub)">🟢 监护记录 ('+current.length+')</h3>'
         +_sessionTableHtml(current);
     }else{
-      $("sessionsCurrent").innerHTML='<h3 style="font-size:13px;margin:8px 0;color:var(--sub)">🟢 当前监护记录 (0)</h3><div class="empty">无进行中的监护记录</div>';
+      $("sessionsCurrent").innerHTML='<h3 style="font-size:13px;margin:8px 0;color:var(--sub)">🟢 监护记录 (0)</h3><div class="empty">无进行中的监护记录</div>';
     }
-    // 历史监护记录 — 仅显示最近10条，其余折叠到"历史记录（明细）"中，每页10条
-    var latest10=history.slice(0,10);
-    _sessionsHistoryRest=history.slice(10);
+    // 历史监护记录（分页，每页10条）
     if(history.length){
-      var histHtml='<h3 style="font-size:13px;margin:16px 0 8px;color:var(--sub)">📜 历史监护记录 ('+history.length+')</h3>';
-      if(latest10.length){histHtml+=_sessionTableHtml(latest10);}
-      if(_sessionsHistoryRest.length>0){
-        histHtml+='<div style="margin:12px 0 8px">'
-          +'<button id="historyDetailToggle" class="secondary small" onclick="_toggleHistoryDetail()">'
-          +'📂 展开历史记录（明细）(剩余 '+_sessionsHistoryRest.length+' 条)'
-          +'</button></div>'
-          +'<div id="sessionsHistoryDetail" class="hidden"></div>';
-      }
-      $("sessionsHistory").innerHTML=histHtml;
+      _sessionHistoryPageNum=0;
+      _renderSessionHistoryPage();
     }else{
-      $("sessionsHistory").innerHTML='<h3 style="font-size:13px;margin:16px 0 8px;color:var(--sub)">📜 历史监护记录 (0)</h3><div class="empty">无历史监护记录</div>';
+      $("sessionsHistory").innerHTML='<h3 style="font-size:13px;margin:8px 0;color:var(--sub)">📜 历史监护记录 (0)</h3><div class="empty">无历史监护记录</div>';
     }
+    // 默认显示监护记录页签
+    _switchSessionTab("current");
   }).catch(function(){
     $("sessionsCurrent").innerHTML='<div class="empty">加载失败</div>';
     $("sessionsHistory").innerHTML='';
