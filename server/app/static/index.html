@@ -292,6 +292,10 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 #view-monitor .m-val .u{font-size:12px;color:var(--sub);margin-left:4px;font-weight:400}
 #view-monitor .m-trend{font-size:12px;margin-left:6px}
 #view-monitor .m-spark{height:32px;margin-top:4px;width:100%}
+#view-monitor .mtrend-cell{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:4px 8px 2px 8px}
+#view-monitor .mtrend-name{display:block;font-size:11px;font-weight:700;letter-spacing:.5px;margin-bottom:2px}
+#view-monitor .mtrend-name .u{color:var(--dim);font-weight:400;margin-left:5px}
+#view-monitor .mtrend-canvas{width:100%;height:84px;display:block}
 #view-monitor .m-bottom{margin-bottom:8px}
 #view-monitor .m-tab{padding:6px 14px;font-size:12px;border:1px solid var(--line);border-bottom:none;border-radius:4px 4px 0 0;background:var(--panel2);color:var(--sub);cursor:pointer;font-family:var(--font)}
 #view-monitor .m-tab.active{background:var(--panel);color:var(--ink);border-bottom:2px solid var(--blue);font-weight:600}
@@ -430,18 +434,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <button class="secondary small active" data-th="24" onclick="setTrendHours(24)">24H</button>
     </div>
   </h4>
-  <canvas id="mTrendChart" style="width:100%;height:200px;display:block;background:var(--panel2);border:1px solid var(--line);border-radius:4px"></canvas>
-  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--sub)">
-    <span><span style="display:inline-block;width:10px;height:2px;background:#21d07a;vertical-align:middle"></span> HR</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#3fb6ff;vertical-align:middle"></span> SpO2</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#ffd24a;vertical-align:middle"></span> RR</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#ff5470;vertical-align:middle"></span> BP</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#e89a8a;vertical-align:middle"></span> DBP</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#ff6b9d;vertical-align:middle"></span> TEMP</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#b48cff;vertical-align:middle"></span> GLU</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#00e5ff;vertical-align:middle"></span> HUM</span>
-    <span><span style="display:inline-block;width:10px;height:2px;background:#00a3ff;vertical-align:middle"></span> PRESS</span>
-  </div>
+  <div id="mTrendWrap" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px 12px;margin-top:8px"></div>
 </div>
 <div class="m-panel" id="mOrderTrendPanel" style="margin-top:8px">
   <h4>💊 用药时间线
@@ -1993,99 +1986,121 @@ function setTrendHours(h){
     renderVitalsList(MONITOR_VITALS);
   }).catch(function(){drawMonitorTrend();});
 }
+var MONITOR_SERIES = [
+  {key:'ecg_hr',  color:'#21d07a', label:'心率 HR',  unit:'bpm',   range:[40,140]},
+  {key:'sp_o2',   color:'#3fb6ff', label:'血氧 SpO2',unit:'%',     range:[85,100]},
+  {key:'rr_bpm',  color:'#ffd24a', label:'呼吸 RR',  unit:'次/分', range:[8,30]},
+  {key:'sbp',     color:'#ff5470', label:'收缩压 BP',unit:'mmHg',  range:[60,200]},
+  {key:'dbp',     color:'#e89a8a', label:'舒张压 DBP',unit:'mmHg', range:[40,120]},
+  {key:'temp_c',  color:'#ff6b9d', label:'体温 TEMP',unit:'℃',    range:[35,39]},
+  {key:'glucose', color:'#b48cff', label:'血糖 GLU', unit:'mmol/L',range:[3,10]},
+  {key:'hum_pct', color:'#00e5ff', label:'湿度 HUM', unit:'%',     range:[20,90]},
+  {key:'pres_hpa',color:'#00a3ff', label:'气压 PRESS',unit:'hPa',  range:[980,1040]}
+];
 function drawMonitorTrend(){
-  var canvas = document.getElementById('mTrendChart');
-  if(!canvas) return;
+  var wrap = document.getElementById('mTrendWrap');
+  if(!wrap) return;
   var pts = MONITOR_VITALS || [];
-  // 数据已由 API 按 hours 参数返回对应时间窗口，前端不再二次过滤
-  var ctx = canvas.getContext('2d');
-  var W = canvas.width = canvas.clientWidth * 2;
-  var H = canvas.height = canvas.clientHeight * 2;
-  ctx.scale(2, 2);
-  var w = W/2, h = H/2;
-  ctx.clearRect(0, 0, w, h);
+  wrap.innerHTML = '';
   if(!pts.length){
-    ctx.fillStyle = '#6f7ba0';
-    ctx.font = '13px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('暂无体征数据', w/2, h/2);
+    wrap.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:12px 4px">暂无体征数据</div>';
     return;
   }
-  // Time range
+  // 每个有数据的指标生成独立小图
+  var hasAny = false;
+  MONITOR_SERIES.forEach(function(s){
+    var has = pts.some(function(p){return p[s.key]!=null && !isNaN(p[s.key]);});
+    if(!has) return;
+    hasAny = true;
+    var cell = document.createElement('div');
+    cell.className = 'mtrend-cell';
+    cell.innerHTML = '<span class="mtrend-name" style="color:'+s.color+'">'+s.label+'<span class="u">'+s.unit+'</span></span><canvas class="mtrend-canvas" data-key="'+s.key+'"></canvas>';
+    wrap.appendChild(cell);
+  });
+  if(!hasAny){
+    wrap.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:12px 4px">暂无体征数据</div>';
+    return;
+  }
+  // 时间范围（所有小图共用同一时间轴）
   var tMin = new Date(pts[0].ts).getTime();
   var tMax = new Date(pts[pts.length-1].ts).getTime();
   if(tMax === tMin) tMax = tMin + 60000;
-  var padL = 44, padR = 12, padT = 10, padB = 20;
-  var pw = w - padL - padR, ph = h - padT - padB;
-  // Grid lines
-  ctx.strokeStyle = '#1a2a44';
-  ctx.lineWidth = 0.5;
-  for(var i = 0; i <= 4; i++){
-    var y = padT + (ph/4)*i;
-    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w-padR, y); ctx.stroke();
-  }
-  // Draw curves for each vital
-  var series = [
-    {key:'ecg_hr', color:'#21d07a', label:'HR', range:[40,140]},
-    {key:'sp_o2', color:'#3fb6ff', label:'SpO2', range:[85,100]},
-    {key:'rr_bpm', color:'#ffd24a', label:'RR', range:[8,30]},
-    {key:'sbp', color:'#ff5470', label:'BP', range:[60,200]},
-    {key:'dbp', color:'#e89a8a', label:'DBP', range:[40,120]},
-    {key:'temp_c', color:'#ff6b9d', label:'TEMP', range:[35,39]},
-    {key:'glucose', color:'#b48cff', label:'GLU', range:[3,10]},
-    {key:'hum_pct', color:'#00e5ff', label:'HUM', range:[20,90]},
-    {key:'pres_hpa', color:'#00a3ff', label:'PRESS', range:[980,1040]}
-  ];
-  series.forEach(function(s){
-    var vals = pts.map(function(p){return p[s.key];}).filter(function(v){return v!=null && !isNaN(v);});
-    if(!vals.length) return;
-    var lo = s.range[0], hi = s.range[1];
-    // Auto-scale if data outside range
-    var dMin = Math.min.apply(null, vals), dMax = Math.max.apply(null, vals);
-    if(dMin < lo) lo = dMin - 1;
-    if(dMax > hi) hi = dMax + 1;
-    ctx.strokeStyle = s.color;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    var started = false;
-    var ptCount = 0, firstX = 0, firstY = 0, lastX = 0, lastY = 0;
-    pts.forEach(function(p){
-      if(p[s.key] == null || isNaN(p[s.key])) return;
-      var t = new Date(p.ts).getTime();
-      var x = padL + ((t - tMin) / (tMax - tMin)) * pw;
-      var y = padT + ph - ((p[s.key] - lo) / (hi - lo)) * ph;
-      if(!started){ ctx.moveTo(x, y); started = true; firstX = x; firstY = y; } else { ctx.lineTo(x, y); }
-      ptCount++; lastX = x; lastY = y;
-    });
-    // 至少2个点才画线；只有1个点时画圆点，否则录入第一条数据后看不到曲线
-    if(ptCount >= 2) ctx.stroke();
-    if(ptCount === 1){
-      ctx.beginPath();
-      ctx.arc(lastX, lastY, 3, 0, 2 * Math.PI);
-      ctx.fillStyle = s.color;
-      ctx.fill();
-    }
-    // Label：标注在曲线起始点旁，与该曲线贴合（不再固定左上角列表造成脱离）
-    if(ptCount > 0){
-      ctx.fillStyle = s.color;
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(s.label, firstX - 4, firstY - 3);
-    }
-  });
-  // 时间轴标签：与 fmtTime 一致，统一显示 UTC+8 时间
   function trendTimeLabel(ts){
-    var d=new Date(ts);if(isNaN(d.getTime()))return'?';
-    var dt=new Date(d.getTime()+8*3600000);
+    var d = new Date(ts); if(isNaN(d.getTime())) return '?';
+    var dt = new Date(d.getTime() + 8*3600000);
     function p(n){return n<10?'0'+n:''+n;}
     return p(dt.getMonth()+1)+'/'+p(dt.getDate())+' '+p(dt.getHours())+':'+p(dt.getMinutes());
   }
-  ctx.fillStyle = '#6f7ba0';
-  ctx.font = '9px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(trendTimeLabel(tMin), padL, h - 4);
-  ctx.textAlign = 'right';
-  ctx.fillText(trendTimeLabel(tMax), w - padR, h - 4);
+  var cells = wrap.querySelectorAll('.mtrend-cell');
+  cells.forEach(function(cell){
+    var canvas = cell.querySelector('canvas');
+    var key = canvas.dataset.key;
+    var s = null;
+    MONITOR_SERIES.forEach(function(x){ if(x.key===key) s=x; });
+    if(!s) return;
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width = canvas.clientWidth * 2;
+    var H = canvas.height = canvas.clientHeight * 2;
+    ctx.scale(2, 2);
+    var w = W/2, h = H/2;
+    ctx.clearRect(0, 0, w, h);
+    // 该指标的有效数据
+    var vals = []; var valPts = [];
+    pts.forEach(function(p){
+      if(p[key]!=null && !isNaN(p[key])){ vals.push(p[key]); valPts.push(p); }
+    });
+    if(!vals.length) return;
+    // 独立量程 + 自适应
+    var lo = s.range[0], hi = s.range[1];
+    var dMin = Math.min.apply(null, vals), dMax = Math.max.apply(null, vals);
+    if(dMin < lo) lo = dMin - 1;
+    if(dMax > hi) hi = dMax + 1;
+    var padL = 36, padR = 12, padT = 8, padB = 16;
+    var pw = w - padL - padR, ph = h - padT - padB;
+    // 背景网格（3 等分）
+    ctx.strokeStyle = '#1a2a44'; ctx.lineWidth = 0.5;
+    for(var i = 0; i <= 3; i++){
+      var gy = padT + (ph/3)*i;
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w-padR, gy); ctx.stroke();
+    }
+    // 单点：画圆点 + 数值
+    if(vals.length === 1){
+      var p0 = valPts[0];
+      var lx = padL + ((new Date(p0.ts).getTime() - tMin)/(tMax - tMin))*pw;
+      var ly = padT + ph - ((p0[key] - lo)/(hi - lo))*ph;
+      ctx.beginPath(); ctx.arc(lx, ly, 3, 0, 2*Math.PI); ctx.fillStyle=s.color; ctx.fill();
+      ctx.fillStyle = s.color; ctx.font = 'bold 11px Consolas,monospace'; ctx.textAlign = 'left';
+      ctx.fillText(String(p0[key]), lx + 5, ly + 4);
+      return;
+    }
+    // 曲线
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    var started = false, ptCount = 0, lastX = 0, lastY = 0;
+    pts.forEach(function(p){
+      if(p[key]==null || isNaN(p[key])) return;
+      var t = new Date(p.ts).getTime();
+      var x = padL + ((t - tMin)/(tMax - tMin)) * pw;
+      var y = padT + ph - ((p[key] - lo)/(hi - lo)) * ph;
+      if(!started){ ctx.moveTo(x,y); started=true; } else { ctx.lineTo(x,y); }
+      ptCount++; lastX=x; lastY=y;
+    });
+    if(ptCount >= 2) ctx.stroke();
+    // 最新值标注在曲线末端（避免起点处扎堆）
+    if(ptCount >= 2){
+      var lastVal = vals[vals.length-1];
+      ctx.fillStyle = s.color; ctx.font = 'bold 11px Consolas,monospace'; ctx.textAlign = 'left';
+      ctx.fillText(String(lastVal), Math.min(lastX + 5, w - padR - 30), lastY + 4);
+    }
+    // 时间轴（UTC+8）
+    ctx.fillStyle = '#6f7ba0'; ctx.font = '9px sans-serif';
+    ctx.textAlign = 'left';  ctx.fillText(trendTimeLabel(tMin), padL, h - 4);
+    ctx.textAlign = 'right'; ctx.fillText(trendTimeLabel(tMax), w - padR, h - 4);
+    // 量程上下界
+    ctx.fillStyle = '#6f7ba0'; ctx.font = '9px Consolas,monospace'; ctx.textAlign = 'right';
+    ctx.fillText(hi.toFixed(0), w - padR - 2, padT + 6);
+    ctx.fillText(lo.toFixed(0), w - padR - 2, h - padB + 2);
+  });
 }
 
 // ==================== 用药时间线曲线图 ====================
