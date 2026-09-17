@@ -2048,13 +2048,13 @@ function drawMonitorTrend(){
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     var started = false;
-    var ptCount = 0, lastX = 0, lastY = 0;
+    var ptCount = 0, firstX = 0, firstY = 0, lastX = 0, lastY = 0;
     pts.forEach(function(p){
       if(p[s.key] == null || isNaN(p[s.key])) return;
       var t = new Date(p.ts).getTime();
       var x = padL + ((t - tMin) / (tMax - tMin)) * pw;
       var y = padT + ph - ((p[s.key] - lo) / (hi - lo)) * ph;
-      if(!started){ ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+      if(!started){ ctx.moveTo(x, y); started = true; firstX = x; firstY = y; } else { ctx.lineTo(x, y); }
       ptCount++; lastX = x; lastY = y;
     });
     // 至少2个点才画线；只有1个点时画圆点，否则录入第一条数据后看不到曲线
@@ -2065,11 +2065,13 @@ function drawMonitorTrend(){
       ctx.fillStyle = s.color;
       ctx.fill();
     }
-    // Label
-    ctx.fillStyle = s.color;
-    ctx.font = '9px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(s.label, padL - 4, padT + 8 + series.indexOf(s) * 12);
+    // Label：标注在曲线起始点旁，与该曲线贴合（不再固定左上角列表造成脱离）
+    if(ptCount > 0){
+      ctx.fillStyle = s.color;
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(s.label, firstX - 4, firstY - 3);
+    }
   });
   // 时间轴标签：与 fmtTime 一致，统一显示 UTC+8 时间
   function trendTimeLabel(ts){
