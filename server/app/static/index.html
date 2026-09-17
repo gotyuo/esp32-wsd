@@ -1584,6 +1584,47 @@ function delPatient(pid){
   api("/api/patients/"+encodeURIComponent(pid),{method:"DELETE"}).then(function(){toast("患者已删除");loadPatients();loadDashboardGrid();});
 }
 
+var _linkDevAll=[];
+var _linkDevBindings=[];
+var _linkDevPid="";
+var _linkDevPageNum=0;
+var _LINK_DEV_PAGE_SIZE=5;
+function _linkDevRowHtml(x,idx){
+  var b=_linkDevBindings[idx];
+  var who=(b&&b.binding)?((b.binding.name||"")+(b.binding.pid?(" ("+b.binding.pid+")"):"")).trim():"";
+  var disabled=!!(b&&b.bound);
+  return "<label style='display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border);opacity:"+(disabled?".55":"1")+"'>"
+    +"<input type='radio' name='devLink' value='"+esc(x.id)+"'"+(disabled?" disabled":"")+">"
+    +esc(x.name||x.id)+(x.online?' 🟢':' 🔴')
+    +(x.fw_version?' <span class="small">fw '+esc(x.fw_version)+'</span>':'')
+    +(disabled?' <span class="small" style="color:var(--orange)">[已被 '+esc(who||"某患者")+' 绑定]</span>':'')
+    +"</label>";
+}
+function _renderLinkDevPage(){
+  var total=_linkDevAll.length;
+  var totalPages=Math.ceil(total/_LINK_DEV_PAGE_SIZE)||1;
+  if(_linkDevPageNum>=totalPages)_linkDevPageNum=totalPages-1;
+  if(_linkDevPageNum<0)_linkDevPageNum=0;
+  var startIdx=_linkDevPageNum*_LINK_DEV_PAGE_SIZE;
+  var pageDevs=_linkDevAll.slice(startIdx,startIdx+_LINK_DEV_PAGE_SIZE);
+  var html="";
+  pageDevs.forEach(function(x){
+    html+=_linkDevRowHtml(x,_linkDevAll.indexOf(x));
+  });
+  var pg="";
+  if(totalPages>1){
+    pg="<div style='margin-top:10px;text-align:center;font-size:12px'>"
+      +"第 "+(_linkDevPageNum+1)+" / "+totalPages+" 页 (共 "+total+" 台)"
+      +(_linkDevPageNum>0?" <button class='secondary small' onclick='_linkDevPageGoto("+(_linkDevPageNum-1)+")'>上一页</button>":"")
+      +(_linkDevPageNum<totalPages-1?" <button class='secondary small' onclick='_linkDevPageGoto("+(_linkDevPageNum+1)+")'>下一页</button>":"")
+      +"</div>";
+  }
+  $("linkDevList").innerHTML=html+pg;
+}
+function _linkDevPageGoto(page){
+  _linkDevPageNum=page;
+  _renderLinkDevPage();
+}
 function linkDev(pid){
   api("/api/devices").then(function(d){
     var devs=d.devices||[];
@@ -1592,23 +1633,17 @@ function linkDev(pid){
     Promise.all(devs.map(function(x){
       return api("/api/devices/"+encodeURIComponent(x.id)+"/binding").catch(function(){return {bound:false};});
     })).then(function(bindings){
+      _linkDevAll=devs;
+      _linkDevBindings=bindings;
+      _linkDevPid=pid;
+      _linkDevPageNum=0;
       var html="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>LINK DEVICE · "+esc(pid)+"</h2>"
         +"<div class='small' style='color:var(--sub);margin-bottom:8px'>规则：一台设备同一时段只能绑定一位患者；已绑定的设备不可再绑，需先解绑。</div>"
-        +"<div class='kv'>";
-      devs.forEach(function(x,idx){
-        var b=bindings[idx];
-        var who=(b&&b.binding)?((b.binding.name||"")+(b.binding.pid?(" ("+b.binding.pid+")"):"")).trim():"";
-        var disabled=!!(b&&b.bound);
-        html+="<label style='display:flex;align-items:center;gap:8px;opacity:"+(disabled?".55":"1")+"'>"
-          +"<input type='radio' name='devLink' value='"+esc(x.id)+"'"+(disabled?" disabled":"")+">"
-          +esc(x.name||x.id)+(x.online?' 🟢':' 🔴')
-          +(x.fw_version?' <span class="small">fw '+esc(x.fw_version)+'</span>':'')
-          +(disabled?' <span class="small" style="color:var(--orange)">[已被 '+esc(who||"某患者")+' 绑定]</span>':'')
-          +"</label>";
-      });
-      html+="</div><div class='actions'><button onclick='doLink(\""+pid+"\")'>关联</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+        +"<div id='linkDevList' style='border-top:1px solid var(--border)'></div>"
+        +"<div class='actions'><button onclick='doLink(\""+pid+"\")'>关联</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
       $("modalInner").innerHTML=html;
       $("modalBox").classList.remove("hidden");
+      _renderLinkDevPage();
     });
   });
 }
