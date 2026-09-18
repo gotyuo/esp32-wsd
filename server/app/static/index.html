@@ -772,7 +772,7 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
           开启 <b>ai.push_wechat</b> 后可把分析结果通过企业微信推送到患者主管医生。
         </p>
         <div class="grid2">
-          <div class="sg"><label>ai.enabled (0/1)</label><select id="s-ai.enabled"><option value="0">关闭</option><option value="1">开启</option></select></div>
+          <div class="sg"><label>ai.enabled (true/false)</label><select id="s-ai.enabled"><option value="false">关闭</option><option value="true">开启</option></select></div>
           <div class="sg"><label>provider</label><select id="s-ai.provider"><option>openai</option><option>ollama</option><option>deepseek</option><option>qwen</option><option>gemini</option><option>custom</option></select></div>
           <div class="sg" style="grid-column:1/-1"><label>base_url</label><input id="s-ai.base_url" value=""/></div>
           <div class="sg"><label>model</label><input id="s-ai.model" value=""/></div>
@@ -4330,7 +4330,7 @@ async function loadAiSettings(){
     if(!r || !r.ai_settings) return;
     const m = r.ai_settings;
     const set = (id,val)=>{ const e=document.getElementById(id); if(e){ e.value = val; }};
-    set('s-ai.enabled', (m['ai.enabled']==='true'||m['ai.enabled']==='1')?'1':'0');
+    set('s-ai.enabled', (m['ai.enabled']==='true'||m['ai.enabled']==='1')?'true':'false');
     set('s-ai.provider', m['ai.provider']||'openai');
     set('s-ai.base_url', m['ai.base_url']||'');
     set('s-ai.model', m['ai.model']||'');
@@ -4353,7 +4353,7 @@ async function saveAiSettings(){
     else { body['ai.api_key'] = _k; }
   }
   // ai.enabled 统一存为 'true'/'false'，与设置菜单 saveSettings() 和所有检查逻辑一致
-  body['ai.enabled'] = (document.getElementById('s-ai.enabled').value === '1') ? 'true' : 'false';
+  body['ai.enabled'] = document.getElementById('s-ai.enabled').value;
   // 同步 ai.prompt = ai.system_prompt，兼容后端 icu.py 的 assess_with_ai
   body['ai.prompt'] = body['ai.system_prompt'] || '';
   try{
