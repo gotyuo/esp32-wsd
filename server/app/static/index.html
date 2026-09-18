@@ -1978,24 +1978,41 @@ function paintSpark(c,vals){
 var MONITOR_TREND_HOURS = 24;
 var _TREND_HOUR_LABELS={0.5:"最近30分钟",1:"最近1小时",3:"最近3小时",6:"最近6小时",12:"最近12小时",24:"最近24小时"};
 var MONITOR_TREND_NOTE="";
+// 健壮的 ts 解析：'Z' / '+08:00' 原样解析；空格分隔无时区的补 'Z'（按 UTC），失败返回 NaN
+function parseTs(v){
+  if(v==null||v==="")return NaN;
+  var s=String(v).trim();
+  if(s.indexOf("T")<0&&s.indexOf(" ")>-1)s=s.replace(" ","T");
+  if(!/(Z|[+-]\d{2}:\d{2})$/.test(s))s+="Z";
+  return new Date(s).getTime();
+}
 function trendWindowSelect(h,raw){
   raw = raw||[];
   var win = windowFilterTrend(h, raw);
   if(win.length){ MONITOR_TREND_NOTE=""; return win; }
-  if(raw.length){ var last=raw[raw.length-1]; var tsTxt=last&&last.ts?fmtTime(last.ts):''; MONITOR_TREND_NOTE='所选窗口内无新数据，已显示最近一次记录（最新 '+tsTxt+'）'; return raw; }
+  if(raw.length){ var last=raw[raw.length-1]; var tsTxt=last&&last.ts?fmtTime(last.ts):''; MONITOR_TREND_NOTE='所选窗口内无新数据，持续显示最近记录（最新 '+tsTxt+'）'; return raw; }
   MONITOR_TREND_NOTE=""; return [];
 }
-function windowFilterTrend(h,pts){var cutoff=Date.now()-h*3600*1000;return pts.filter(function(x){var t=new Date(x.ts).getTime();return !isNaN(t)&&t>=cutoff;});}
+function windowFilterTrend(h,pts){var cutoff=Date.now()-h*3600*1000;return pts.filter(function(x){var t=parseTs(x.ts);return !isNaN(t)&&t>=cutoff;});}
 function setTrendHours(h){
   MONITOR_TREND_HOURS = h;
   document.querySelectorAll('#mTrendPanel [data-th]').forEach(function(b){
     b.classList.toggle('active', parseFloat(b.dataset.th)===h);
   });
   document.getElementById('mTrendRange').textContent = _TREND_HOUR_LABELS[h]||('最近'+h+'h');
-  // 重新请求 API，按 hours 参数取对应时间窗口的数据，不依赖前端过滤缓存
+  // 先用本地已缓存的数据立即切换窗口并重绘（高亮/文案/时间轴立即变化），
+  // 再异步请求对应窗口数据覆盖刷新，让点击有"立即响应"的体验
+  MONITOR_VITALS = trendWindowSelect(h, MONITOR_VITALS);
   if(!MONITOR_PID){drawMonitorTrend();return;}
+  drawMonitorTrend();
   api("/api/patients/"+MONITOR_PID+"/vitals?hours="+h).then(function(d){
-    MONITOR_VITALS=trendWindowSelect(h,d.points||[]);
+    var pts = d.points||[];
+    if(d.out_of_window && !pts.length){
+      // 后端确认所选窗口内无新数据：保留当前已画出的曲线持续显示，仅提示
+      MONITOR_TREND_NOTE='所选窗口内无新数据，持续显示最近记录（最新 '+(d.latest_ts?fmtTime(d.latest_ts):'')+'）';
+    }else{
+      MONITOR_VITALS=trendWindowSelect(h, pts);
+    }
     // 同步刷新 sparkline
     var cards=document.querySelectorAll("#mVitals .m-card");
     cards.forEach(function(c){
@@ -2053,9 +2070,15 @@ function drawMonitorTrend(){
     noteDiv.textContent=MONITOR_TREND_NOTE;
     wrap.insertBefore(noteDiv, wrap.firstChild);
   }
-  // 时间范围（所有小图共用同一时间轴）
-  var tMin = new Date(pts[0].ts).getTime();
-  var tMax = new Date(pts[pts.length-1].ts).getTime();
+  // 时间范围（所有小图共用同一时间轴）：以所选窗口为基准，
+  // 而非"数据起止"，保证窗口内只有 1 个点时也要画在窗口对应的横向位置
+  var tMin = parseTs(pts[0].ts);
+  var tMax = parseTs(pts[pts.length-1].ts);
+  var winStart = Date.now() - MONITOR_TREND_HOURS*3600*1000;
+  if(isNaN(tMin)) tMin = winStart;
+  if(isNaN(tMax)) tMax = Date.now();
+  tMin = Math.min(tMin, winStart);
+  tMax = Math.max(tMax, Date.now());
   if(tMax === tMin) tMax = tMin + 60000;
   function trendTimeLabel(ts){
     var d = new Date(ts); if(isNaN(d.getTime())) return '?';
@@ -2098,7 +2121,8 @@ function drawMonitorTrend(){
     // 曲线：按数据缺口分段绘制（缺口超过窗口5%且≥30分钟则断开），避免直线补足长空缺
     var pairs = [];
     pts.forEach(function(p){
-      if(p[key]!=null && !isNaN(p[key])) pairs.push({t:new Date(p.ts).getTime(), v:p[key]});
+      var pt = parseTs(p.ts);
+      if(!isNaN(pt) && p[key]!=null && !isNaN(p[key])) pairs.push({t:pt, v:p[key]});
     });
     var maxGap = Math.max(30*60*1000, (tMax - tMin) * 0.05);
     ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;

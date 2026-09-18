@@ -3667,13 +3667,9 @@ def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
     field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
     rows = icu.patient_vitals(p["id"], start or "1970-01-01T00:00:00Z",
                               end or "9999-12-31T00:00:00Z", field_list)
-    # 回退1：如果时间窗口查询无结果，但数据库中有体征数据（可能因设备时钟偏差
-    # 或时区格式不一致导致 ts 落在窗口外），则不按时间过滤取最新 100 条，
-    # 确保实时监护界面与监护屏一致地展示数据。
-    if not rows and hours:
-        rows = icu.patient_vitals_latest(p["id"], limit=100, fields=field_list)
     # 回退2：vitals 表完全无数据时，查关联设备遥测（含所有设备做回退），
     # 把遥测的 temp_c/hum_pct/pres_hpa 转成 vitals 格式返回，趋势图能画出来。
+    telemetry_latest_ts = None
     if not rows:
         import sqlite3 as _sqlite3
         _conn = icu._get_conn()
@@ -3692,17 +3688,34 @@ def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
                 "SELECT ts, temp_c, hum_pct, pres_hpa FROM telemetry "
                 "WHERE device_id=? ORDER BY ts DESC LIMIT 200", (did,))
             for tr in tel_rows:
+                if telemetry_latest_ts is None:
+                    telemetry_latest_ts = tr["ts"]
                 rows.append({
                     "ts": tr["ts"], "temp_c": tr["temp_c"],
                     "hum_pct": tr["hum_pct"], "pres_hpa": tr["pres_hpa"],
                     "source": "telemetry", "alarm_flag": 0,
                 })
-        rows.sort(key=lambda r: r["ts"])
+        rows.sort(key=lambda r: icu.ts_to_epoch(r["ts"]) or 0)
         if hours:
-            from datetime import timedelta
-            _cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            rows = [r for r in rows if r["ts"] >= _cutoff]
-    return {"patient_id": p["id"], "count": len(rows), "points": rows}
+            _cutoff_sec = int(start_dt.timestamp())
+            rows = [r for r in rows if (icu.ts_to_epoch(r["ts"]) or 0) >= _cutoff_sec]
+    # 窗口内无数据但患者有更早数据时：不拿窗口外数据冒充窗口内数据，
+    # 返回空数组，由前端提示"持续显示最近记录"。
+    out_of_window = False
+    latest_ts = None
+    if hours and not rows:
+        latest_v = icu.patient_vitals_latest(p["id"], limit=1, fields=field_list)
+        if latest_v:
+            out_of_window = True
+            latest_ts = latest_v[0]["ts"]
+        elif telemetry_latest_ts:
+            out_of_window = True
+            latest_ts = telemetry_latest_ts
+    result = {"patient_id": p["id"], "count": len(rows), "points": rows}
+    if out_of_window:
+        result["out_of_window"] = True
+        result["latest_ts"] = latest_ts
+    return result
 
 
 

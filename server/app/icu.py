@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sqlite3
 import threading
@@ -292,14 +293,50 @@ def insert_vital(patient_id: int, ts: str, source: str, source_device: str = Non
     run(f"INSERT INTO vitals ({col_str}) VALUES ({qmarks})", tuple(bind))
 
 
+def ts_to_epoch(ts) -> Optional[int]:
+    """把 ts 字符串解析为 UTC epoch 秒。
+
+    兼容三种存储格式：'2026-09-18T06:30:00Z'、'2026-09-18T14:30:00+08:00'、
+    '2026-09-18 14:30:00'（空格分隔、无时区按 UTC 处理）。解析失败返回 None。
+    """
+    if not ts:
+        return None
+    s = str(ts).strip()
+    if not s:
+        return None
+    s = s.replace(" ", "T", 1)
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    if not re.search(r"[+-]\d{2}:\d{2}$", s):
+        s += "+00:00"
+    try:
+        return int(datetime.fromisoformat(s).timestamp())
+    except Exception:
+        return None
+
+
 def patient_vitals(patient_id: int, start: str, end: str,
                    fields: Optional[List[str]] = None) -> List[Dict]:
     if not fields:
         fields = VITAL_FIELDS
     cols = ", ".join([f for f in fields if f in VITAL_FIELDS])
+    start_sec = ts_to_epoch(start)
+    end_sec = ts_to_epoch(end)
+    if start_sec is None or end_sec is None:
+        # 时间参数解析失败时按字符串比较兜底，避免把可能的数据全部过滤掉
+        sql = (f"SELECT id, ts, {cols}, source, source_device, alarm_flag "
+               f"FROM vitals WHERE patient_id=? AND ts>=? AND ts<=? AND deleted=0 "
+               f"ORDER BY ts ASC LIMIT 5000")
+        return fetchall(sql, (patient_id, start, end))
+    # 按 epoch 秒比较：strftime('%s', ts) 能识别 'Z' / '+08:00' / 空格分隔格式，
+    # 避免混合时间格式下字符串字典序比较漏选/错选，导致时间窗口过滤失效。
+    # 注意 strftime 返回 TEXT，需 CAST 成 INTEGER 再与 epoch 秒参数比较，
+    # 否则 SQLite 按类型排序规则比较导致全部不匹配。
     sql = (f"SELECT id, ts, {cols}, source, source_device, alarm_flag "
-           f"FROM vitals WHERE patient_id=? AND ts>=? AND ts<=? AND deleted=0 ORDER BY ts ASC")
-    return fetchall(sql, (patient_id, start, end))
+           f"FROM vitals WHERE patient_id=? AND deleted=0 "
+           f"AND CAST(strftime('%s', ts) AS INTEGER) BETWEEN ? AND ? "
+           f"ORDER BY ts ASC LIMIT 5000")
+    return fetchall(sql, (patient_id, start_sec, end_sec))
 
 def patient_vitals_latest(patient_id: int, limit: int = 100,
                           fields: Optional[List[str]] = None) -> List[Dict]:
