@@ -2138,11 +2138,14 @@ function drawMonitorTrend(){
       if(p[key]!=null && !isNaN(p[key])){ vals.push(p[key]); valPts.push(p); }
     });
     if(!vals.length) return;
-    // 独立量程 + 自适应
-    var lo = s.range[0], hi = s.range[1];
+    // 独立量程：按数据 min/max 自适应（与卡片迷你图一致），让窗口内真实波动可见；
+    // 最小 padding 0.5 单位，避免完全平稳数据造成除零/水平线。
     var dMin = Math.min.apply(null, vals), dMax = Math.max.apply(null, vals);
-    if(dMin < lo) lo = dMin - 1;
-    if(dMax > hi) hi = dMax + 1;
+    var span = dMax - dMin;
+    var pad = Math.max(span * 0.2, 0.5);
+    var lo = dMin - pad;
+    var hi = dMax + pad;
+    if(span === 0){ lo = dMin - 1; hi = dMax + 1; }
     var padL = 36, padR = 12, padT = 8, padB = 16;
     var pw = w - padL - padR, ph = h - padT - padB;
     // 背景网格（3 等分）
