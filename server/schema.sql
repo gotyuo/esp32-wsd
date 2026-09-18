@@ -326,10 +326,12 @@ CREATE TABLE IF NOT EXISTS nurses (
     phone           TEXT DEFAULT NULL,       -- 联系电话
     note            TEXT DEFAULT NULL,       -- 备注
     wechat_userid   TEXT DEFAULT NULL,       -- 企业微信 userid
+    ext_id          TEXT DEFAULT NULL,       -- 外部系统唯一 ID（数据源同步幂等键）
     created_at      TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_nurses_name ON nurses(name);
+
 
 -- ============================================================
 -- 文字消息：向设备下发的文字指令记录。

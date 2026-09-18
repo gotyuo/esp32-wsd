@@ -178,6 +178,16 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE patients ADD COLUMN nurse TEXT DEFAULT NULL"
         )
         _log.info("migration v2.10: added patients.nurse column")
+    # v2.11: 护士外部同步。nurses 表加 ext_id 列（外部系统唯一 ID）+ 唯一索引。
+    try:
+        tbls = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='nurses'").fetchall()]
+        if tbls and not _has_col(conn, "nurses", "ext_id"):
+            conn.execute("ALTER TABLE nurses ADD COLUMN ext_id TEXT DEFAULT NULL")
+            _log.info("migration v2.11: added nurses.ext_id column")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_nurses_ext_id ON nurses(ext_id)")
+    except Exception as e:
+        _log.warning("migration v2.11 nurses.ext_id failed: %s", e)
     # 清理之前 value= 引号错位写入的 maxlength= 垃圾数据
     try:
         n1 = conn.execute(
@@ -1212,13 +1222,14 @@ def nurse_list(limit: int = 200) -> List[Dict[str, Any]]:
 def nurse_create(name: str, title: Optional[str] = None,
                  department: Optional[str] = None, contact: Optional[str] = None,
                  note: Optional[str] = None,
-                 wechat_userid: Optional[str] = None) -> int:
+                 wechat_userid: Optional[str] = None,
+                 ext_id: Optional[str] = None) -> int:
     """登记护士。contact = 联系电话（别名）；department_id 未提供。"""
     now = utcnow()
     cur = execute_insert(
-        "INSERT INTO nurses(name,title,department,department_id,phone,note,wechat_userid,created_at) "
-        "VALUES(?,?,?,?,?,?,?,?)",
-        (name, title, department, None, contact, note, wechat_userid, now),
+        "INSERT INTO nurses(name,title,department,department_id,phone,note,wechat_userid,ext_id,created_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
+        (name, title, department, None, contact, note, wechat_userid, ext_id, now),
     )
     return int(cur)
 
@@ -1229,7 +1240,7 @@ def nurse_by_id(nurse_id: int) -> Optional[Dict[str, Any]]:
 
 
 def nurse_update(nurse_id: int, **fields: Any) -> bool:
-    allowed = ("title", "department", "department_id", "phone", "note", "name", "wechat_userid")
+    allowed = ("title", "department", "department_id", "phone", "note", "name", "wechat_userid", "ext_id")
     updates, params = [], []
     for k, v in fields.items():
         if k in allowed:
@@ -1243,6 +1254,11 @@ def nurse_update(nurse_id: int, **fields: Any) -> bool:
 
 def nurse_delete(nurse_id: int) -> bool:
     return bool(execute("DELETE FROM nurses WHERE id=?", (nurse_id,)))
+
+
+def nurse_by_ext_id(ext_id: str) -> Optional[Dict[str, Any]]:
+    rows = query("SELECT * FROM nurses WHERE ext_id=? LIMIT 1", (ext_id,))
+    return dict(rows[0]) if rows else None
 
 
 def message_list(device_id: str = "", limit: int = 100) -> List[Dict[str, Any]]:

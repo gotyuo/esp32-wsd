@@ -4552,8 +4552,10 @@ var DS_TYPES=[
   {name:"io_balance",label:"出入量",icon:"🚰",desc:"同步出入量记录(输液/尿量/引流量等)，自动计算24h平衡"},
   {name:"lab",label:"检验/血气",icon:"🧪",desc:"同步检验结果和血气分析，支持多项指标和参考范围"},
   {name:"exam",label:"检查",icon:"📋",desc:"同步检查报告(影像/心电图等)，支持报告链接和结论"},
+  {name:"vital",label:"体征",icon:"📊",desc:"同步体征数据(温度/湿度/气压/心率/血氧等)"},
   {name:"patient",label:"患者",icon:"🏥",desc:"同步患者基本信息(姓名/性别/年龄/床号/诊断等)"},
-  {name:"doctor",label:"医生",icon:"👨‍⚕️",desc:"同步医生信息(姓名/科室/职称/联系方式等)"}
+  {name:"doctor",label:"医生",icon:"👨‍⚕️",desc:"同步医生信息(姓名/科室/职称/联系方式等)"},
+  {name:"nurse",label:"护士",icon:"👩‍⚕️",desc:"从外部系统(HIS/护理系统)同步护士档案到本地 nurses 表（REST 或 MySQL 直连，按 ext_id 幂等）",sync:true}
 ];
 var DS_CONN_TYPES=[
   {v:"hl7",label:"HL7 v2"},
@@ -4618,7 +4620,9 @@ function loadDsSettings(){
         '<div class="actions">'+
         '<button class="btn small" onclick="saveDsOne(\''+n+'\')">💾 启动并保存</button>'+
         '<button class="secondary small" onclick="testDsConnection(\''+n+'\')">🔌 测试连接</button>'+
+        '<button class="secondary small" onclick="syncDsNow(\''+n+'\')" style="display:'+(meta.sync?'':'none')+'">🔄 立即同步</button>'+
         '<span id="ds-test-'+n+'" style="font-size:11px;margin-left:8px"></span>'+
+        '<div id="ds-sync-'+n+'" style="font-size:11px;margin-top:6px;color:var(--sub)">'+(meta.sync?(ds.last_result?'上次: '+esc(ds.last_result)+(ds.last_sync?' ('+fmtTime(ds.last_sync)+')':''):'尚未同步'):'')+'</div>'+
         '</div></div>';
     }).join('');
     $("dsCards").innerHTML=html;
@@ -4675,6 +4679,17 @@ function saveDsOne(n){
 function meta_label(n){
   var t=DS_TYPES.find(function(x){return x.name===n;});
   return t?(t.icon+" "+t.label):n;
+}
+function syncDsNow(n){
+  var box=$("ds-sync-"+n);
+  if(box) box.textContent="⏳ 同步中…";
+  api("/api/datasources/"+n+"/sync",{method:"POST"})
+    .then(function(d){
+      if(box) box.textContent=(d&&d.ok)?("✅ "+(d.detail||"同步完成")):("❌ "+((d&&d.detail)||(d&&d.error)||"同步失败"));
+      if(d&&!d.ok) toast((d&&d.error)||"同步失败","alarm");
+      loadDsSettings();
+    })
+    .catch(function(e){ if(box) box.textContent="❌ 请求失败"; toast("同步失败: "+(e&&e.message||""),"alarm"); });
 }
 function testDsConnection(name){
   var el=$("ds-test-"+name);

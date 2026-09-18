@@ -7,3 +7,4 @@ paho-mqtt==1.6.1
 pydantic==2.7.4
 python-multipart>=0.0.6
 requests>=2.31.0
+pymysql>=1.1.0

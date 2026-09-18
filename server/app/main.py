@@ -27,6 +27,7 @@ import threading
 from contextlib import asynccontextmanager
 from urllib.parse import quote as _urllib_quote
 from urllib.error import URLError as _URLError
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
@@ -910,6 +911,12 @@ async def lifespan(app: FastAPI):
                 pass
 
     _offline_task = asyncio.create_task(_offline_check())
+
+    # 护士数据源自动同步后台线程（daemon，随进程退出）
+    _ds_sync_stop = threading.Event()
+    threading.Thread(target=_ds_nurse_sync_loop, args=(_ds_sync_stop,),
+                     daemon=True, name="ds-nurse-sync").start()
+
     log.info("EnvMon backend started")
     yield
     aggregator.stop()
@@ -917,6 +924,7 @@ async def lifespan(app: FastAPI):
     if _backup_task:
         _backup_task.cancel()
     _offline_task.cancel()
+    _ds_sync_stop.set()
 
 
 app = FastAPI(title="EnvMon Backend", version="2.0.0", lifespan=lifespan)
@@ -3256,10 +3264,11 @@ async def tts_dispatch(device_id: str, body: dict):
 # exam(检查) patient(患者) doctor(医生)
 # 每类可配置: enabled, type(hl7/rest/db/ws), url, auth_type, auth_key,
 #             sync_interval(manual/hourly/daily/realtime), extra(自定义参数)
-_DS_TYPES = ["medication", "io_balance", "lab", "exam", "vital", "patient", "doctor"]
+_DS_TYPES = ["medication", "io_balance", "lab", "exam", "vital", "patient", "doctor", "nurse"]
 _DS_LABELS = {
     "medication": "用药", "io_balance": "出入量", "lab": "检验/血气",
     "exam": "检查", "vital": "体征", "patient": "患者", "doctor": "医生",
+    "nurse": "护士",
 }
 _DS_FIELDS = ["enabled", "type", "url", "auth_type", "auth_key",
               "sync_interval", "extra",
@@ -3277,6 +3286,9 @@ def list_datasources():
             key = f"datasource.{name}.{f}"
             ds[f] = raw.get(key, "")
         ds["enabled"] = ds["enabled"] == "true" or ds["enabled"] == "1"
+        if name == "nurse":
+            ds["last_sync"] = raw.get("datasource.nurse.last_sync", "")
+            ds["last_result"] = raw.get("datasource.nurse.last_result", "")
         result.append(ds)
     return {"datasources": result}
 
@@ -3341,6 +3353,20 @@ def test_datasource(name: str):
         return {"ok": False, "error": f"连接失败: {str(e.reason)}"}
     except Exception as e:
         return {"ok": False, "error": f"测试异常: {str(e)}"}
+
+
+@app.post("/api/datasources/{name}/sync", dependencies=[Depends(require_admin)])
+def sync_datasource(name: str):
+    """立即执行一次数据源同步（当前仅 nurse 已实现自动拉取）。"""
+    if name not in _DS_TYPES:
+        raise HTTPException(404, "未知数据源类型")
+    if name != "nurse":
+        return {"ok": False, "error": f"数据源 {name} 暂未实现自动同步（当前仅支持 nurse）"}
+    res = _run_nurse_sync(force=True)
+    if res is None:
+        return {"ok": False, "error": "nurse 数据源未启用，请先在配置中开启"}
+    ok, msg = res
+    return {"ok": ok, "detail": msg}
 
     """导出遥测数据为 CSV 下载。"""
     if not device:
@@ -3722,6 +3748,219 @@ def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
         result["latest_ts"] = latest_ts
     return result
 
+
+
+# ---------- 护士数据源：自动同步（从外部系统拉取护士档案 → nurses 表） ----------
+_SYNC_INTERVALS = {"manual": 0, "realtime": 60, "hourly": 3600, "daily": 86400}
+_SYNC_DB_COLUMNS = ("name", "title", "department", "phone", "note", "wechat_userid")
+
+
+def _ds_raw_for(name: str) -> Dict[str, str]:
+    raw = icu.list_settings_raw()
+    return {
+        "enabled": raw.get(f"datasource.{name}.enabled", ""),
+        "type": raw.get(f"datasource.{name}.type", ""),
+        "url": raw.get(f"datasource.{name}.url", ""),
+        "auth_type": raw.get(f"datasource.{name}.auth_type", ""),
+        "auth_key": raw.get(f"datasource.{name}.auth_key", ""),
+        "sync_interval": raw.get(f"datasource.{name}.sync_interval", "manual"),
+        "extra": raw.get(f"datasource.{name}.extra", ""),
+        "db_host": raw.get(f"datasource.{name}.db_host", ""),
+        "db_port": raw.get(f"datasource.{name}.db_port", "3306"),
+        "db_name": raw.get(f"datasource.{name}.db_name", ""),
+        "db_user": raw.get(f"datasource.{name}.db_user", ""),
+        "db_pass": raw.get(f"datasource.{name}.db_pass", ""),
+    }
+
+
+def _normalize_nurse_item(item: Any) -> Optional[Dict[str, str]]:
+    """外部记录 → nurses 字段。 ext_id 与 name 必填，否则丢弃。"""
+    if not isinstance(item, dict):
+        return None
+    ext_id = str(item.get("ext_id") or item.get("id")
+                 or item.get("emp_no") or item.get("nurse_no") or "").strip()
+    name = str(item.get("name") or "").strip()
+    if not ext_id or not name:
+        return None
+    return {
+        "ext_id": ext_id,
+        "name": name,
+        "title": str(item.get("title") or "").strip(),
+        "department": str(item.get("department") or item.get("dept") or "").strip(),
+        "contact": str(item.get("phone") or item.get("contact") or "").strip(),
+        "note": str(item.get("note") or "").strip(),
+        "wechat_userid": str(item.get("wechat_userid") or item.get("wx_userid") or "").strip(),
+    }
+
+
+def _upsert_nurse_from_ext(item: Dict[str, str]) -> str:
+    """按 ext_id 幂等写入 nurses。返回 insert/update/skip。空字段不覆盖本地已有值。"""
+    ext_id = item.get("ext_id")
+    if not ext_id:
+        return "skip"
+    existing = db.nurse_by_ext_id(ext_id)
+    if existing:
+        upd = {}
+        if item.get("name"):
+            upd["name"] = item["name"]
+        if item.get("title"):
+            upd["title"] = item["title"]
+        if item.get("department"):
+            upd["department"] = item["department"]
+        if item.get("contact"):
+            upd["phone"] = item["contact"]
+        if item.get("note"):
+            upd["note"] = item["note"]
+        if item.get("wechat_userid"):
+            upd["wechat_userid"] = item["wechat_userid"]
+        if upd:
+            db.nurse_update(existing["id"], **upd)
+        return "update"
+    db.nurse_create(
+        name=item["name"],
+        title=item.get("title") or None,
+        department=item.get("department") or None,
+        contact=item.get("contact") or None,
+        note=item.get("note") or None,
+        wechat_userid=item.get("wechat_userid") or None,
+        ext_id=ext_id,
+    )
+    return "insert"
+
+
+def _sync_nurse_from_rest(cfg: Dict[str, str]) -> tuple:
+    """GET url → JSON（{"nurses":[...]} / {"data":[...]} / 裸数组）→ upsert。"""
+    url = (cfg.get("url") or "").strip()
+    if not url:
+        return (False, "URL 未配置", 0, 0, 0)
+    headers = {"User-Agent": "envmon-sync/1.0", "Accept": "application/json"}
+    auth_key = (cfg.get("auth_key") or "").strip()
+    if auth_key:
+        if cfg.get("auth_type") == "basic":
+            headers["Authorization"] = "Basic " + base64.b64encode(auth_key.encode()).decode()
+        elif cfg.get("auth_type") == "apikey":
+            headers["X-API-Key"] = auth_key
+        else:  # bearer / 未指定默认
+            headers["Authorization"] = "Bearer " + auth_key
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = json.loads(resp.read().decode("utf-8") or "{}")
+    except Exception as e:
+        return (False, f"请求失败: {e}", 0, 0, 0)
+    items = raw.get("nurses") if isinstance(raw, dict) else raw
+    if items is None and isinstance(raw, dict):
+        items = raw.get("data") or raw.get("list") or raw.get("items")
+    if not isinstance(items, list):
+        return (False, "响应格式无法解析（预期 JSON 数组，或含 nurses/data 字段的对象）", 0, 0, 0)
+    ins = upd = skip = 0
+    for it in items:
+        norm = _normalize_nurse_item(it)
+        if not norm:
+            skip += 1
+            continue
+        r = _upsert_nurse_from_ext(norm)
+        if r == "insert":
+            ins += 1
+        elif r == "update":
+            upd += 1
+        else:
+            skip += 1
+    return (True, f"同步完成：新增 {ins}，更新 {upd}，跳过 {skip}", ins, upd, skip)
+
+
+def _sync_nurse_from_db(cfg: Dict[str, str]) -> tuple:
+    """MySQL 直连：查外部 nurses 表 → upsert。表名在“额外参数(JSON)”里配 table，默认 nurses。"""
+    try:
+        import pymysql
+    except ImportError:
+        return (False, "未安装 pymysql（数据库直连需要），请更新 requirements 后重建镜像", 0, 0, 0)
+    host = (cfg.get("db_host") or "").strip()
+    if not host:
+        return (False, "数据库 IP/主机 未配置", 0, 0, 0)
+    table = "nurses"
+    if cfg.get("extra"):
+        try:
+            extra = json.loads(cfg["extra"]) or {}
+            table = (extra.get("table") or "nurses").strip()
+        except Exception:
+            pass
+    cols = ",".join(_SYNC_DB_COLUMNS + ("ext_id",))
+    try:
+        conn = pymysql.connect(
+            host=host, port=int(cfg.get("db_port") or 3306),
+            user=cfg.get("db_user") or None, password=cfg.get("db_pass") or None,
+            database=cfg.get("db_name") or None,
+            charset="utf8mb4", connect_timeout=10, read_timeout=20)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT {cols} FROM {table} LIMIT 1000")
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        return (False, f"数据库同步失败: {e}", 0, 0, 0)
+    ins = upd = skip = 0
+    for row in rows:
+        item = {k: ("" if v is None else str(v)) for k, v in zip(_SYNC_DB_COLUMNS + ("ext_id",), row)}
+        if not item.get("ext_id", "").strip():
+            skip += 1
+            continue
+        norm = _normalize_nurse_item(item)
+        if not norm:
+            skip += 1
+            continue
+        r = _upsert_nurse_from_ext(norm)
+        if r == "insert":
+            ins += 1
+        elif r == "update":
+            upd += 1
+        else:
+            skip += 1
+    return (True, f"同步完成：新增 {ins}，更新 {upd}，跳过 {skip}", ins, upd, skip)
+
+
+def _run_nurse_sync(force: bool = False):
+    """按配置执行一次护士同步（启用才跑；非 force 时按 sync_interval 节流）。
+    返回 (ok, msg)；未触发返回 None。结果写入 last_sync/last_result。"""
+    cfg = _ds_raw_for("nurse")
+    if cfg.get("enabled") not in ("true", "1"):
+        return None
+    if not force:
+        iv = _SYNC_INTERVALS.get(cfg.get("sync_interval", "manual"), 0)
+        if iv <= 0:
+            return None
+        last = icu.get_setting_raw("datasource.nurse.last_sync", "")
+        if last:
+            try:
+                last_ts = datetime.fromisoformat(last.replace("Z", "+00:00"))
+                if (datetime.now(timezone.utc) - last_ts).total_seconds() < iv:
+                    return None
+            except Exception:
+                pass
+    ds_type = cfg.get("type", "")
+    if ds_type == "db":
+        ok, msg, ins, upd, skip = _sync_nurse_from_db(cfg)
+    elif ds_type == "rest":
+        ok, msg, ins, upd, skip = _sync_nurse_from_rest(cfg)
+    elif ds_type in ("hl7", "ws"):
+        ok, msg, ins, upd, skip = (False, f"{ds_type.upper()} 类型暂不支持自动同步，请改用 REST 或数据库直连", 0, 0, 0)
+    else:
+        ok, msg, ins, upd, skip = (False, "未配置连接类型（REST / 数据库直连）", 0, 0, 0)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    icu.set_setting("datasource.nurse.last_sync", now)
+    icu.set_setting("datasource.nurse.last_result", f"{'OK' if ok else 'ERR'}: {msg}")
+    return (ok, msg)
+
+
+def _ds_nurse_sync_loop(stop_evt: threading.Event) -> None:
+    """后台 daemon 线程：每 60s 检查一次启用的 nurse 数据源是否到同步时间。"""
+    while not stop_evt.is_set():
+        try:
+            _run_nurse_sync(force=False)
+        except Exception as e:
+            log.warning("datasource nurse auto-sync error: %s", e)
+        stop_evt.wait(60)
 
 
 # ---------- 临床数据双向同步 ----------
