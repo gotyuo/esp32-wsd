@@ -172,6 +172,12 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE doctors ADD COLUMN wechat_userid TEXT DEFAULT NULL"
         )
         _log.info("migration v2.8b: added doctors.wechat_userid column")
+    # v2.10: 患者主管护士。patients 表加 nurse 列，用于护理归属记录。
+    if not _has_col(conn, "patients", "nurse"):
+        conn.execute(
+            "ALTER TABLE patients ADD COLUMN nurse TEXT DEFAULT NULL"
+        )
+        _log.info("migration v2.10: added patients.nurse column")
     # 清理之前 value= 引号错位写入的 maxlength= 垃圾数据
     try:
         n1 = conn.execute(
@@ -1196,6 +1202,47 @@ def doctor_update(doctor_id: int, **fields: Any) -> bool:
 
 def doctor_delete(doctor_id: int) -> bool:
     return delete_doctor(doctor_id)
+
+
+def nurse_list(limit: int = 200) -> List[Dict[str, Any]]:
+    rows = query("SELECT * FROM nurses ORDER BY id LIMIT ?", (limit,))
+    return [dict(r) for r in rows]
+
+
+def nurse_create(name: str, title: Optional[str] = None,
+                 department: Optional[str] = None, contact: Optional[str] = None,
+                 note: Optional[str] = None,
+                 wechat_userid: Optional[str] = None) -> int:
+    """登记护士。contact = 联系电话（别名）；department_id 未提供。"""
+    now = utcnow()
+    cur = execute_insert(
+        "INSERT INTO nurses(name,title,department,department_id,phone,note,wechat_userid,created_at) "
+        "VALUES(?,?,?,?,?,?,?,?)",
+        (name, title, department, None, contact, note, wechat_userid, now),
+    )
+    return int(cur)
+
+
+def nurse_by_id(nurse_id: int) -> Optional[Dict[str, Any]]:
+    rows = query("SELECT * FROM nurses WHERE id=?", (nurse_id,))
+    return dict(rows[0]) if rows else None
+
+
+def nurse_update(nurse_id: int, **fields: Any) -> bool:
+    allowed = ("title", "department", "department_id", "phone", "note", "name", "wechat_userid")
+    updates, params = [], []
+    for k, v in fields.items():
+        if k in allowed:
+            updates.append(f"{k} = ?")
+            params.append(v or None)
+    if not updates:
+        return False
+    params.append(nurse_id)
+    return bool(execute(f"UPDATE nurses SET {', '.join(updates)} WHERE id = ?", tuple(params)))
+
+
+def nurse_delete(nurse_id: int) -> bool:
+    return bool(execute("DELETE FROM nurses WHERE id=?", (nurse_id,)))
 
 
 def message_list(device_id: str = "", limit: int = 100) -> List[Dict[str, Any]]:

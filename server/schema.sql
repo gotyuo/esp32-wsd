@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS patients (
     admit_ts    TEXT NOT NULL,             -- 入院/入 ICU 时间
     diagnosis   TEXT,                      -- 诊断
     doctor      TEXT,                      -- 主管医生
+    nurse       TEXT,                      -- 主管护士
     phone       TEXT,                      -- 联系电话
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
@@ -311,6 +312,24 @@ CREATE TABLE IF NOT EXISTS doctors (
 );
 
 CREATE INDEX IF NOT EXISTS idx_doctors_name ON doctors(name);
+
+-- ============================================================
+-- 护士管理：护士档案（独立于 users 应用账户；护士是医护对象，
+-- 不一定有系统登录账号）。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS nurses (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,           -- 护士姓名
+    title           TEXT DEFAULT NULL,       -- 职称：主管护师/护师/护士/...
+    department      TEXT DEFAULT NULL,       -- 科室
+    department_id   TEXT DEFAULT NULL,       -- 工号/执业编号
+    phone           TEXT DEFAULT NULL,       -- 联系电话
+    note            TEXT DEFAULT NULL,       -- 备注
+    wechat_userid   TEXT DEFAULT NULL,       -- 企业微信 userid
+    created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_nurses_name ON nurses(name);
 
 -- ============================================================
 -- 文字消息：向设备下发的文字指令记录。

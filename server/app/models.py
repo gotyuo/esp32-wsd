@@ -167,6 +167,7 @@ class PatientCreate(BaseModel):
     admit_ts: str = Field("", max_length=32)
     diagnosis: str = Field("", max_length=512)
     doctor: str = Field("", max_length=64)
+    nurse: str = Field("", max_length=64)
     phone: str = Field("", max_length=20)
     wechat_userid: str = Field("", max_length=128)
 
@@ -178,6 +179,7 @@ class PatientUpdate(BaseModel):
     bed_no: str = Field("", max_length=16)
     diagnosis: str = Field("", max_length=512)
     doctor: str = Field("", max_length=64)
+    nurse: str = Field("", max_length=64)
     phone: str = Field("", max_length=20)
     wechat_userid: str = Field("", max_length=128)
 
@@ -278,6 +280,24 @@ class DoctorUpdateIn(BaseModel):
     note: Optional[str] = Field(None, max_length=4096)
     wechat_userid: Optional[str] = Field(None, max_length=128)
 
+
+# ================================================================ 护士档案
+class NurseCreateIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    title: str = Field("", max_length=64)
+    department: str = Field("", max_length=64)
+    contact: str = Field("", max_length=64)
+    note: str = Field("", max_length=4096)
+    wechat_userid: str = Field("", max_length=128)
+
+
+class NurseUpdateIn(BaseModel):
+    name: Optional[str] = Field(None, max_length=64)
+    title: Optional[str] = Field(None, max_length=64)
+    department: Optional[str] = Field(None, max_length=64)
+    contact: Optional[str] = Field(None, max_length=64)
+    note: Optional[str] = Field(None, max_length=4096)
+    wechat_userid: Optional[str] = Field(None, max_length=128)
 
 # ================================================================ 文字消息
 class MessageSendIn(BaseModel):

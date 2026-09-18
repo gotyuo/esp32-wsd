@@ -39,7 +39,7 @@ from .aggregator import Aggregator
 from .models import (
     IngestIn, ThresholdsIn, LoginIn, UserCreate, PasswordChangeIn, SoundPrefIn,
     RegisterDeviceIn, SettingsUpdateIn, UpdateDeviceIn, DoctorCreateIn,
-    DoctorUpdateIn, MessageSendIn,
+    DoctorUpdateIn, NurseCreateIn, NurseUpdateIn, MessageSendIn,
 )
 from pydantic import BaseModel, Field
 from . import icu
@@ -3465,7 +3465,7 @@ def create_patient(body: PatientCreate):
     pid_id = icu.patient_create(
         body.pid, body.name, body.gender, body.age, body.bed_no,
         body.admit_ts, body.diagnosis, body.doctor, body.phone,
-        body.wechat_userid,
+        body.wechat_userid, body.nurse,
     )
     return {"ok": True, "patient_id": pid_id, "pid": body.pid}
 
@@ -4275,6 +4275,47 @@ def delete_doctor(did: int):
     if not d:
         raise HTTPException(404, "医生不存在")
     ok = db.doctor_delete(did)
+    return {"ok": ok}
+
+
+# ---------- 护士档案 ----------
+@app.get("/api/nurses", dependencies=[Depends(require_user)])
+def list_nurses(limit: int = Query(200, ge=1, le=1000)):
+    return {"nurses": db.nurse_list(limit)}
+
+
+@app.post("/api/nurses", dependencies=[Depends(require_admin)])
+def create_nurse(body: NurseCreateIn):
+    did = db.nurse_create(
+        body.name, body.title, body.department, body.contact, body.note,
+        wechat_userid=body.wechat_userid,
+    )
+    return {"ok": True, "nurse_id": did, "name": body.name}
+
+
+@app.get("/api/nurses/{nid}", dependencies=[Depends(require_user)])
+def get_nurse(nid: int):
+    d = db.nurse_by_id(nid)
+    if not d:
+        raise HTTPException(404, "护士不存在")
+    return d
+
+
+@app.put("/api/nurses/{nid}", dependencies=[Depends(require_admin)])
+def update_nurse(nid: int, body: NurseUpdateIn):
+    d = db.nurse_by_id(nid)
+    if not d:
+        raise HTTPException(404, "护士不存在")
+    db.nurse_update(nid, **body.model_dump(exclude_unset=True))
+    return {"ok": True}
+
+
+@app.delete("/api/nurses/{nid}", dependencies=[Depends(require_admin)])
+def delete_nurse(nid: int):
+    d = db.nurse_by_id(nid)
+    if not d:
+        raise HTTPException(404, "护士不存在")
+    ok = db.nurse_delete(nid)
     return {"ok": ok}
 
 

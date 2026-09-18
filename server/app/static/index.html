@@ -195,6 +195,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab" data-view="hl7" onclick="switchView('hl7')">📡 非ESP接入</span>
       <span class="vtab" data-view="access" onclick="switchView('access')" id="tab-access">📡 设备接入</span>
       <span class="vtab" data-view="doctors" onclick="switchView('doctors')" id="tab-doctors">👨⚕ 医生管理</span>
+      <span class="vtab" data-view="nurses" onclick="switchView('nurses')" id="tab-nurses">👩⚕ 护士管理</span>
       <span class="vtab" data-view="remind" onclick="switchView('remind')" id="tab-remind">💬 发提醒</span>
       <span class="vtab" data-view="wechat" onclick="switchView('wechat')" id="tab-wechat">🏥 企业微信配置</span>
       <span class="vtab" data-view="ai" onclick="switchView('ai')" id="tab-ai">🧠 AI 模型</span>
@@ -667,6 +668,26 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
     </div>
   </div>
 
+  <!-- ============= 护士管理 ============= -->
+  <div id="view-nurses" class="hidden">
+    <div class="section">
+      <h2>👩⚕ 护士管理 / NURSES
+        <div class="actions" style="margin-top:0">
+          <button onclick="showNurseForm()">+ 新增护士</button>
+          <button class="secondary small" onclick="loadNursesView()">刷新</button>
+          <span class="hint" id="nurseCount">0 人</span>
+        </div>
+      </h2>
+      <div style="font-size:12px;color:var(--sub);margin-bottom:10px">
+        注册护士后，可在患者管理里给患者绑定主管护士；主管护士会在患者卡片上显示。
+      </div>
+      <table>
+        <thead><tr><th>姓名</th><th>职称</th><th>科室</th><th>电话</th><th>备注</th><th>操作</th></tr></thead>
+        <tbody id="nursesBody"><tr><td colspan="6" class="empty">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- ============= 发提醒 ============= -->
   
 <div id="view-remind" class="hidden">
@@ -922,8 +943,8 @@ function _refreshBtn(ev,fn){
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","monitor","patients","devices","encounters","sessions","alarms","hl7","access","doctors","remind","wechat","ai","datasource","data-mgr"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);MONITOR_REFRESH_TIMER=setInterval(function(){if(CURRENT_VIEW==="monitor")refreshMonitor();},5000);}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="encounters")loadEncountersView();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}if(v==="data-mgr"){loadDataManage();}}
+  ["dashboard","monitor","patients","devices","encounters","sessions","alarms","hl7","access","doctors","nurses","remind","wechat","ai","datasource","data-mgr"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);MONITOR_REFRESH_TIMER=setInterval(function(){if(CURRENT_VIEW==="monitor")refreshMonitor();},5000);}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="encounters")loadEncountersView();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="nurses")loadNursesView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}if(v==="data-mgr"){loadDataManage();}}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -977,7 +998,7 @@ function doLogin(ev){ev.preventDefault();var u=$("lgUser").value.trim(),p=$("lgP
   var btn=ev.submitter||ev.target.querySelector("button[type=submit]");
   var btnText=btn?btn.textContent:"";btn&& (btn.disabled=true);$("loginErr").textContent="";
   fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})}).then(function(r){if(!r.ok){if(r.status===429){return r.text().then(function(t){throw new Error(t||"登录尝试过于频繁，请稍后重试");});}if(r.status===401||r.status===403){throw new Error("用户名或密码错误");}return r.text().then(function(t){throw new Error("登录失败("+r.status+")"+(t?": "+t:""));});}return r.json();}).then(function(d){TOKEN=d.token;localStorage.setItem("envmon_token",TOKEN);ME=d.user;$("loginErr").textContent="";if(btn){btn.disabled=false;btn.textContent=btnText;}enterApp();}).catch(function(e){if(btn){btn.disabled=false;btn.textContent=btnText;}$("loginErr").textContent=String(e&&e.message?e.message:"网络错误：后端未响应，请确认服务已启动后再试");}).finally(function(){});}
-function enterApp(){$("loginView").classList.add("hidden");$("mainView").classList.remove("hidden");$("userName").textContent=(ME&&(ME.display_name||ME.username))||"-";$("mSound").textContent="🔔 报警声音："+(ME&&ME.sound_alarm?"开":"关");SOUND=!(ME&&ME.sound_alarm===0);loadSettings();loadSettingsForMenu();loadAll();loadUsers();loadPatients();_loadDoctorsForSelects();connectWS();}
+function enterApp(){$("loginView").classList.add("hidden");$("mainView").classList.remove("hidden");$("userName").textContent=(ME&&(ME.display_name||ME.username))||"-";$("mSound").textContent="🔔 报警声音："+(ME&&ME.sound_alarm?"开":"关");SOUND=!(ME&&ME.sound_alarm===0);loadSettings();loadSettingsForMenu();loadAll();loadUsers();loadPatients();_loadDoctorsForSelects();_loadNursesForSelects();connectWS();}
 function doLogout(){api("/api/logout",{method:"POST"}).then(function(){showLogin();}).catch(function(){showLogin();});}
 function toggleMenu(ev){ev.stopPropagation();$("userMenu").classList.toggle("hidden");}
 document.addEventListener("click",function(){var m=$("userMenu");if(m&&!m.classList.contains("hidden"))m.classList.add("hidden");});
@@ -1522,6 +1543,7 @@ function loadPatients(ev){_refreshBtn(ev,function(){
             +'<span>床号 <b>'+esc(p.bed_no||"-")+'</b></span>'
             +'<span>年龄 <b>'+(p.age!=null?p.age:'-')+' 岁</b></span>'
             +'<span>主管 <b>'+esc(p.doctor||"-")+'</b></span>'
+            +'<span>护士 <b>'+esc(p.nurse||"-")+'</b></span>'
           +'</div>'
           +'<div class="sub">诊断: '+esc(p.diagnosis||"-")+'</div>'
           +'<div class="sub">入院: '+fmtTime(p.admit_ts)+' · 更新: '+fmtTime(p.updated_at)+'</div>'
@@ -1540,8 +1562,6 @@ function loadPatients(ev){_refreshBtn(ev,function(){
 });}
 function showPatientForm(pid){
   var fetchP = pid?api("/api/patients/"+encodeURIComponent(pid)):Promise.resolve({});
-  // 确保医生下拉已填充（用户可能未访问过医生管理页）
-  _loadDoctorsForSelects();
   fetchP.then(function(d){
     var p=pid?d:({});
     $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"
@@ -1553,11 +1573,16 @@ function showPatientForm(pid){
         +"<label>年龄</label><input type='number' id='pAge' value='"+(p.age||"")+"' min='0' max='150'>"
         +"<label>床号</label><input id='pBed' value='"+esc(p.bed_no||"")+"' maxlength='16'>"
         +"<label>主管医生</label><select id='pDoc'><option value=''>-- 无 --</option></select>"
+        +"<label>主管护士</label><select id='pNurse'><option value=''>-- 无 --</option></select>"
         +"<label>诊断</label><input id='pDiag' value='" + esc(p.diagnosis||"") + "' maxlength='512'>"
         +"<label>联系电话</label><input id='pPhone' value='" + esc(p.phone||"") + "' maxlength='20'>"
         +"<label>企业微信 userid（推送地址，可选）</label><input id='pWxId' value='" + esc(p.wechat_userid||"") + "' maxlength='128' placeholder='企业微信账号ID，如 zhangsan。提醒会推送到此账号'>"
       +"</div>"
       +"<div class='actions'><button onclick='savePatient(\""+(pid||"")+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+    // 表单渲染后再加载医生/护士下拉，并按姓名回显已有主管医生/护士
+    Promise.all([_loadDoctorsForSelects(), _loadNursesForSelects()]).then(function(){
+      if(pid){ _preselectByName("pDoc", p.doctor); _preselectByName("pNurse", p.nurse); }
+    });
     $("modalBox").classList.remove("hidden");
   }).catch(function(e){
     console.error("showPatientForm error:", e);
@@ -1573,6 +1598,7 @@ function savePatient(pid){
     bed_no:$("pBed").value.trim(),
     diagnosis:$("pDiag").value.trim(),
     doctor:_pDocName(),
+    nurse:_pNurseName(),
     phone:$("pPhone").value.trim(),
     wechat_userid:($("pWxId")?$("pWxId").value.trim():""),
   };
@@ -1723,6 +1749,7 @@ function showPatientDetail(pid){
       +"<div class='grid' style='margin:8px 0 14px'>"
         +"<span>床号 <b>"+esc(p.bed_no||"-")+"</b></span>"
         +"<span>主管 <b>"+esc(p.doctor||"-")+"</b></span>"
+        +"<span>护士 <b>"+esc(p.nurse||"-")+"</b></span>"
         +"<span>诊断 <b>"+esc(p.diagnosis||"-")+"</b></span>"
         +"<span>电话 <b>"+esc(p.phone||"-")+"</b></span>"
         +"<span>入院 <b>"+fmtTime(p.admit_ts)+"</b></span>"
@@ -3296,7 +3323,7 @@ function loadSettingsForMenu(){
   if(isAdmin) $("mSettings").classList.remove("hidden");
   else $("mSettings").classList.add("hidden");
   // 需要管理员权限的标签页：非管理员隐藏，避免保存时报 403
-  ["access","doctors","remind","wechat","ai","datasource","data-mgr"].forEach(function(t){
+  ["access","doctors","nurses","remind","wechat","ai","datasource","data-mgr"].forEach(function(t){
     var el=$("tab-"+t);
     if(el) el.classList.toggle("hidden",!isAdmin);
   });
@@ -4195,6 +4222,97 @@ function delDoctor(did){
   if(!confirm("确定删除该医生？"))return;
   api("/api/doctors/"+did,{method:"DELETE"})
     .then(function(){toast("已删除");loadDoctorsView();})
+    .catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});
+}
+
+// ==================== 护士管理 ====================
+// 轻量加载护士列表，仅填充下拉框（不渲染表格），供患者表单调用
+function _loadNursesForSelects(){
+  return api("/api/nurses").then(function(d){
+    _refreshNurseSelects(d.nurses||[]);
+  }).catch(function(){});
+}
+function loadNursesView(){
+  api("/api/nurses").then(function(d){
+    var list=d.nurses||[];
+    if(!list.length){$("nursesBody").innerHTML='<tr><td colspan="6" class="empty">暂无护士，点「+ 新增护士」创建</td></tr>';$("nurseCount").textContent="0 人";return;}
+    $("nursesBody").innerHTML=list.map(function(x){
+      return "<tr><td><b>"+esc(x.name)+"</b></td><td>"+esc(x.title||"-")+"</td><td>"+esc(x.department||"-")+"</td><td>"+esc(x.phone||"-")+"</td><td>"+esc(x.note||"-")+"</td><td><button class='secondary small' onclick='showNurseForm("+x.id+")'>编辑</button> <button class='danger small' onclick='delNurse("+x.id+")'>删除</button></td></tr>";
+    }).join("");
+    $("nurseCount").textContent=list.length+" 人";
+    // 同步填充护士下拉（患者编辑页）
+    _refreshNurseSelects(list);
+  }).catch(function(){$("nursesBody").innerHTML='<tr><td colspan="6" class="empty">加载失败</td></tr>';});
+}
+function _refreshNurseSelects(list){
+  function fill(sel){
+    if(!sel) return;
+    var cur=sel.value;
+    var html="<option value=''>-- 无 --</option>";
+    list.forEach(function(x){html+="<option value='"+esc(x.id)+"' data-name='"+esc(x.name)+"'>"+esc(x.name)+(x.title?" ("+x.title+")":"")+"</option>";});
+    sel.innerHTML=html;
+    if(cur){
+      var oq=sel.querySelector('option[value="'+cur+'"]');
+      if(oq) sel.value=cur;
+    }
+  }
+  fill($("pNurse"));
+  fill($("pNurseSel"));
+}
+function _pNurseName(){
+  var sel=$("pNurse");
+  if(!sel) return "";
+  var opt=sel.options[sel.selectedIndex];
+  return opt && opt.dataset && opt.dataset.name ? opt.dataset.name : (sel.value ? sel.value : "");
+}
+function _preselectByName(selId, name){
+  var sel=$(selId);
+  if(!sel || !name) return;
+  var opt=sel.querySelector('option[data-name="'+name+'"]');
+  if(opt) sel.value=opt.value;
+}
+function showNurseForm(nid){
+  var fetchN = nid?api("/api/nurses/"+nid):Promise.resolve({});
+  fetchN.then(function(d){
+    var nurse = nid?(d||{}):{};
+    $("modalInner").innerHTML="<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+(nid?"编辑护士":"新增护士")+"</h2>"+
+      "<div class='kv'>"+
+        "<label>姓名</label><input id='nuName' value='"+esc(nurse.name||"")+"' maxlength='64' required>"+
+        "<label>职称</label><input id='nuTitle' value='"+esc(nurse.title||"")+"' maxlength='48'>"+
+        "<label>科室</label><input id='nuDept' value='"+esc(nurse.department||"")+"' maxlength='48'>"+
+        "<label>电话</label><input id='nuPhone' value='"+esc(nurse.phone||nurse.contact||"")+"' maxlength='20'>"+
+        "<label>企业微信 userid（推送地址）</label><input id='nuWxId' value='"+esc(nurse.wechat_userid||"")+"' maxlength='128' placeholder='企业微信账号ID，如 lisi。'>"+
+        "<label>备注</label><input id='nuNote' value='"+esc(nurse.note||"")+"' maxlength='256'>"+
+      "</div>"+
+      "<div class='actions'><button onclick='saveNurse("+nid+")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
+    $("modalBox").classList.remove("hidden");
+  }).catch(function(){});
+}
+function saveNurse(nid){
+  var name=$("nuName").value.trim();
+  if(!name){alert("姓名必填");return;}
+  var body={
+    name:name,
+    title:$("nuTitle").value.trim(),
+    department:$("nuDept").value.trim(),
+    contact:$("nuPhone").value.trim(),
+    note:$("nuNote").value.trim(),
+    wechat_userid:$("nuWxId").value.trim(),
+  };
+  if(nid){
+    api("/api/nurses/"+nid,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+      .then(function(){toast("护士已更新");closeModal();loadNursesView();})
+      .catch(function(e){toast("保存失败: "+(e&&e.message||""),"alarm");});
+  } else {
+    api("/api/nurses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+      .then(function(){toast("护士已创建");closeModal();loadNursesView();})
+      .catch(function(e){toast("创建失败: "+(e&&e.message||""),"alarm");});
+  }
+}
+function delNurse(nid){
+  if(!confirm("确定删除该护士？"))return;
+  api("/api/nurses/"+nid,{method:"DELETE"})
+    .then(function(){toast("已删除");loadNursesView();})
     .catch(function(e){toast("删除失败: "+(e&&e.message||""),"alarm");});
 }
 

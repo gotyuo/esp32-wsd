@@ -88,13 +88,14 @@ def fetchall(sql: str, params: Optional[Tuple] = None):
 def patient_create(pid: str, name: str = None, gender: str = None,
                    age: int = None, bed_no: str = None, admit_ts: str = None,
                    diagnosis: str = None, doctor: str = None,
-                   phone: str = None, wechat_userid: str = None) -> int:
+                   phone: str = None, wechat_userid: str = None,
+                   nurse: str = None) -> int:
     now = _now()
     admit = admit_ts or now
     return run(
-        "INSERT INTO patients (pid,name,gender,age,bed_no,admit_ts,diagnosis,doctor,phone,wechat_userid,created_at,updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        (pid, name, gender, age, bed_no, admit, diagnosis, doctor, phone,
+        "INSERT INTO patients (pid,name,gender,age,bed_no,admit_ts,diagnosis,doctor,nurse,phone,wechat_userid,created_at,updated_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (pid, name, gender, age, bed_no, admit, diagnosis, doctor, nurse, phone,
          wechat_userid, now, now),
     )
 
@@ -112,7 +113,7 @@ def list_patients(limit: int = 200) -> List[Dict]:
 
 
 def patient_update(patient_id: int, **fields) -> bool:
-    allowed = {"name", "gender", "age", "bed_no", "diagnosis", "doctor",
+    allowed = {"name", "gender", "age", "bed_no", "diagnosis", "doctor", "nurse",
                "phone", "wechat_userid"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
