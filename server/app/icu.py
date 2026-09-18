@@ -326,8 +326,10 @@ def patient_vitals(patient_id: int, start: str, end: str,
         # 时间参数解析失败时按字符串比较兜底，避免把可能的数据全部过滤掉
         sql = (f"SELECT id, ts, {cols}, source, source_device, alarm_flag "
                f"FROM vitals WHERE patient_id=? AND ts>=? AND ts<=? AND deleted=0 "
-               f"ORDER BY ts ASC LIMIT 5000")
-        return fetchall(sql, (patient_id, start, end))
+               f"ORDER BY ts DESC LIMIT 5000")
+        rows = fetchall(sql, (patient_id, start, end))
+        rows.reverse()  # 保留最新 5000 行并恢复升序：曲线必须覆盖到最新数据
+        return rows
     # 按 epoch 秒比较：strftime('%s', ts) 能识别 'Z' / '+08:00' / 空格分隔格式，
     # 避免混合时间格式下字符串字典序比较漏选/错选，导致时间窗口过滤失效。
     # 注意 strftime 返回 TEXT，需 CAST 成 INTEGER 再与 epoch 秒参数比较，
@@ -335,8 +337,10 @@ def patient_vitals(patient_id: int, start: str, end: str,
     sql = (f"SELECT id, ts, {cols}, source, source_device, alarm_flag "
            f"FROM vitals WHERE patient_id=? AND deleted=0 "
            f"AND CAST(strftime('%s', ts) AS INTEGER) BETWEEN ? AND ? "
-           f"ORDER BY ts ASC LIMIT 5000")
-    return fetchall(sql, (patient_id, start_sec, end_sec))
+           f"ORDER BY ts DESC LIMIT 5000")
+    rows = fetchall(sql, (patient_id, start_sec, end_sec))
+    rows.reverse()  # 保留最新 5000 行并恢复升序：曲线必须覆盖到最新数据
+    return rows
 
 def patient_vitals_latest(patient_id: int, limit: int = 100,
                           fields: Optional[List[str]] = None) -> List[Dict]:

@@ -3684,9 +3684,14 @@ def get_vitals(pid: str, start: Optional[str] = None, end: Optional[str] = None,
             dev_ids = [r["id"] for r in all_devs if r["id"]]
         # BUG-001 修复：不再关闭线程局部连接
         for did in dev_ids:
-            tel_rows = db.query(
-                "SELECT ts, temp_c, hum_pct, pres_hpa FROM telemetry "
-                "WHERE device_id=? ORDER BY ts DESC LIMIT 200", (did,))
+            if hours:
+                tel_rows = db.query(
+                    "SELECT ts, temp_c, hum_pct, pres_hpa FROM telemetry "
+                    "WHERE device_id=? AND ts>=? ORDER BY ts DESC LIMIT 5000", (did, start))
+            else:
+                tel_rows = db.query(
+                    "SELECT ts, temp_c, hum_pct, pres_hpa FROM telemetry "
+                    "WHERE device_id=? ORDER BY ts DESC LIMIT 200", (did,))
             for tr in tel_rows:
                 if telemetry_latest_ts is None:
                     telemetry_latest_ts = tr["ts"]

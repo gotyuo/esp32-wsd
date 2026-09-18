@@ -1978,6 +1978,7 @@ function paintSpark(c,vals){
 var MONITOR_TREND_HOURS = 24;
 var _TREND_HOUR_LABELS={0.5:"最近30分钟",1:"最近1小时",3:"最近3小时",6:"最近6小时",12:"最近12小时",24:"最近24小时"};
 var MONITOR_TREND_NOTE="";
+var MONITOR_TREND_FALLBACK=false;
 // 健壮的 ts 解析：'Z' / '+08:00' 原样解析；空格分隔无时区的补 'Z'（按 UTC），失败返回 NaN
 function parseTs(v){
   if(v==null||v==="")return NaN;
@@ -1989,9 +1990,9 @@ function parseTs(v){
 function trendWindowSelect(h,raw){
   raw = raw||[];
   var win = windowFilterTrend(h, raw);
-  if(win.length){ MONITOR_TREND_NOTE=""; return win; }
-  if(raw.length){ var last=raw[raw.length-1]; var tsTxt=last&&last.ts?fmtTime(last.ts):''; MONITOR_TREND_NOTE='所选窗口内无新数据，持续显示最近记录（最新 '+tsTxt+'）'; return raw; }
-  MONITOR_TREND_NOTE=""; return [];
+  if(win.length){ MONITOR_TREND_NOTE=""; MONITOR_TREND_FALLBACK=false; return win; }
+  if(raw.length){ var last=raw[raw.length-1]; var tsTxt=last&&last.ts?fmtTime(last.ts):''; MONITOR_TREND_NOTE='所选窗口内无新数据，持续显示最近记录（最新 '+tsTxt+'）'; MONITOR_TREND_FALLBACK=true; return raw; }
+  MONITOR_TREND_NOTE=""; MONITOR_TREND_FALLBACK=false; return [];
 }
 function windowFilterTrend(h,pts){var cutoff=Date.now()-h*3600*1000;return pts.filter(function(x){var t=parseTs(x.ts);return !isNaN(t)&&t>=cutoff;});}
 function setTrendHours(h){
@@ -2077,9 +2078,14 @@ function drawMonitorTrend(){
   var winStart = Date.now() - MONITOR_TREND_HOURS*3600*1000;
   if(isNaN(tMin)) tMin = winStart;
   if(isNaN(tMax)) tMax = Date.now();
-  tMin = Math.min(tMin, winStart);
-  tMax = Math.max(tMax, Date.now());
-  if(tMax === tMin) tMax = tMin + 60000;
+  if(MONITOR_TREND_FALLBACK){
+    // 回退模式：窗口内无新数据，时间轴按实际数据起止绘制，避免与"所选窗口"标注错位
+    if(tMax === tMin) tMax = tMin + 60000;
+  }else{
+    tMin = Math.min(tMin, winStart);
+    tMax = Math.max(tMax, Date.now());
+    if(tMax === tMin) tMax = tMin + 60000;
+  }
   function trendTimeLabel(ts){
     var d = new Date(ts); if(isNaN(d.getTime())) return '?';
     var dt = new Date(d.getTime() + 8*3600000);
