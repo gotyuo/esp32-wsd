@@ -79,6 +79,8 @@ services:
       - TTS_HOST=piper
       - TTS_PORT=10200
       - TTS_VOICE=${TTS_VOICE:-zh_CN-huayan-medium}
+      # 显式指定后端扫描局域网的出口 IP，避免 Docker 网桥把扫描目标带到 172.28.0.0/24
+      - DISC_IP=${DISC_IP:-172.22.22.83}
       # 语音播报开关（1=开启报警自动语音，0=关闭）
       - TTS_ENABLED=${TTS_ENABLED:-1}
     volumes:

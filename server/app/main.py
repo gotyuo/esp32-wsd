@@ -1528,6 +1528,17 @@ async def scan_lan_devices():
     parts = lan_ip.split(".")
     subnet = ".".join(parts[:3])  # 如 192.168.1
 
+    async def _ping_ip(ip, timeout=2.5):
+        """快速 TCP 连通性探测：容器内通常没有 ping，改用 TCP connect 判在线。"""
+        try:
+            async with asyncio.timeout(timeout):
+                reader, writer = await asyncio.open_connection(ip, 80)
+                writer.close()
+                await writer.wait_closed()
+            return True
+        except Exception:
+            return False
+
     async def _probe_ip(ip, timeout=0.5):
         """探测单个 IP 的多个候选端口，检查是否为 ESP 设备。"""
         import re as _re
@@ -1559,40 +1570,49 @@ async def scan_lan_devices():
                         found_paths.append((port, path, body))
                 except Exception:
                     continue
-        if not found_paths:
-            return None
-
-        dev_id = None
-        for _port, _path, text in found_paths:
-            m = _re.search(r'"dev"\s*:\s*"([^"]+)"', text)
-            if m:
-                dev_id = m.group(1)
-                break
-            m = _re.search(r'"device_id"\s*:\s*"([^"]+)"', text)
-            if m:
-                dev_id = m.group(1)
-                break
-            m = _re.search(r'"device"\s*:\s*"([^"]+)"', text)
-            if m:
-                dev_id = m.group(1)
-                break
-        if not dev_id:
+        if found_paths:
+            dev_id = None
             for _port, _path, text in found_paths:
-                m = _re.search(r"device_?id[^a-zA-Z0-9]*([A-Za-z0-9_-]{4,32})", text)
+                m = _re.search(r'"dev"\s*:\s*"([^"]+)"', text)
                 if m:
                     dev_id = m.group(1)
                     break
-        if not dev_id:
-            dev_id = f"esp-{ip}"
+                m = _re.search(r'"device_id"\s*:\s*"([^"]+)"', text)
+                if m:
+                    dev_id = m.group(1)
+                    break
+                m = _re.search(r'"device"\s*:\s*"([^"]+)"', text)
+                if m:
+                    dev_id = m.group(1)
+                    break
+            if not dev_id:
+                for _port, _path, text in found_paths:
+                    m = _re.search(r"device_?id[^a-zA-Z0-9]*([A-Za-z0-9_-]{4,32})", text)
+                    if m:
+                        dev_id = m.group(1)
+                        break
+            if not dev_id:
+                dev_id = f"esp-{ip}"
 
-        port, path, text = found_paths[0]
-        return {
-            "ip": ip,
-            "port": port,
-            "path": path,
-            "device_id": dev_id,
-            "snippet": text[:200],
-        }
+            port, path, text = found_paths[0]
+            return {
+                "ip": ip,
+                "port": port,
+                "path": path,
+                "device_id": dev_id,
+                "snippet": text[:200],
+            }
+
+        # HTTP 探测失败时，退回到 ICMP：路由器能看到、但设备 HTTP 无响应的场景
+        if await _ping_ip(ip):
+            return {
+                "ip": ip,
+                "port": 0,
+                "path": "ping",
+                "device_id": f"esp-{ip}",
+                "snippet": "ping-only reachable (no HTTP reply)",
+            }
+        return None
 
     # 并发扫描子网
     found = []
@@ -1601,7 +1621,10 @@ async def scan_lan_devices():
     for r in results:
         if r and isinstance(r, dict):
             found.append(r)
-            # 自动注册发现的设备
+            # 只把 HTTP 命中且可识别为设备的项入库；ping-only 只用于兜底展示，
+            # 不自动注册，避免把路由器/其他主机误登记成设备。
+            if r.get("path") == "ping":
+                continue
             try:
                 db.upsert_device(r["device_id"], ip_addr=r["ip"])
                 db.set_device_online(r["device_id"], True)
