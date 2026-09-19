@@ -169,6 +169,14 @@ static void renderPageVitals() {
 
     g_oled.setFont(u8g2_font_5x7_tr);
     g_oled.drawStr(2, 58, g_sensors.max_ok() ? "OK" : "no MAX30102");
+    g_oled.drawStr(84, 58, "MAXT");
+    if (!g_sensors.max_ok())      g_oled.drawStr(108, 58, "no dev");
+    else if (isnan(g_last.max_temp_c)) g_oled.drawStr(108, 58, "--");
+    else {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.1fC", g_last.max_temp_c);
+        g_oled.drawStr(108, 58, buf);
+    }
 }
 
 // ---------- 页面 3: 网络 (SSID/IP/AP) ----------

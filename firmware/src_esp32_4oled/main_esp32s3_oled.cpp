@@ -82,6 +82,11 @@ static void renderOled() {
     g_oled.drawString(2, 58, mqttTxt);
     g_oled.drawString(70, 58, "lvl:");
     g_oled.drawNum(96, 58, (int32_t)g_alarm.level());
+
+    if (!isnan(g_last.max_temp_c)) {
+        g_oled.drawString(70, 50, "MAXT:");
+        g_oled.drawNumFP(94, 50, g_last.max_temp_c, 1);
+    }
     g_oled.flush();
 }
 

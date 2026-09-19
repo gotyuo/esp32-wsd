@@ -107,3 +107,13 @@ sha256sum -c envmon-device-backups-2026-09-19-max30102-fix.tar.gz.sha256
 - backups/envmon-device-backups-2026-09-19-fw202.tar.gz.sha256
 
 说明：对照 vrano714 的 `hrcalc.py` 参考实现，MAX30102 采样率改为 25Hz，4 秒窗口改为 100 点，峰值检测/HR/SpO2 中值比值算法移植到 ESP8266/ESP32；同时新增 MAX30102 die temperature 读取，并在 HTTP JSON 中增加 `max_temp_c` / `max30102_temp_c`。
+
+## 当前烧录镜像归档（FW 2.0.3 / OLED MAX30102 温度显示）
+- firmware/firmware_bin/envmon_esp32s3_oled.bin
+- firmware/firmware_bin/envmon_esp32s3_oled.bin.sha256
+- firmware/firmware_bin/envmon_esp8266.bin
+- firmware/firmware_bin/envmon_esp8266.bin.sha256
+- backups/envmon-device-backups-2026-09-19-fw203.tar.gz
+- backups/envmon-device-backups-2026-09-19-fw203.tar.gz.sha256
+
+说明：在 2.0.2 基础上，将 MAX30102 die 温度显示加入 OLED：ESP8266 Vitals 页显示 `MAXT x.xC`，ESP32 OLED 状态区显示 `MAXT:x.x`；HTTP JSON 字段保持不变。
