@@ -1,0 +1,12 @@
+./172.22.22.164/binaries/bootloader.bin
+./172.22.22.164/binaries/firmware.bin
+./172.22.22.164/binaries/firmware.elf
+./172.22.22.164/binaries/partitions.bin
+./172.22.22.164/source/src.tar.gz
+./172.22.22.251/binaries/firmware.bin
+./172.22.22.251/binaries/firmware.elf
+./172.22.22.251/source/src.tar.gz
+./172.22.22.63/binaries/firmware.bin
+./172.22.22.63/binaries/firmware.elf
+./172.22.22.63/source/src.tar.gz
+./FILE_LIST.txt

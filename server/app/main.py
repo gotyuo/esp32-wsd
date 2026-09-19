@@ -480,9 +480,9 @@ def _build_alarm_prompt(device_id, pid, pname, dname, level, reason,
 
 # ================================================================ MQTT 处理器
 def handle_telemetry(device_id: str, payload: dict):
-    temp = payload.get("t")
-    hum = payload.get("h")
-    pres = payload.get("p")
+    temp = payload.get("t") or payload.get("temp_c")
+    hum = payload.get("h") or payload.get("hum_pct")
+    pres = payload.get("p") or payload.get("pres_hpa")
     rssi = payload.get("rssi")
     free_heap = payload.get("heap")
     fw = payload.get("fw")
@@ -1475,10 +1475,43 @@ async def scan_lan_devices():
     """
     import socket
     import asyncio
-    import concurrent.futures
+    import struct
 
-    # 获取服务器内网 IP 推断子网
+    def _iface_ipv4(iface: str):
+        try:
+            import fcntl
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                raw = fcntl.ioctl(
+                    s.fileno(), 0x8915,
+                    struct.pack("256s", iface[:15].encode()),
+                )
+                ip = socket.inet_ntoa(raw[20:24])
+                return ip if ip != "127.0.0.1" else None
+        except OSError:
+            return None
+
     def _get_lan_ip():
+        disc_ip = os.environ.get("DISC_IP", "").strip()
+        if disc_ip:
+            return disc_ip
+        disc_iface = os.environ.get("DISC_IFACE", "").strip()
+        if disc_iface:
+            ip = _iface_ipv4(disc_iface)
+            if ip:
+                return ip
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.connect(("239.255.1.1", 12091))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            pass
+        for iface in ("eth0", "wlan0", "enp2s0", "enp1s0", "ens33", "wlp1s0"):
+            ip = _iface_ipv4(iface)
+            if ip:
+                return ip
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -1496,28 +1529,70 @@ async def scan_lan_devices():
     subnet = ".".join(parts[:3])  # 如 192.168.1
 
     async def _probe_ip(ip, timeout=0.5):
-        """探测单个 IP 的 80 端口，检查是否为 ESP 设备。"""
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(ip, 80), timeout=timeout)
-            # 发 HTTP 请求
-            req = f"GET / HTTP/1.0\r\nHost: {ip}\r\n\r\n"
-            writer.write(req.encode())
-            await writer.drain()
-            data = await asyncio.wait_for(reader.read(2048), timeout=timeout)
-            writer.close()
-            text = data.decode("utf-8", errors="ignore")
-            # ESP 设备的 web 门户通常包含这些关键词
-            if any(kw in text for kw in ("envmon", "ESP", "esp32", "esp8266",
-                                         "deviceId", "device_id", "MQTT", "mqtt")):
-                # 尝试提取 device_id
-                import re
-                m = re.search(r"device_?id[^a-zA-Z0-9]*([A-Za-z0-9_-]{4,32})", text)
-                dev_id = m.group(1) if m else f"esp-{ip}"
-                return {"ip": ip, "device_id": dev_id, "snippet": text[:200]}
+        """探测单个 IP 的多个候选端口，检查是否为 ESP 设备。"""
+        import re as _re
+        found_paths = []
+        for port in (80, 8000, 8080, 8081, 6667):
+            for path in ("/", "/json", "/api/data", "/data"):
+                try:
+                    reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection(ip, port), timeout=timeout)
+                    req = f"GET {path} HTTP/1.0\r\nHost: {ip}:{port}\r\n\r\n"
+                    writer.write(req.encode())
+                    await writer.drain()
+                    chunks = []
+                    while True:
+                        part = await asyncio.wait_for(reader.read(4096), timeout=timeout)
+                        if not part:
+                            break
+                        chunks.append(part)
+                    writer.close()
+                    raw = b"".join(chunks)
+                    text = raw.decode("utf-8", errors="ignore")
+                    body = text.split("\r\n\r\n", 1)[-1]
+                    if any(kw in body.lower() for kw in (
+                        "envmon", "envmon8266", "实时数据", "配网",
+                        "esp32", "esp8266", "deviceid", "device_id", "dev_id", "mqtt",
+                        "temp_c", "hum_pct", "pres_hpa", "sp_o2", "pr_hr", "valid",
+                        '"dev"', '"device"'
+                    )):
+                        found_paths.append((port, path, body))
+                except Exception:
+                    continue
+        if not found_paths:
             return None
-        except Exception:
-            return None
+
+        dev_id = None
+        for _port, _path, text in found_paths:
+            m = _re.search(r'"dev"\s*:\s*"([^"]+)"', text)
+            if m:
+                dev_id = m.group(1)
+                break
+            m = _re.search(r'"device_id"\s*:\s*"([^"]+)"', text)
+            if m:
+                dev_id = m.group(1)
+                break
+            m = _re.search(r'"device"\s*:\s*"([^"]+)"', text)
+            if m:
+                dev_id = m.group(1)
+                break
+        if not dev_id:
+            for _port, _path, text in found_paths:
+                m = _re.search(r"device_?id[^a-zA-Z0-9]*([A-Za-z0-9_-]{4,32})", text)
+                if m:
+                    dev_id = m.group(1)
+                    break
+        if not dev_id:
+            dev_id = f"esp-{ip}"
+
+        port, path, text = found_paths[0]
+        return {
+            "ip": ip,
+            "port": port,
+            "path": path,
+            "device_id": dev_id,
+            "snippet": text[:200],
+        }
 
     # 并发扫描子网
     found = []

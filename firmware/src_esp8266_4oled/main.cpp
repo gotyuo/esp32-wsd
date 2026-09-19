@@ -67,6 +67,12 @@ static void forceRefreshOled();
 static void nextPage();
 
 // ---------- 当前 SSID (WiFi 已连 -> SDK; AP -> AP-CONFIG; 已保存配置兜底) ----------
+static String makeDefaultApSsid() {
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    return "ESP8266OLED-" + String(mac[4], HEX) + String(mac[5], HEX);
+}
+
 static String getCurSsid() {
     wl_status_t st = WiFi.status();
     if (st == WL_CONNECTED) {
@@ -74,7 +80,7 @@ static String getCurSsid() {
         s.trim();
         if (!s.isEmpty()) return s;
     }
-    if (g_net.inAPMode()) return "AP-CONFIG";
+    if (g_net.inAPMode()) return makeDefaultApSsid();
     if (g_cfg.has_wifi()) return String(g_cfg.wifi_ssid);
     return "";
 }

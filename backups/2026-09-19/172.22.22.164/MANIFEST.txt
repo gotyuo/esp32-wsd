@@ -1,0 +1,9 @@
+device_ip=172.22.22.164
+created=2026-09-19
+restore_rule=Only restore this firmware to this IP/device variant; verify OLED/sensor pin mapping before flashing.
+binaries=binaries/
+source=source/src.tar.gz
+platformio_env=esp32-4oled
+source_dir=/home/hotyuo/esp32-wsd/firmware/src_esp32_4oled
+binary_source=/home/hotyuo/esp32-wsd/firmware/.pio/build/esp32-4oled
+oled_variant=ESP32-S3 0.96-inch SSD1306 OLED, I2C1 screen bus

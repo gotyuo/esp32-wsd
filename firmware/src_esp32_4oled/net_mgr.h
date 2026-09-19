@@ -17,7 +17,18 @@ enum NetMode : uint8_t {
     MODE_AP
 };
 
+// 传感器数据快照：main loop 每轮更新，Web 数据页读取
+struct SensorSnapshot {
+    float temp_c = NAN, hum_pct = NAN, pres_hpa = NAN;
+    float sp_o2  = NAN, pr_hr    = NAN;
+    float mic    = 0;
+    bool  wifi   = false, mqtt = false;
+    uint32_t uptime = 0;
+    bool  valid  = false;
+};
+
 typedef std::function<void(const DeviceConfig &)> ConfigSavedCb;
+typedef std::function<SensorSnapshot()> DataCb;
 
 class NetManager {
 public:
@@ -33,6 +44,7 @@ public:
     String apSSID() const { return _ap_ssid; }
     void onConfigSaved(ConfigSavedCb cb) { _onSaved = cb; }
     void setConfig(DeviceConfig *cfg) { _cfg = cfg; }
+    void setDataCallback(DataCb cb) { _onData = cb; }
 
     // LAN 自动发现（public：main loop 需要调用）
     void startDiscover();
@@ -46,7 +58,10 @@ private:
     void handleRoot();
     void handleSave();
     void handleScan();
+    void handleJson();
+    void handleData();
     void startPortalServer();
+    void startDataServer();
 
     DeviceConfig *_cfg = nullptr;
     NetMode _mode = MODE_STA;
@@ -58,7 +73,9 @@ private:
     uint32_t _staStartedAt = 0;
 
     ConfigSavedCb _onSaved;
+    DataCb        _onData;
     bool     _portalRunning = false;
+    bool     _dataRunning = false;
 
     String  _scanCache;
     uint32_t _scanStartedAt = 0;

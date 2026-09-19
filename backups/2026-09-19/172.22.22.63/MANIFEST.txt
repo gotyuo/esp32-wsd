@@ -1,0 +1,9 @@
+device_ip=172.22.22.63
+created=2026-09-19
+restore_rule=Only restore this firmware to this IP/device variant; verify OLED/sensor pin mapping before flashing.
+binaries=binaries/
+source=source/src.tar.gz
+platformio_env=esp8266oled
+source_dir=/home/hotyuo/esp32-wsd/firmware/src_esp8266_4oled
+binary_source=/home/hotyuo/esp32-wsd/esp8266oled/.pio/build/esp8266oled
+oled_variant=ESP8266 OLED variant; verify exact OLED pin mapping from source before flashing to a different board.

@@ -120,6 +120,19 @@ void setup() {
     }
 
     g_net.setConfig(&g_cfg);
+    g_net.setDataCallback([]() {
+        SensorSnapshot s;
+        s.temp_c   = g_last.temp_c;
+        s.hum_pct  = g_last.hum_pct;
+        s.pres_hpa = g_last.pres_hpa;
+        s.sp_o2    = g_last.sp_o2;
+        s.pr_hr    = g_last.pr_hr;
+        s.wifi     = g_net.wifiConnected();
+        s.mqtt     = g_mqtt.connected();
+        s.uptime   = (uint32_t)(millis() / 1000);
+        s.valid    = !isnan(s.temp_c) || !isnan(s.hum_pct) || !isnan(s.pres_hpa) || !isnan(s.sp_o2) || !isnan(s.pr_hr);
+        return s;
+    });
     g_net.begin();
 
     String _otaHost = String(g_cfg.mqtt_host) + ":" + String(g_cfg.mqtt_port);

@@ -191,6 +191,8 @@ void NetManager::loop() {
             // AP 仅在首次启动无 WiFi 配置时出现(begin() 的 has_wifi 判断)。
         } else if (wifiConnected()) {
             _retryDelay = 1000;
+            if (!_dataRunning) startDataServer();
+            web.handleClient();
         }
     } else {
         dns.processNextRequest();
@@ -261,8 +263,57 @@ void NetManager::handleScan() {
     // 返回 {scanning:bool, networks:[...]}, HTTP 瞬间响应, 不阻塞 AP。
     String json;
     json = String("{\"scanning\":") + (_scanBusy ? "true" : "false")
-           + ",\"networks\":" + _scanCache + "}";
+         + ",\"networks\":" + _scanCache + "}";
     web.send(200, "application/json", json);
+}
+
+void NetManager::handleData() {
+    web.send_P(200, "text/html", PORTAL_HTML);
+}
+
+void NetManager::handleJson() {
+    SensorSnapshot s;
+    if (_onData) s = _onData();
+    char buf[640];
+    snprintf(buf, sizeof(buf),
+        "{\"dev\":\"%s\",\"device_id\":\"%s\",\"ip\":\"%s\",\"fw\":\"%s\","
+        "\"temp_c\":%s,\"hum_pct\":%s,\"pres_hpa\":%s,"
+        "\"sp_o2\":%s,\"pr_hr\":%s,\"rssi\":%d,\"uptime\":%u,"
+        "\"alarm\":0,\"valid\":%s}",
+        _cfg->device_id,
+        _cfg->device_id,
+        wifiConnected() ? WiFi.localIP().toString().c_str() : "",
+        FW_VERSION,
+        isnan(s.temp_c) ? "null" : String(s.temp_c, 2).c_str(),
+        isnan(s.hum_pct) ? "null" : String(s.hum_pct, 2).c_str(),
+        isnan(s.pres_hpa) ? "null" : String(s.pres_hpa, 2).c_str(),
+        isnan(s.sp_o2) ? "null" : String(s.sp_o2, 0).c_str(),
+        isnan(s.pr_hr) ? "null" : String(s.pr_hr, 0).c_str(),
+        wifiConnected() ? WiFi.RSSI() : 127,
+        (unsigned)(millis() / 1000),
+        s.valid ? "true" : "false");
+    web.send(200, "application/json", buf);
+}
+
+void NetManager::startDataServer() {
+    if (_dataRunning) return;
+    _dataRunning = true;
+    web.on("/", HTTP_GET, [this]() { handleRoot(); });
+    web.on("/data", HTTP_GET, [this]() { handleData(); });
+    web.on("/json", HTTP_GET, [this]() { handleJson(); });
+    web.on("/api/data", HTTP_GET, [this]() { handleJson(); });
+    web.on("/scan", HTTP_GET, [this]() {
+        if (web.arg("refresh") == "1") requestScan();
+        handleScan();
+    });
+    web.on("/save", HTTP_POST, [this]() { handleSave(); });
+    web.on("/generate_204", HTTP_GET, [this]() { handleRoot(); });
+    web.on("/hotspot-detect.html", HTTP_GET, [this]() { handleRoot(); });
+    web.onNotFound([this]() {
+        web.sendHeader("Location", "http://192.168.4.1/", true);
+        web.send(302, "text/plain", "");
+    });
+    web.begin();
 }
 
 void NetManager::buildScanCache(int n) {

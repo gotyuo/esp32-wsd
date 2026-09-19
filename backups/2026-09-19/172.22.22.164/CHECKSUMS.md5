@@ -1,0 +1,5 @@
+75adf936bfc0b029ab5fdc6abde165cb  binaries/bootloader.bin
+0afb841f11307193f9e3866c53c6a226  binaries/firmware.bin
+a806fb70c3ef94cb598bd17cbc6788e6  binaries/firmware.elf
+801ba71678a964614657a6d8fbc6baca  binaries/partitions.bin
+c705b212a8209092884af82c5a044fe8  src.tar.gz

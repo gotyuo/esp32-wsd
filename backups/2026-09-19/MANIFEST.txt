@@ -1,0 +1,13 @@
+# Backup created
+created=2026-09-19
+
+# Important: different ESP devices use different OLED/sensor pin maps.
+# Do not flash binaries from one IP/device folder to another device unless you verify the variant matches.
+
+# Device folders
+172.22.22.164 -> ESP32-S3 OLED variant, PlatformIO env esp32-4oled, source src_esp32_4oled
+172.22.22.251 -> ESP8266 OLED variant, currently sourced from /home/hotyuo/esp32-wsd/esp8266oled built firmware + firmware/src_esp8266_4oled source snapshot
+172.22.22.63  -> ESP8266 OLED variant, currently sourced from /home/hotyuo/esp32-wsd/esp8266oled built firmware + firmware/src_esp8266_4oled source snapshot
+
+# Restore rule
+Restore only from the matching device folder. Verify OLED/pin variant before flashing.
