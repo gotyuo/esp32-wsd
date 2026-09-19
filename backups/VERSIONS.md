@@ -81,3 +81,13 @@ sha256sum -c envmon-device-backups-2026-09-19-max30102-fix.tar.gz.sha256
 - `MAX30102 chip id mismatch: 0x03, continue`
 - `MAX30102 OK`
 - 设备联网：`172.22.22.63`
+
+## 当前修复版归档（HTTP JSON contract 2.0.1）
+- backups/pre-change/envmon-device-backups-2026-09-19-pre-commit-20260919-204702.tar.gz
+- backups/pre-change/envmon-device-backups-2026-09-19-pre-commit-20260919-204702.tar.gz.sha256
+- firmware/firmware_bin/envmon_esp32s3_oled.bin
+- firmware/firmware_bin/envmon_esp32s3_oled.bin.sha256
+- firmware/firmware_bin/envmon_esp8266.bin
+- firmware/firmware_bin/envmon_esp8266.bin.sha256
+
+说明：对应本次提交，版本 2.0.1，包含 ESP32/ESP8266 HTTP JSON 字段统一、服务器扫描路径收紧、以及预提交快照。
