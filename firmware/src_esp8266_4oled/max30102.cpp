@@ -123,18 +123,18 @@ void MAX30102::processSample(float red, float ir) {
     }
     if (_finger) {
         float ac = ir - _dcEstIR;
-        _dcEstIR += 0.98f * ac;
-        _lp1 += 0.25f * (ac - _lp1);
-        _lp2 += 0.25f * (_lp1 - _lp2);
-        float v = _lp2;
+        _dcEstIR += 0.90f * ac;
+        _lp1 += 0.30f * (ac - _lp1);
+        _lp2 += 0.30f * (_lp1 - _lp2);
+        float v = _lp1;
         float av = v < 0 ? -v : v;
-        if (av > _peakEnv) _peakEnv = av; else _peakEnv *= 0.99f;
-        float thr = _peakEnv * 0.5f;
-        if (!_aboveThr && v > thr && thr > 10.0f && (_lastBeatMs == 0 || ms - _lastBeatMs > 450)) {
+        if (av > _peakEnv) _peakEnv = av; else _peakEnv *= 0.985f;
+        float thr = _peakEnv * 0.30f;
+        if (!_aboveThr && v > thr && thr > 2.0f && (_lastBeatMs == 0 || ms - _lastBeatMs > 300)) {
             _aboveThr = true;
             if (_lastBeatMs != 0) {
                 uint32_t ibi = ms - _lastBeatMs;
-                if (ibi > 400 && ibi < 1500) {
+                if (ibi > 300 && ibi < 2200) {
                     if (_ibiCount >= 3) {
                         uint32_t s[7];
                         memcpy(s, _ibis, _ibiCount * sizeof(uint32_t));
@@ -213,6 +213,13 @@ void MAX30102::processSample(float red, float ir) {
 }
 
 bool MAX30102::read(float &sp_o2, float &hr_bpm) {
+    static uint32_t lastDbg = 0;
+    uint32_t nowMs = millis();
+    if (nowMs - lastDbg > 1500) {
+        lastDbg = nowMs;
+        Serial.printf("[MAXDBG] finger=%d irDc=%0.0f peak=%0.0f hr=%d valid=%d ibi=%d\n",
+                      _finger, _irDcSlow, _peakEnv, _hr, _hrValid, _ibiCount);
+    }
     uint8_t wr = 0, rd = 0;
     if (!readReg(REG_WR_PTR, wr) || !readReg(REG_RD_PTR, rd)) return false;
     uint8_t n = (uint8_t)((wr - rd) & 0x1F);
