@@ -10,6 +10,7 @@
 // ============================================================
 #include "net_mgr.h"
 #include "pins.h"
+#include <ESP8266WiFi.h>
 #include <cstring>
 
 NetManager g_net;
@@ -534,7 +535,7 @@ static const uint32_t DISC_TIMEOUT = 45000;        // 45s 超时回 AP
 
 void NetManager::startDiscover() {
     if (_udpBound) _udp.stop();
-    if (_udp.beginMulticast(IPAddress(239, 255, 1, 1), DISC_PORT) == 0) {
+    if (_udp.beginMulticast(WiFi.localIP(), IPAddress(239, 255, 1, 1), (uint16_t)DISC_PORT) == 0) {
         Serial.println(F("[DISC] UDP multicast begin failed"));
         _udpBound = false;
         return;

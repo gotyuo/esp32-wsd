@@ -15,10 +15,9 @@ static BMP280   bmp;
 static MAX30102 max30;
 
 bool SensorHub::begin() {
-    // 硬件 Wire: 三颗传感器共用
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     Wire.setClock(400000);
-    delay(50);
+    delay(20);
 
     if (aht.begin(&Wire)) {
         _aht_ok = true;
