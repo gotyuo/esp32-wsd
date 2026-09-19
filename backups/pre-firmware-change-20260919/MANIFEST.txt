@@ -1,0 +1,17 @@
+## backup timestamp:
+2026-09-19T11:57:02+08:00
+
+## platformio envs:
+  19:[env:esp32-4oled]
+  39:[env:esp32-6oled]
+  58:[env:esp8266-4oled]
+  81:[env:esp8266-6oled]
+
+## existing firmware binaries:
+  /home/hotyuo/esp32-wsd/firmware/releases/v1.2.0/firmware_bin/firmware.bin 883824 bytes
+  /home/hotyuo/esp32-wsd/firmware/releases/v1.2.0/firmware_bin/bootloader.bin 15104 bytes
+  /home/hotyuo/esp32-wsd/firmware/releases/v1.2.0/firmware_bin/partitions.bin 3072 bytes
+  /home/hotyuo/esp32-wsd/firmware/.pio/build/esp32-4oled/firmware.bin 868304 bytes
+  /home/hotyuo/esp32-wsd/firmware/.pio/build/esp32-4oled/bootloader.bin 15104 bytes
+  /home/hotyuo/esp32-wsd/firmware/.pio/build/esp32-4oled/firmware.elf 16334416 bytes
+  /home/hotyuo/esp32-wsd/firmware/.pio/build/esp32-4oled/partitions.bin 3072 bytes
