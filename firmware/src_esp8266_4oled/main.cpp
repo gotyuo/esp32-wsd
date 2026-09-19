@@ -346,10 +346,6 @@ void setup() {
 
     g_alarm.begin();
 
-    if (!g_sensors.begin()) {
-        Serial.println(F("[BOOT] WARNING: no sensors available"));
-    }
-
     // 历史: 纯内存环形缓冲, 无需 begin 失败检查
     g_hist.begin();
 
@@ -366,6 +362,10 @@ void setup() {
     g_oledOk = true;
     Serial.printf("[BOOT] OLED OK (SW I2C: SDA=GPIO%d SCL=GPIO%d)\n",
                   PIN_OLED_SDA, PIN_OLED_SCL);
+
+    if (!g_sensors.begin()) {
+        Serial.println(F("[BOOT] WARNING: no sensors available"));
+    }
 
     // 网络: v4.0 默认上电进 AP 配网 (若无 WiFi 配置), 否则先 STA 后 AP 兜底
     g_net.setConfig(&g_cfg);
