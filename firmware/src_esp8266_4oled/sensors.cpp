@@ -17,7 +17,35 @@ static MAX30102 max30;
 bool SensorHub::begin() {
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
     Wire.setClock(400000);
-    delay(20);
+    pinMode(PIN_I2C_SDA, INPUT_PULLUP);
+    pinMode(PIN_I2C_SCL, INPUT_PULLUP);
+    delay(50);
+    int sda0 = digitalRead(PIN_I2C_SDA);
+    int scl0 = digitalRead(PIN_I2C_SCL);
+    delay(10);
+    int sda1 = analogRead(PIN_I2C_SDA);
+    int scl1 = analogRead(PIN_I2C_SCL);
+    Serial.printf("[I2C] SDA=%d SCL=%d digital=%d/%d analog=%d/%d\n",
+                  PIN_I2C_SDA, PIN_I2C_SCL, sda0, scl0, sda1, scl1);
+
+    Serial.printf("[I2C] scan start SDA=%d SCL=%d\n", PIN_I2C_SDA, PIN_I2C_SCL);
+    uint8_t foundMask = 0;
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        uint8_t err = Wire.endTransmission();
+        if (err == 0) {
+            Serial.printf("[I2C] addr 0x%02X ACK\n", addr);
+            if (addr == 0x38) foundMask |= 1;
+            if (addr == 0x57) foundMask |= 2;
+            if (addr == 0x76) foundMask |= 4;
+        }
+    }
+    Serial.printf("[I2C] scan done mask=%d (aht=%d max=%d bmp=%d)\n",
+                  foundMask, !!(foundMask & 1), !!(foundMask & 2), !!(foundMask & 4));
+
+    Wire.setClock(100000);
+    delay(30);
+    Wire.setClock(400000);
 
     if (aht.begin(&Wire)) {
         _aht_ok = true;

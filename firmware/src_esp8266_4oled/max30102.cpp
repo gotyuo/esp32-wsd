@@ -65,11 +65,9 @@ bool MAX30102::readFifoSample(uint8_t dataIndex, uint16_t &red, uint16_t &ir) {
     _wire->requestFrom(MAX30102_ADDR, (size_t)6);
     if (!_wire->available()) return false;
     for (int i = 0; i < 6; i++) p[i] = _wire->read();
-    // FIFO 顺序为 3 字节 Red + 3 字节 IR；12-bit 值取每组的低 12 位
-    red = ((uint16_t)p[1] << 8) | (uint16_t)p[2];
-    red &= 0x03FF;
-    ir = ((uint16_t)p[4] << 8) | (uint16_t)p[5];
-    ir &= 0x03FF;
+    // FIFO 顺序为 3 字节 Red + 3 字节 IR；每组 3 字节，12-bit 数据取低 12 位
+    red = (((uint16_t)p[0] & 0x03) << 8) | (uint16_t)p[1];
+    ir = (((uint16_t)p[3] & 0x03) << 8) | (uint16_t)p[4];
     return true;
 }
 

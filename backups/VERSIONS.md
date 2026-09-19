@@ -46,3 +46,20 @@ cd backups
 sha256sum -c envmon-device-backups-2026-09-19.tar.gz.sha256
 sha256sum -c envmon-device-backups-2026-09-19-max30102-fix.tar.gz.sha256
 ```
+
+## 当前排查结论（2026-09-19 17:xx）
+
+已验证设备：`172.22.22.63`，串口 `/dev/ttyUSB0`，MAC `d8:bf:c0:11:78:4a`
+
+现象：
+- OLED 先点亮正常
+- D7/D8 I2C 总线扫描无 ACK，`mask=0`
+- AHT20/BMP280/MAX30102 均未发现
+- 已临时交换 SDA/SCL 烧录验证一次，仍无 ACK
+- 已恢复原接线 `SDA=D7/GPIO13`, `SCL=D8/GPIO15`
+
+当前判断：
+- 不是 OLED 顺序问题
+- 不是 MAX30102 FIFO 解析能单独解决的问题
+- 当前优先怀疑 MAX30102 模块供电/VIN/GND、I2C 接线、上拉电阻或模块损坏
+- 下一步需要硬件侧确认 MAX30102 模块供电 3.3V/GND 和 SDA/SCL 实际连通性

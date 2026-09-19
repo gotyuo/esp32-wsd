@@ -1,12 +1,4 @@
-device_ip=172.22.22.63
-created=2026-09-19
-updated=2026-09-19
-restore_rule=Only restore this firmware to this IP/device variant; verify OLED/sensor pin mapping before flashing.
-binaries=binaries/
-source=source/src.tar.gz
-platformio_env=esp8266-4oled
-source_dir=/home/hotyuo/esp32-wsd/firmware/src_esp8266_4oled
-binary_source=/home/hotyuo/esp32-wsd/firmware/.pio/build/esp8266-4oled
-oled_variant=ESP8266 SSD1306 OLED, U8g2 software I2C, SCL=D5/GPIO14 SDA=D6/GPIO12
-max30102_variant=MAX30102, hardware Wire, SCL=D8/GPIO15 SDA=D7/GPIO13, VIN must be 3V3
-notes=Updated after MAX30102 sample parsing / LED current / OLED boot fix.
+Device IP: 172.22.22.63
+Build: current MAX30102 diagnostics + FIFO parse fix
+Firmware: 16408fa9565756bcfdb308a667f346b5
+Source: cb74369c713981d7026e518b17a7e15b
