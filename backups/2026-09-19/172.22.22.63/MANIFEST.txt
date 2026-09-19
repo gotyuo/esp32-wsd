@@ -1,4 +1,4 @@
 Device IP: 172.22.22.63
-Build: MAX30102 sampling cadence improved; SpO2 observed
-Firmware: 430b671c23b8ec46ad6f44e6a5949d14
-Source: 7a4c202f582a713621c3c164057390bb
+Build: MAX30102 HR detection working, observed spo2/hr
+Firmware: b7c6a259886c867f6573355edb928015
+Source: 354ababaa250229d3e3c9df42c7d997d
