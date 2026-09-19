@@ -24,7 +24,7 @@ public:
 private:
     bool     writeReg(uint8_t addr, uint8_t val);
     bool     readReg(uint8_t addr, uint8_t &val);
-    uint32_t read32(uint8_t dataIndex);
+    bool     readFifoSample(uint8_t dataIndex, uint16_t &red, uint16_t &ir);
     bool     writeTail(uint8_t tail);
     // ESP8266 单总线时分复用：每次 I2C 操作前切到目标引脚
     void     _ensureBus();

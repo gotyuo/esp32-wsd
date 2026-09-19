@@ -33,6 +33,7 @@ bool SensorHub::begin() {
         Serial.println(F("[SENSOR] BMP280 not found"));
     }
 
+    max30.setPins(PIN_I2C_SDA, PIN_I2C_SCL);
     if (max30.begin(&Wire)) {
         _max_ok = true;
         Serial.println(F("[SENSOR] MAX30102 OK"));

@@ -55,18 +55,22 @@ bool MAX30102::readReg(uint8_t addr, uint8_t &val) {
 }
 
 // --- 读一组 6 字节(1 个采样点)：2 字节头 [0x07][dataIndex] ---
-uint32_t MAX30102::read32(uint8_t dataIndex) {
+bool MAX30102::readFifoSample(uint8_t dataIndex, uint16_t &red, uint16_t &ir) {
     _ensureBus();
     uint8_t head[2] = {REG_FIFOPH, dataIndex};
     uint8_t p[6];
     _wire->beginTransmission(MAX30102_ADDR);
     _wire->write(head, 2);
-    if (_wire->endTransmission(false) != 0) return 0;
+    if (_wire->endTransmission(false) != 0) return false;
     _wire->requestFrom(MAX30102_ADDR, (size_t)6);
-    if (_wire->available() < 6) return 0;
+    if (!_wire->available()) return false;
     for (int i = 0; i < 6; i++) p[i] = _wire->read();
-    // R(12b) | G(12b) | IR(12b)，这里只拆 IR/Red
-    return ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
+    // FIFO 顺序为 3 字节 Red + 3 字节 IR；12-bit 值取每组的低 12 位
+    red = ((uint16_t)p[1] << 8) | (uint16_t)p[2];
+    red &= 0x03FF;
+    ir = ((uint16_t)p[4] << 8) | (uint16_t)p[5];
+    ir &= 0x03FF;
+    return true;
 }
 
 // --- 写尾指针清除(6 字节 + 校验) ---
@@ -100,15 +104,15 @@ bool MAX30102::begin(TwoWire *wire) {
     writeReg(REG_MODE, 0x80); delay(5);
     // 清空 FIFO
     writeReg(REG_INTR1, 0xC0); writeReg(REG_INTR2, 0x80);
-    writeReg(REG_FIFOHW, 0x0F);
+    writeReg(REG_FIFOHW, 0x1F);
     uint8_t tail; readReg(REG_FIFOTAIL, tail);
     writeTail(tail & 0x3F); delay(10);
     uint8_t head; readReg(REG_FIFOPH, head);
     writeTail(head & 0x3F); delay(10);
     // 50Hz 采样，红光+红外，ADCR 1250µA
     writeReg(REG_SPO2, B_SPO2_SR50 | B_SPO2_AEN | B_SPO2_AEN2);
-    writeReg(REG_LED1, 0x1F);     // 红外 1250µA
-    writeReg(REG_LED2, 0x1F);     // 红光 1250µA
+    writeReg(REG_LED1, 0x0D);     // 红外 600µA
+    writeReg(REG_LED2, 0x0D);     // 红光 600µA
     writeReg(REG_LED3, 0x00);     // 绿光关
     writeReg(REG_MODE, 0x03);     // 红光+红外 连续
     delay(300);
@@ -157,22 +161,25 @@ static float computeSPO2(uint16_t *ir, uint16_t *red, int n) {
 }
 
 bool MAX30102::read(float &sp_o2, float &hr_bpm) {
-    // 读剩余采样点数
     uint8_t ph;
     if (!readReg(REG_FIFOPH, ph)) return false;
     int toRead = (ph & 0x3F);
     if (toRead == 0) return false;
     if (toRead > 32) toRead = 32;
-    // 连续读 toRead 组,每 6 字节 1 点
+
+    int readOk = 0;
     for (int k = 0; k < toRead; k++) {
-        uint8_t di = DATA_START + k * 6;
-        uint32_t raw = read32(di);
-        if (raw == 0) continue;
-        _irBuf[_write]  = (uint16_t)((raw >> 8) & 0x03FF);
-        _redBuf[_write] = (uint16_t)(raw & 0x03FF);
+        uint8_t di = (uint8_t)DATA_START + (uint8_t)(k * 6);
+        uint16_t red = 0, ir = 0;
+        if (!readFifoSample(di, red, ir)) break;
+        _redBuf[_write] = red;
+        _irBuf[_write]  = ir;
         _write = (_write + 1) % BUF;
         if (_write == 0) _full = true;
+        readOk++;
     }
+    if (readOk == 0) return false;
+
     int valid = _full ? BUF : (_write == 0 ? 0 : _write);
     if (valid < 40) return false;
     uint16_t ir[BUF], red[BUF];
@@ -182,12 +189,11 @@ bool MAX30102::read(float &sp_o2, float &hr_bpm) {
     }
     hr_bpm = computeHR(ir, valid);
     sp_o2  = computeSPO2(ir, red, valid);
-    // 回写尾指针清除(6 字节组的整数倍)
-    int clearN = (valid / 6) * 6;
-    if (clearN > 0) {
+
+    if (readOk > 0) {
         uint8_t tailCur;
         if (readReg(REG_FIFOTAIL, tailCur)) {
-            uint8_t newTail = (tailCur & 0x3F) + clearN;
+            uint8_t newTail = (uint8_t)((tailCur & 0x3F) + readOk);
             newTail &= 0x3F;
             writeTail(newTail);
         }

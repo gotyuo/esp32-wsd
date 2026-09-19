@@ -35,3 +35,9 @@
 
 校验：
 /home/hotyuo/esp32-wsd/backups/envmon-device-backups-2026-09-19.tar.gz.sha256
+
+
+### MAX30102 供电注意（通用）
+- MAX30102 模块 VIN 必须接 3.3V，不能直接接 5V。
+- 若 VIN/GND 接错或电流过高，可能拉低 ESP 的 3V3，导致 OLED 黑屏或启动时屏幕不亮。
+- 已确认案例：拔掉 MAX30102 后 OLED 正常，插上后黑屏，优先按供电/负载问题排查。
