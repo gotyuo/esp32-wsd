@@ -38,7 +38,10 @@
 #define PIN_BOOT_KEY 255
 
 // ---------- 版本 ----------
-#define FW_VERSION "5.0.0"
+// FW_VERSION is provided by PlatformIO build_flags.
+#ifndef FW_VERSION
+#define FW_VERSION "2.0.1"
+#endif
 #define FW_VER     FW_VERSION
 
 // ---------- OLED 界面轮播 ----------

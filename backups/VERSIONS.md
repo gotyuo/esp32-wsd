@@ -85,9 +85,15 @@ sha256sum -c envmon-device-backups-2026-09-19-max30102-fix.tar.gz.sha256
 ## 当前修复版归档（HTTP JSON contract 2.0.1）
 - backups/pre-change/envmon-device-backups-2026-09-19-pre-commit-20260919-204702.tar.gz
 - backups/pre-change/envmon-device-backups-2026-09-19-pre-commit-20260919-204702.tar.gz.sha256
-- firmware/firmware_bin/envmon_esp32s3_oled.bin
-- firmware/firmware_bin/envmon_esp32s3_oled.bin.sha256
-- firmware/firmware_bin/envmon_esp8266.bin
-- firmware/firmware_bin/envmon_esp8266.bin.sha256
 
 说明：对应本次提交，版本 2.0.1，包含 ESP32/ESP8266 HTTP JSON 字段统一、服务器扫描路径收紧、以及预提交快照。
+
+## 当前烧录镜像归档（FW 2.0.1）
+- backups/envmon-device-backups-2026-09-19-fw201.tar.gz
+- backups/envmon-device-backups-2026-09-19-fw201.tar.gz.sha256
+- backups/2026-09-19/envmon_esp32s3_oled.bin
+- backups/2026-09-19/envmon_esp32s3_oled.bin.sha256
+- backups/2026-09-19/envmon_esp8266.bin
+- backups/2026-09-19/envmon_esp8266.bin.sha256
+
+说明：最终烧录镜像按 FW 2.0.1 重新生成，并包含 ESP8266 FW_VERSION 宏修正。
