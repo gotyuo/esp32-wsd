@@ -317,6 +317,8 @@ void NetManager::handleDataJson() {
     j += "\"pres_hpa\":" + (isnan(g_last.pres_hpa) ? "null" : String(g_last.pres_hpa, 1)) + ",";
     j += "\"sp_o2\":" + floatOrNull(g_last.sp_o2, 1) + ",";
     j += "\"pr_hr\":" + floatOrNull(g_last.pr_hr, 1) + ",";
+    j += "\"max_temp_c\":" + floatOrNull(g_last.max_temp_c, 2) + ",";
+    j += "\"max30102_temp_c\":" + floatOrNull(g_last.max_temp_c, 2) + ",";
     j += "\"temp\":" + floatOrNull(g_last.temp_c, 1) + ",";
     j += "\"hum\":" + floatOrNull(g_last.hum_pct, 1) + ",";
     j += "\"pres\":" + (isnan(g_last.pres_hpa) ? "null" : String((int)g_last.pres_hpa)) + ",";

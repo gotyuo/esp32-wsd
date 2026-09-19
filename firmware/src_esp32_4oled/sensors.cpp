@@ -60,12 +60,16 @@ void SensorHub::readVitals(EnvData &out) {
     out.rr_bpm  = NAN;
     out.glucose = NAN;
 
-    // MAX30102：血氧 %  + 脉率 bpm（50Hz 连续采样, 内部 4s 窗口计算）
+    // MAX30102：血氧 %  + 脉率 bpm（25Hz 连续采样, 内部 4s 窗口计算）
     if (_max_ok) {
         float spo2, hr;
         if (max30.read(spo2, hr)) {
             out.sp_o2 = spo2;
             out.pr_hr = hr;
+        }
+        float t;
+        if (max30.readTempC(t)) {
+            out.max_temp_c = t;
         }
     }
 

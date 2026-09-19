@@ -21,6 +21,7 @@ enum NetMode : uint8_t {
 struct SensorSnapshot {
     float temp_c = NAN, hum_pct = NAN, pres_hpa = NAN;
     float sp_o2  = NAN, pr_hr    = NAN;
+    float max_temp_c = NAN;
     float mic    = 0;
     bool  wifi   = false, mqtt = false;
     uint32_t uptime = 0;

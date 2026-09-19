@@ -99,5 +99,9 @@ void SensorHub::readVitals(EnvData &out) {
             out.sp_o2 = spo2;
             out.pr_hr = hr;
         }
+        float t;
+        if (max30.readTempC(t)) {
+            out.max_temp_c = t;
+        }
     }
 }

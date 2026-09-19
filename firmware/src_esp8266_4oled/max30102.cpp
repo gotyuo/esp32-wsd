@@ -4,7 +4,6 @@
 enum {
     REG_STATUS   = 0x00,
     REG_INTR1    = 0x02,
-    REG_INTR2    = 0x03,
     REG_WR_PTR   = 0x04,
     REG_OVF      = 0x05,
     REG_RD_PTR   = 0x06,
@@ -14,8 +13,15 @@ enum {
     REG_SPO2     = 0x0A,
     REG_LED1     = 0x0C,
     REG_LED2     = 0x0D,
+    REG_TEMP_INT = 0x1F,
+    REG_TEMP_FRAC= 0x20,
+    REG_TEMP_CFG = 0x21,
     REG_PART_ID  = 0xFF,
 };
+
+static const uint8_t B_SPO2_AEN  = 0x20;
+static const uint8_t B_SPO2_AEN2 = 0x10;
+static const uint8_t B_SPO2_SR25 = 0x06; // 25Hz, matches hrcalc.py SAMPLE_FREQ=25
 
 void MAX30102::_ensureBus() {
     if (_sda >= 0 && _scl >= 0 && _wire) {
@@ -71,145 +77,102 @@ bool MAX30102::begin(TwoWire *wire) {
         Serial.printf("[MAX30102] part id=0x%02X, not 0x15\n", id);
         return false;
     }
-    if (!writeReg(REG_MODE, 0x40)) return false;
-    delay(100);
+    if (!writeReg(REG_MODE, 0x40)) return false; // soft reset
+    delay(50);
     bool cfgOk = true;
-    cfgOk &= writeReg(REG_FIFO_CFG, 0xBF);
-    cfgOk &= writeReg(REG_SPO2, 0x58);
-    cfgOk &= writeReg(REG_LED1, 0x28);
-    cfgOk &= writeReg(REG_LED2, 0x28);
-    cfgOk &= writeReg(REG_MODE, 0x03);
+    cfgOk &= writeReg(REG_INTR1, 0xC0);          // clear interrupts / enable
+    cfgOk &= writeReg(REG_FIFO_CFG, 0x0F);       // FIFO high water 15
+    cfgOk &= writeReg(REG_SPO2, B_SPO2_AEN | B_SPO2_AEN2 | B_SPO2_SR25); // 25Hz Red+IR
+    cfgOk &= writeReg(REG_LED1, 0x24);           // IR, moderate current
+    cfgOk &= writeReg(REG_LED2, 0x24);           // Red
+    cfgOk &= writeReg(REG_MODE, 0x03);           // Red+IR active mode
     if (!cfgOk) {
         delay(50);
-        writeReg(REG_FIFO_CFG, 0xBF);
-        writeReg(REG_SPO2, 0x58);
-        writeReg(REG_LED1, 0x28);
-        writeReg(REG_LED2, 0x28);
+        writeReg(REG_INTR1, 0xC0);
+        writeReg(REG_FIFO_CFG, 0x0F);
+        writeReg(REG_SPO2, B_SPO2_AEN | B_SPO2_AEN2 | B_SPO2_SR25);
+        writeReg(REG_LED1, 0x24);
+        writeReg(REG_LED2, 0x24);
         writeReg(REG_MODE, 0x03);
     }
     writeReg(REG_WR_PTR, 0);
     writeReg(REG_OVF, 0);
     writeReg(REG_RD_PTR, 0);
-    _write = 0; _full = false;
-    _dcEstIR = 0; _lp1 = 0; _lp2 = 0; _peakEnv = 0;
-    _aboveThr = false; _lastBeatMs = 0; _ibiCount = 0;
-    _hr = 0; _hrValid = false;
-    _irDcSlow = 0; _finger = false; _fingerOffMs = 0;
-    _spo2 = 0; _spo2Valid = false; _spo2Avg = 0;
-    _badRatio = 0; _spo2Counter = 0; _spo2Fill = 0; _spo2Idx = 0;
-    Serial.println(F("[MAX30102] OK"));
+    _write = 0; _fill = 0; _full = false;
+    _hr = -999; _hrValid = false; _hrAvg = 0; _hrAvgValid = false;
+    _spo2Raw = -999; _spo2Valid = false; _spo2Avg = 0; _spo2AvgValid = false;
+    _tempC = NAN; _lastTempMs = 0; _tempBad = 0;
+    readTempC(_tempC);
+    Serial.println(F("[MAX30102] OK hrcalc25Hz dieTemp"));
     return true;
 }
 
-void MAX30102::processSample(float red, float ir) {
-    uint32_t ms = millis();
-    _irDcSlow += 0.05f * (ir - _irDcSlow);
-    if (_irDcSlow > 5000.0f && _irDcSlow < 240000.0f) {
-        _finger = true;
-        _fingerOffMs = 0;
+void MAX30102::findPeaks(const int16_t *x, uint8_t *locs, uint8_t &count) const {
+    count = 0;
+    uint8_t i = 0;
+    while (i < BUF - 1) {
+        if (i > 0 && x[i] > x[i - 1]) {
+            uint8_t w = 1;
+            while (i + w < BUF - 1 && x[i] == x[i + w]) w++;
+            if (x[i] > x[i + w] && count < 15) {
+                locs[count++] = i;
+                i += w + 1;
+                continue;
+            }
+            i += w;
+            continue;
+        }
+        i++;
+    }
+}
+
+void MAX30102::removeClosePeaks(uint8_t count, uint8_t *locs, const int16_t *x) const {
+    if (count < 2) return;
+    uint8_t order[15];
+    for (uint8_t i = 0; i < count; i++) order[i] = locs[i];
+    // sort descending by height, like maxim_sort_indices_descend
+    for (uint8_t i = 0; i < count; i++) {
+        for (uint8_t j = i + 1; j < count; j++) {
+            if (x[order[j]] > x[order[i]]) { uint8_t t = order[i]; order[i] = order[j]; order[j] = t; }
+        }
+    }
+    uint8_t kept = 0;
+    int8_t prev = -1;
+    for (uint8_t i = 0; i < count; i++) {
+        int8_t cur = (int8_t)order[i];
+        int16_t dist = (prev >= 0) ? (cur - prev) : (cur + 1);
+        if (prev < 0 || dist > 4 || dist < -4) {
+            locs[kept++] = order[i];
+            prev = cur;
+        }
+    }
+    if (kept > 15) kept = 15;
+    // sort positions ascending
+    for (uint8_t i = 0; i < kept; i++) {
+        for (uint8_t j = i + 1; j < kept; j++) {
+            if (locs[j] < locs[i]) { uint8_t t = locs[i]; locs[i] = locs[j]; locs[j] = t; }
+        }
+    }
+    // caller expects original count field updated by this function's caller; here only locs compacted.
+}
+
+bool MAX30102::readTempC(float &temp_c) {
+    if (!writeReg(REG_TEMP_CFG, 0x01)) return false;
+    delay(10); // datasheet: TEMP_EN is self-clearing after conversion
+    uint8_t ti = 0, tf = 0;
+    if (!readReg(REG_TEMP_INT, ti) || !readReg(REG_TEMP_FRAC, tf)) return false;
+    int8_t whole = (int8_t)ti; // 2's complement, 1°C per bit
+    uint8_t frac = tf & 0x0F;  // 0.0625°C per bit
+    if (whole < 0 && frac != 0) {
+        float positiveFrac = frac * 0.0625f;
+        temp_c = (float)whole + positiveFrac;
     } else {
-        if (_finger && _fingerOffMs == 0) _fingerOffMs = ms;
-        if (_fingerOffMs && ms - _fingerOffMs > 1500) {
-            _finger = false;
-            _hrValid = false;
-            _spo2Valid = false;
-            _ibiCount = 0;
-            _spo2Fill = 0;
-            _spo2Avg = 0;
-            _badRatio = 0;
-            _peakEnv = 0;
-            _aboveThr = false;
-        }
+        temp_c = (float)whole + (frac * 0.0625f);
     }
-    if (_finger) {
-        float ac = ir - _dcEstIR;
-        _dcEstIR += 0.90f * ac;
-        _lp1 += 0.30f * (ac - _lp1);
-        _lp2 += 0.30f * (_lp1 - _lp2);
-        float v = _lp1;
-        float av = v < 0 ? -v : v;
-        if (av > _peakEnv) _peakEnv = av; else _peakEnv *= 0.985f;
-        float thr = _peakEnv * 0.30f;
-        if (!_aboveThr && v > thr && thr > 2.0f && (_lastBeatMs == 0 || ms - _lastBeatMs > 300)) {
-            _aboveThr = true;
-            if (_lastBeatMs != 0) {
-                uint32_t ibi = ms - _lastBeatMs;
-                if (ibi > 300 && ibi < 2200) {
-                    if (_ibiCount >= 3) {
-                        uint32_t s[7];
-                        memcpy(s, _ibis, _ibiCount * sizeof(uint32_t));
-                        for (int i = 0; i < _ibiCount; i++)
-                            for (int j = i + 1; j < _ibiCount; j++)
-                                if (s[j] < s[i]) { uint32_t t = s[i]; s[i] = s[j]; s[j] = t; }
-                        uint32_t med = s[_ibiCount / 2];
-                        uint32_t diff = ibi > med ? ibi - med : med - ibi;
-                        if (diff * 100 > med * 35) { _lastBeatMs = ms; }
-                    } else {
-                        if (_ibiCount < 7) _ibis[_ibiCount++] = ibi;
-                        else { memmove(_ibis, _ibis + 1, 6 * sizeof(uint32_t)); _ibis[6] = ibi; }
-                    }
-                    if (_ibiCount >= 2) {
-                        uint32_t s[7];
-                        memcpy(s, _ibis, _ibiCount * sizeof(uint32_t));
-                        for (int i = 0; i < _ibiCount; i++)
-                            for (int j = i + 1; j < _ibiCount; j++)
-                                if (s[j] < s[i]) { uint32_t t = s[i]; s[i] = s[j]; s[j] = t; }
-                        uint32_t med = (_ibiCount == 2) ? (s[0] + s[1]) / 2 : s[_ibiCount / 2];
-                        int newHr = (int)(60000UL / med);
-                        if (newHr >= 40 && newHr <= 150) {
-                            _hr = _hrValid ? (int)(_hr * 0.6f + newHr * 0.4f) : newHr;
-                            _hrValid = true;
-                        }
-                    }
-                }
-            }
-            _lastBeatMs = ms;
-        } else if (_aboveThr && v < thr * 0.4f) {
-            _aboveThr = false;
-        }
-        if (_hrValid && _lastBeatMs && ms - _lastBeatMs > 5000) {
-            _hrValid = false;
-            _ibiCount = 0;
-        }
-        _redBuf[_spo2Idx] = red;
-        _irBuf[_spo2Idx] = ir;
-        _spo2Idx = (_spo2Idx + 1) % BUF;
-        if (_spo2Fill < BUF) _spo2Fill++;
-        _spo2Counter++;
-        if (_spo2Fill >= BUF && _spo2Counter >= 25) {
-            _spo2Counter = 0;
-            float mr = 0, mi = 0;
-            for (int i = 0; i < BUF; i++) { mr += _redBuf[i]; mi += _irBuf[i]; }
-            mr /= BUF; mi /= BUF;
-            float ar = 0, ai = 0;
-            for (int i = 0; i < BUF; i++) {
-                float dr = _redBuf[i] - mr;
-                float di = _irBuf[i] - mi;
-                ar += dr * dr;
-                ai += di * di;
-            }
-            ar = sqrtf(ar / BUF);
-            ai = sqrtf(ai / BUF);
-            if (mr > 1000.0f && mi > 1000.0f && ar > 15.0f && ai > 15.0f) {
-                float R = (ar / mr) / (ai / mi);
-                if (R > 0.3f && R < 3.5f) {
-                    float s = -45.060f * R * R + 30.354f * R + 94.845f;
-                    if (s > 60.0f && s <= 100.0f) {
-                        _spo2Avg = _spo2Valid ? (_spo2Avg * 0.6f + s * 0.4f) : s;
-                        _spo2 = (int)(_spo2Avg + 0.5f);
-                        _spo2Valid = true;
-                        _badRatio = 0;
-                    }
-                } else if (++_badRatio > 3) {
-                    _spo2Valid = false;
-                    _spo2Avg = 0;
-                }
-            } else if (++_badRatio > 3) {
-                _spo2Valid = false;
-                _spo2Avg = 0;
-            }
-        }
-    }
+    _tempC = temp_c;
+    _lastTempMs = millis();
+    _tempBad = 0;
+    return true;
 }
 
 bool MAX30102::read(float &sp_o2, float &hr_bpm) {
@@ -217,22 +180,175 @@ bool MAX30102::read(float &sp_o2, float &hr_bpm) {
     uint32_t nowMs = millis();
     if (nowMs - lastDbg > 1500) {
         lastDbg = nowMs;
-        Serial.printf("[MAXDBG] finger=%d irDc=%0.0f peak=%0.0f hr=%d valid=%d ibi=%d\n",
-                      _finger, _irDcSlow, _peakEnv, _hr, _hrValid, _ibiCount);
+        Serial.printf("[MAXDBG] fill=%d hr=%d valid=%d spo2=%.2f valid=%d temp=%.2f\n",
+                      _fill, _hr, _hrValid, _hrAvgValid ? _hrAvg : NAN, _spo2AvgValid, _tempC);
     }
+
     uint8_t wr = 0, rd = 0;
     if (!readReg(REG_WR_PTR, wr) || !readReg(REG_RD_PTR, rd)) return false;
     uint8_t n = (uint8_t)((wr - rd) & 0x1F);
     if (n == 0) return false;
     if (n > 8) n = 8;
-    uint8_t buf[6 * 8];
-    if (!readFifo(buf, (uint8_t)(n * 6))) return false;
-    for (uint8_t i = 0; i < n; i++) {
-        uint32_t red = ((uint32_t)(buf[i * 6] & 0x03) << 16) | ((uint32_t)buf[i * 6 + 1] << 8) | (uint32_t)buf[i * 6 + 2];
-        uint32_t ir = ((uint32_t)(buf[i * 6 + 3] & 0x03) << 16) | ((uint32_t)buf[i * 6 + 4] << 8) | (uint32_t)buf[i * 6 + 5];
-        processSample((float)red, (float)ir);
+    uint8_t raw[6 * 8];
+    if (!readFifo(raw, (uint8_t)(n * 6))) return false;
+    for (uint8_t k = 0; k < n; k++) {
+        uint32_t r = ((uint32_t)(raw[k * 6] & 0x03) << 16) | ((uint32_t)raw[k * 6 + 1] << 8) | raw[k * 6 + 2];
+        uint32_t i = ((uint32_t)(raw[k * 6 + 3] & 0x03) << 16) | ((uint32_t)raw[k * 6 + 4] << 8) | raw[k * 6 + 5];
+        _irBuf[_write]  = (float)i;
+        _redBuf[_write] = (float)r;
+        _write = (_write + 1) % BUF;
+        if (_fill < BUF) _fill++;
+        _full = (_fill >= BUF);
     }
-    sp_o2 = _spo2Valid ? (float)_spo2 : NAN;
-    hr_bpm = _hrValid ? (float)_hr : NAN;
-    return _spo2Valid || _hrValid;
+
+    if (_full) {
+        float irMean = 0;
+        for (int b = 0; b < BUF; b++) irMean += _irBuf[b];
+        irMean /= BUF;
+
+        int16_t x[BUF];
+        for (int b = 0; b < BUF; b++) x[b] = (int16_t)(-(int)(_irBuf[b]) + (int)irMean);
+        for (int b = 0; b + MAX30102_MA_SIZE <= BUF; b++) {
+            int16_t s = 0;
+            for (int m = 0; m < MAX30102_MA_SIZE; m++) s += x[b + m];
+            x[b] = s / MAX30102_MA_SIZE;
+        }
+
+        int thr = 0;
+        for (int b = 0; b < BUF; b++) thr += x[b];
+        thr /= BUF;
+        if (thr < 30) thr = 30;
+        if (thr > 60) thr = 60;
+
+        uint8_t locs[15] = {};
+        uint8_t nPeaks = 0;
+        // Find above min height
+        uint8_t i = 0;
+        while (i < BUF - 1) {
+            if (x[i] > thr && x[i] > x[i - 1]) {
+                uint8_t width = 1;
+                while (i + width < BUF - 1 && x[i] == x[i + width]) width++;
+                if (x[i] > x[i + width] && nPeaks < 15) {
+                    locs[nPeaks++] = i;
+                    i += width + 1;
+                    continue;
+                }
+                i += width;
+                continue;
+            }
+            i++;
+        }
+        // Remove close peaks
+        if (nPeaks >= 2) {
+            uint8_t order[15];
+            for (uint8_t p = 0; p < nPeaks; p++) order[p] = locs[p];
+            for (uint8_t p = 0; p < nPeaks; p++) {
+                for (uint8_t q = p + 1; q < nPeaks; q++) {
+                    if (x[order[q]] > x[order[p]]) { uint8_t t = order[p]; order[p] = order[q]; order[q] = t; }
+                }
+            }
+            uint8_t compact[15] = {};
+            uint8_t compactN = 0;
+            int8_t prev = -1;
+            for (uint8_t p = 0; p < nPeaks; p++) {
+                int8_t cur = (int8_t)order[p];
+                int16_t dist = (prev >= 0) ? (int16_t)(cur - prev) : (int16_t)(cur + 1);
+                if (prev < 0 || dist > 4 || dist < -4) {
+                    compact[compactN++] = order[p];
+                    prev = cur;
+                }
+            }
+            for (uint8_t p = 0; p < compactN; p++) {
+                for (uint8_t q = p + 1; q < compactN; q++) {
+                    if (compact[q] < compact[p]) { uint8_t t = compact[p]; compact[p] = compact[q]; compact[q] = t; }
+                }
+            }
+            if (compactN > 15) compactN = 15;
+            nPeaks = compactN;
+            for (uint8_t p = 0; p < nPeaks; p++) locs[p] = compact[p];
+        }
+
+        _hr = -999;
+        _hrValid = false;
+        if (nPeaks >= 2) {
+            long peakSum = 0;
+            for (uint8_t p = 1; p < nPeaks; p++) peakSum += (locs[p] - locs[p - 1]);
+            long avgInt = peakSum / (nPeaks - 1);
+            if (avgInt > 0) {
+                long h = (long)MAX30102_SAMPLE_FREQ * 60L / avgInt;
+                if (h >= 30 && h <= 220) {
+                    _hr = (int)h;
+                    _hrValid = true;
+                    _hrAvg = _hrAvgValid ? (float)(_hrAvg * 0.7 + _hr * 0.3) : (float)_hr;
+                    _hrAvgValid = true;
+                }
+            }
+        }
+
+        int8_t ratioVals[5] = {};
+        uint8_t ratioN = 0;
+        bool outOfRange = false;
+        for (uint8_t p = 0; p < nPeaks; p++) {
+            if (locs[p] >= BUF) { outOfRange = true; break; }
+        }
+        if (!outOfRange) {
+            for (uint8_t k = 0; k + 1 < nPeaks; k++) {
+                long redDcMax = -16777216L;
+                long irDcMax = -16777216L;
+                int redDcIdx = locs[k];
+                int irDcIdx = locs[k];
+                if ((int)locs[k + 1] - (int)locs[k] > 3) {
+                    for (int b = locs[k]; b < locs[k + 1]; b++) {
+                        if ((long)_irBuf[b] > irDcMax) { irDcMax = _irBuf[b]; irDcIdx = b; }
+                        if ((long)_redBuf[b] > redDcMax) { redDcMax = _redBuf[b]; redDcIdx = b; }
+                    }
+                }
+                long span = (long)locs[k + 1] - locs[k];
+                long redAc = ((long)_redBuf[locs[k + 1]] - (long)_redBuf[locs[k]]) * ((long)redDcIdx - locs[k]);
+                redAc = _redBuf[locs[k]] + redAc / span;
+                redAc = (long)_redBuf[redDcIdx] - redAc;
+                long irAc = ((long)_irBuf[locs[k + 1]] - (long)_irBuf[locs[k]]) * ((long)irDcIdx - locs[k]);
+                irAc = _irBuf[locs[k]] + irAc / span;
+                irAc = (long)_irBuf[irDcIdx] - irAc;
+                long nume = redAc * irDcMax;
+                long denom = irAc * redDcMax;
+                if (denom > 0 && ratioN < 5 && nume != 0) {
+                    long r = (nume * 100L) / denom;
+                    if (r < 0 || r > 255) continue;
+                    ratioVals[ratioN++] = (int8_t)r;
+                }
+            }
+        }
+        for (uint8_t a = 0; a < ratioN; a++) {
+            for (uint8_t b = a + 1; b < ratioN; b++) {
+                if (ratioVals[b] < ratioVals[a]) { int8_t t = ratioVals[a]; ratioVals[a] = ratioVals[b]; ratioVals[b] = t; }
+            }
+        }
+        int ratioAve = 0;
+        int mid = (int)(ratioN / 2);
+        if (mid > 1) ratioAve = (ratioVals[mid - 1] + ratioVals[mid]) / 2;
+        else if (ratioN > 0) ratioAve = ratioVals[mid];
+
+        if (ratioAve > 2 && ratioAve < 184) {
+            float r = (float)ratioAve / 100.0f;
+            float s = -45.060f * r * r + 30.054f * r + 94.845f;
+            if (s >= 70.0f && s <= 100.0f) {
+                _spo2Avg = _spo2AvgValid ? (float)(_spo2Avg * 0.7 + s * 0.3) : s;
+                _spo2AvgValid = true;
+                _spo2Raw = (int)(s * 100.0f + 0.5f);
+                _spo2Valid = true;
+            }
+        }
+        if (!_spo2AvgValid && _spo2Avg == 0) {} // keep stale-free only when new valid values arrive
+    }
+
+    hr_bpm = _hrAvgValid ? _hrAvg : NAN;
+    sp_o2 = _spo2AvgValid ? _spo2Avg : NAN;
+    if (nowMs - _lastTempMs > 1000) {
+        if (!readTempC(_tempC)) {
+            _tempBad++;
+            if (_tempBad > 10) _tempC = NAN;
+        }
+    }
+    return _hrAvgValid || _spo2AvgValid || !isnan(_tempC);
 }

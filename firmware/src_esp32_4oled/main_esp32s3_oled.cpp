@@ -127,10 +127,11 @@ void setup() {
         s.pres_hpa = g_last.pres_hpa;
         s.sp_o2    = g_last.sp_o2;
         s.pr_hr    = g_last.pr_hr;
+        s.max_temp_c = g_last.max_temp_c;
         s.wifi     = g_net.wifiConnected();
         s.mqtt     = g_mqtt.connected();
         s.uptime   = (uint32_t)(millis() / 1000);
-        s.valid    = !isnan(s.temp_c) || !isnan(s.hum_pct) || !isnan(s.pres_hpa) || !isnan(s.sp_o2) || !isnan(s.pr_hr);
+        s.valid    = !isnan(s.temp_c) || !isnan(s.hum_pct) || !isnan(s.pres_hpa) || !isnan(s.sp_o2) || !isnan(s.pr_hr) || !isnan(s.max_temp_c);
         return s;
     });
     g_net.begin();

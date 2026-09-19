@@ -15,6 +15,7 @@ struct EnvData {
     // 体征（来自 MAX30102 / AD8232 / ESP32 ADC）
     float sp_o2    = NAN;   // 血氧 %
     float pr_hr    = NAN;   // 脉率 bpm (MAX30102)
+    float max_temp_c = NAN; // MAX30102 die temp, diagnostic only
     float ecg_hr   = NAN;   // 心电图心率 bpm (AD8232)
     float rr_bpm   = NAN;   // 呼吸频率 rpm
     float glucose  = NAN;   // 血糖 mmol/L

@@ -278,7 +278,7 @@ void NetManager::handleJson() {
     snprintf(buf, sizeof(buf),
         "{\"dev\":\"%s\",\"device_id\":\"%s\",\"ip\":\"%s\",\"fw\":\"%s\","
         "\"temp_c\":%s,\"hum_pct\":%s,\"pres_hpa\":%s,"
-        "\"sp_o2\":%s,\"pr_hr\":%s,\"rssi\":%d,\"uptime\":%u,"
+        "\"sp_o2\":%s,\"pr_hr\":%s,\"max_temp_c\":%s,\"max30102_temp_c\":%s,\"rssi\":%d,\"uptime\":%u,"
         "\"alarm\":0,\"valid\":%s}",
         _cfg->device_id,
         _cfg->device_id,
@@ -289,6 +289,8 @@ void NetManager::handleJson() {
         isnan(s.pres_hpa) ? "null" : String(s.pres_hpa, 2).c_str(),
         isnan(s.sp_o2) ? "null" : String(s.sp_o2, 0).c_str(),
         isnan(s.pr_hr) ? "null" : String(s.pr_hr, 0).c_str(),
+        isnan(s.max_temp_c) ? "null" : String(s.max_temp_c, 2).c_str(),
+        isnan(s.max_temp_c) ? "null" : String(s.max_temp_c, 2).c_str(),
         wifiConnected() ? WiFi.RSSI() : 127,
         (unsigned)(millis() / 1000),
         s.valid ? "true" : "false");

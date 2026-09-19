@@ -97,3 +97,13 @@ sha256sum -c envmon-device-backups-2026-09-19-max30102-fix.tar.gz.sha256
 - backups/2026-09-19/envmon_esp8266.bin.sha256
 
 说明：最终烧录镜像按 FW 2.0.1 重新生成，并包含 ESP8266 FW_VERSION 宏修正。
+
+## 当前烧录镜像归档（FW 2.0.2 / MAX30102 hrcalc 算法）
+- firmware/firmware_bin/envmon_esp32s3_oled.bin
+- firmware/firmware_bin/envmon_esp32s3_oled.bin.sha256
+- firmware/firmware_bin/envmon_esp8266.bin
+- firmware/firmware_bin/envmon_esp8266.bin.sha256
+- backups/envmon-device-backups-2026-09-19-fw202.tar.gz
+- backups/envmon-device-backups-2026-09-19-fw202.tar.gz.sha256
+
+说明：对照 vrano714 的 `hrcalc.py` 参考实现，MAX30102 采样率改为 25Hz，4 秒窗口改为 100 点，峰值检测/HR/SpO2 中值比值算法移植到 ESP8266/ESP32；同时新增 MAX30102 die temperature 读取，并在 HTTP JSON 中增加 `max_temp_c` / `max30102_temp_c`。

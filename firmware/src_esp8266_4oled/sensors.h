@@ -10,6 +10,7 @@ struct EnvData {
     float pres_hpa = NAN;
     float sp_o2    = NAN;
     float pr_hr    = NAN;
+    float max_temp_c = NAN; // MAX30102 die temperature, diagnostic/SpO2 compensation only
     bool  valid    = false;
 };
 
