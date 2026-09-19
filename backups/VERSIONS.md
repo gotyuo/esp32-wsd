@@ -63,3 +63,21 @@ sha256sum -c envmon-device-backups-2026-09-19-max30102-fix.tar.gz.sha256
 - 不是 MAX30102 FIFO 解析能单独解决的问题
 - 当前优先怀疑 MAX30102 模块供电/VIN/GND、I2C 接线、上拉电阻或模块损坏
 - 下一步需要硬件侧确认 MAX30102 模块供电 3.3V/GND 和 SDA/SCL 实际连通性
+
+## MAX30102 接线结论更新（2026-09-19）
+
+确认有效接线：
+- MAX30102 SDA = ESP8266 D1 / GPIO5
+- MAX30102 SCL = ESP8266 D2 / GPIO4
+- MAX30102 GND = GND
+- MAX30102 VIN = 3V3（不要接 5V）
+
+固件已调整：
+- `firmware/src_esp8266_4oled/pins.h` 将传感器 I2C 改为 D1/D2
+- `MAX30102` 初始化不再因芯片 ID 不匹配直接失败，改为打印告警后继续初始化
+
+验证日志摘要：
+- `I2C addr 0x57 ACK`
+- `MAX30102 chip id mismatch: 0x03, continue`
+- `MAX30102 OK`
+- 设备联网：`172.22.22.63`

@@ -1,4 +1,4 @@
 Device IP: 172.22.22.63
-Build: current MAX30102 diagnostics + FIFO parse fix
-Firmware: 16408fa9565756bcfdb308a667f346b5
-Source: cb74369c713981d7026e518b17a7e15b
+Build: D1/D2 MAX30102 working ACK version
+Firmware: 3f4d906bb39f550cdcfb48332ba70798
+Source: 2d0d609848ee027407aacc6e58dcd72d
