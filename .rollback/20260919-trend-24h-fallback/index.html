@@ -1920,14 +1920,17 @@ function refreshMonitor(ev){_refreshBtn(ev,function(){
   }).catch(function(){});
   // 1b) 历史体征数据 — 仅用于趋势线/sparkline，不影响卡片数值
   api("/api/patients/"+pid+"/vitals?hours="+MONITOR_TREND_HOURS).then(function(d){
-    if(d.out_of_window && !(d.points||[]).length){
-      // 所选窗口内无新数据：取全量/近期记录回退，画出最近真实曲线并提示
-      loadMonitorTrendFallback(pid, d.latest_ts||null);
-      drawOrderTrend();
-      return;
-    }
     MONITOR_VITALS=trendWindowSelect(MONITOR_TREND_HOURS,d.points||[]);
-    syncMonitorSparklines();
+    var cards=document.querySelectorAll("#mVitals .m-card");
+    cards.forEach(function(c){
+      var param=c.dataset.param;
+      var vals=(MONITOR_VITALS||[]).map(function(x){return x[param];}).filter(function(x){return x!=null;}).slice(-60);
+      var trendEl=c.querySelector(".trend");
+      var ar=trendArrow(vals);
+      trendEl.textContent=ar;
+      trendEl.style.color=(ar==="↗"?"#ffa300":(ar==="↘"?"#4fc3f7":"var(--sub)"));
+      paintSpark(c.querySelector(".m-spark"),vals);
+    });
     drawMonitorTrend();
     drawOrderTrend();
     renderVitalsList(MONITOR_VITALS);
@@ -2021,33 +2024,6 @@ function trendWindowSelect(h,raw){
   MONITOR_TREND_NOTE=""; MONITOR_TREND_FALLBACK=false; return [];
 }
 function windowFilterTrend(h,pts){var cutoff=Date.now()-h*3600*1000;return pts.filter(function(x){var t=parseTs(x.ts);return !isNaN(t)&&t>=cutoff;});}
-// 后端确认所选窗口内确实无新数据时：改取全量/近期记录（8760h，与页面其它调用一致，会走遥测回退），
-// 再按当前窗口过滤；若仍无新点则走既有"持续显示最近记录"回退分支（NOTE+FALLBACK），画出最近真实曲线。
-function loadMonitorTrendFallback(pid, labelTs){
-  api("/api/patients/"+pid+"/vitals?hours=8760").then(function(d){
-    MONITOR_VITALS = trendWindowSelect(MONITOR_TREND_HOURS, d.points||[]);
-    if(!MONITOR_VITALS.length && labelTs){
-      MONITOR_TREND_NOTE='所选窗口内无新数据，持续显示最近记录（最新 '+fmtTime(labelTs)+'）';
-      MONITOR_TREND_FALLBACK=false;
-    }
-    syncMonitorSparklines();
-    drawMonitorTrend();
-    renderVitalsList(MONITOR_VITALS);
-  }).catch(function(){ drawMonitorTrend(); });
-}
-// 用当前 MONITOR_VITALS 刷新各指标卡片的迷你走势（arrow + spark）
-function syncMonitorSparklines(){
-  var cards=document.querySelectorAll("#mVitals .m-card");
-  cards.forEach(function(c){
-    var param=c.dataset.param;
-    var vals=(MONITOR_VITALS||[]).map(function(x){return x[param];}).filter(function(x){return x!=null;}).slice(-60);
-    var trendEl=c.querySelector(".trend");
-    var ar=trendArrow(vals);
-    trendEl.textContent=ar;
-    trendEl.style.color=(ar==="↗"?"#ffa300":(ar==="↘"?"#4fc3f7":"var(--sub)"));
-    paintSpark(c.querySelector(".m-spark"),vals);
-  });
-}
 function setTrendHours(h){
   MONITOR_TREND_HOURS = h;
   document.querySelectorAll('#mTrendPanel [data-th]').forEach(function(b){
@@ -2062,12 +2038,22 @@ function setTrendHours(h){
   api("/api/patients/"+MONITOR_PID+"/vitals?hours="+h).then(function(d){
     var pts = d.points||[];
     if(d.out_of_window && !pts.length){
-      // 后端确认所选窗口内无新数据：复用同一回退路径，取全量记录画出最近真实曲线并提示
-      loadMonitorTrendFallback(MONITOR_PID, d.latest_ts||null);
-      return;
+      // 后端确认所选窗口内无新数据：保留当前已画出的曲线持续显示，仅提示
+      MONITOR_TREND_NOTE='所选窗口内无新数据，持续显示最近记录（最新 '+(d.latest_ts?fmtTime(d.latest_ts):'')+'）';
+    }else{
+      MONITOR_VITALS=trendWindowSelect(h, pts);
     }
-    MONITOR_VITALS=trendWindowSelect(h, pts);
-    syncMonitorSparklines();
+    // 同步刷新 sparkline
+    var cards=document.querySelectorAll("#mVitals .m-card");
+    cards.forEach(function(c){
+      var param=c.dataset.param;
+      var vals=(MONITOR_VITALS||[]).map(function(x){return x[param];}).filter(function(x){return x!=null;}).slice(-60);
+      var trendEl=c.querySelector(".trend");
+      var ar=trendArrow(vals);
+      trendEl.textContent=ar;
+      trendEl.style.color=(ar==="↗"?"#ffa300":(ar==="↘"?"#4fc3f7":"var(--sub)"));
+      paintSpark(c.querySelector(".m-spark"),vals);
+    });
     drawMonitorTrend();
     renderVitalsList(MONITOR_VITALS);
   }).catch(function(){drawMonitorTrend();});
@@ -2089,11 +2075,7 @@ function drawMonitorTrend(){
   var pts = MONITOR_VITALS || [];
   wrap.innerHTML = '';
   if(!pts.length){
-    var emptyHtml='';
-    if(MONITOR_TREND_NOTE){
-      emptyHtml += '<div style="color:var(--orange);font-size:11px;margin-bottom:6px">'+esc(MONITOR_TREND_NOTE)+'</div>';
-    }
-    wrap.innerHTML = emptyHtml + '<div style="color:var(--dim);font-size:12px;padding:12px 4px">暂无体征数据</div>';
+    wrap.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:12px 4px">暂无体征数据</div>';
     return;
   }
   // 每个有数据的指标生成独立小图
