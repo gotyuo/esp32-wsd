@@ -43,6 +43,7 @@ SensorHub          g_sensors;
 AlarmDevice        g_alarm;
 EnvData            g_last;
 uint32_t           g_lastRead = 0;
+uint32_t           g_lastVital = 0;
 uint32_t           g_lastPub  = 0;
 bool               g_mqttReady = false;
 bool               g_discActive = false;
@@ -398,10 +399,13 @@ void loop() {
     checkSsidChanged();
     uint32_t now = millis();
 
-    // ---------- 传感器采样 (2s) ----------
+    // ---------- 传感器采样 (环境 2s, 体征 50ms) ----------
     if (now - g_lastRead >= 2000) {
         g_lastRead = now;
         g_sensors.read(g_last);
+    }
+    if (now - g_lastVital >= 50) {
+        g_lastVital = now;
         g_sensors.readVitals(g_last);
     }
 

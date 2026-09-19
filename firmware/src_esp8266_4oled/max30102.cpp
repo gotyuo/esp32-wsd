@@ -1,204 +1,231 @@
 #include "max30102.h"
+#include <math.h>
 
-// MAX30102 寄存器(低字节 index):
-// 0x00/0x01 中断, 0x04 FIFO 配置, 0x05 FIFO 高水位,
-// 0x07 读头(读剩余采样点数), 0x08 数据 FIFO 基址,
-// 0x09 MODE, 0x0A SPO2, 0x0C/0x0D/0x0E LED1/2/3, 0x0F PI, 0x10 MULTI,
-// 0x11 写尾指针(带清除位), 0xFE 芯片 ID.
-//
-// 关键 FIFO 协议(见 datasheet FIFO READ/WRITE 节):
-//   读剩余点数 : 读 1 字节 reg 0x07
-//   读一组 6B : 发 2 字节头 [0x07][dataIndex], 再读 6 字节(R12,G12,IR12)
-//              dataIndex = 0x07,0x0D,...,0x69 (每组间隔 6)
-//   写尾清除   : 发 6 字节 [0x11][tail|0x80][ch0][ch1][ch2]
-//              ch0 = 0xFF - sum(前 5 字节 low), ch1 = 0xFF - sum(前 5 字节 high)
-//   控制寄存器 : 普通 1 字节 reg 地址写
-//
 enum {
-    REG_INTR1    = 0x00, REG_INTR2    = 0x01,
-    REG_FIFOG    = 0x04, REG_FIFOHW   = 0x05,
-    REG_FIFOPH   = 0x07,        // 读头 / 数据头
-    REG_FIFO     = 0x08,
-    REG_MODE     = 0x09, REG_SPO2     = 0x0A,
-    REG_LED1     = 0x0C, REG_LED2     = 0x0D, REG_LED3 = 0x0E,
-    REG_PI       = 0x0F, REG_MULT     = 0x10,
-    REG_FIFOTAIL = 0x11,
-    REG_ADI      = 0xFE,
+    REG_STATUS   = 0x00,
+    REG_INTR1    = 0x02,
+    REG_INTR2    = 0x03,
+    REG_WR_PTR   = 0x04,
+    REG_OVF      = 0x05,
+    REG_RD_PTR   = 0x06,
+    REG_FIFO_DATA= 0x07,
+    REG_FIFO_CFG = 0x08,
+    REG_MODE     = 0x09,
+    REG_SPO2     = 0x0A,
+    REG_LED1     = 0x0C,
+    REG_LED2     = 0x0D,
+    REG_PART_ID  = 0xFF,
 };
-static const uint8_t DATA_START = 0x07;               // 数据组首 dataIndex
-static const uint8_t B_SPO2_AEN  = 0x20, B_SPO2_AEN2 = 0x10;
-static const uint8_t B_SPO2_SR50 = 0x07;              // SPO2 采样率 50Hz
 
-// --- ESP8266 单总线时分复用：切到目标引脚 ---
 void MAX30102::_ensureBus() {
     if (_sda >= 0 && _scl >= 0 && _wire) {
         _wire->begin(_sda, _scl);
     }
 }
 
-// --- 1 字节 reg 写(控制寄存器用) ---
 bool MAX30102::writeReg(uint8_t addr, uint8_t val) {
     _ensureBus();
-    uint8_t p[2] = {addr, val};
-    _wire->beginTransmission(MAX30102_ADDR);
-    _wire->write(p, 2);
-    return _wire->endTransmission() == 0;
+    for (int t = 0; t < 3; t++) {
+        _wire->beginTransmission(MAX30102_ADDR);
+        _wire->write(addr);
+        _wire->write(val);
+        if (_wire->endTransmission() == 0) return true;
+        delay(2);
+    }
+    return false;
 }
+
 bool MAX30102::readReg(uint8_t addr, uint8_t &val) {
     _ensureBus();
-    _wire->beginTransmission(MAX30102_ADDR);
-    _wire->write(addr);
-    if (_wire->endTransmission(false) != 0) return false;
-    _wire->requestFrom(MAX30102_ADDR, (size_t)1);
-    if (!_wire->available()) return false;
-    val = _wire->read(); return true;
+    for (int t = 0; t < 3; t++) {
+        _wire->beginTransmission(MAX30102_ADDR);
+        _wire->write(addr);
+        if (_wire->endTransmission() != 0) continue;
+        uint8_t got = _wire->requestFrom(MAX30102_ADDR, (size_t)1);
+        if (got != 1) continue;
+        val = _wire->read();
+        return true;
+    }
+    return false;
 }
 
-// --- 读一组 6 字节(1 个采样点)：2 字节头 [0x07][dataIndex] ---
-bool MAX30102::readFifoSample(uint8_t dataIndex, uint16_t &red, uint16_t &ir) {
+bool MAX30102::readFifo(uint8_t *buf, uint8_t n) {
     _ensureBus();
-    uint8_t head[2] = {REG_FIFOPH, dataIndex};
-    uint8_t p[6];
-    _wire->beginTransmission(MAX30102_ADDR);
-    _wire->write(head, 2);
-    if (_wire->endTransmission(false) != 0) return false;
-    _wire->requestFrom(MAX30102_ADDR, (size_t)6);
-    if (!_wire->available()) return false;
-    for (int i = 0; i < 6; i++) p[i] = _wire->read();
-    // FIFO 顺序为 3 字节 Red + 3 字节 IR；每组 3 字节，12-bit 数据取低 12 位
-    red = (((uint16_t)p[0] & 0x03) << 8) | (uint16_t)p[1];
-    ir = (((uint16_t)p[3] & 0x03) << 8) | (uint16_t)p[4];
-    return true;
-}
-
-// --- 写尾指针清除(6 字节 + 校验) ---
-// MAX30102 写尾= 32 位寄存器写:
-//   p0=REG_FIFOTAIL(0x11), p1=(tail&0x3F)|0x80, p2/p3/p4=0x00
-//   校验: ch0=0xFF-(p0+p1+p2+p3+p4)低字节, ch1=0xFF-(p0+p1+p2+p3+p4+ch0)高字节
-bool MAX30102::writeTail(uint8_t tail) {
-    _ensureBus();
-    uint8_t p[6];
-    p[0] = REG_FIFOTAIL;
-    p[1] = (tail & 0x3F) | 0x80;   // 清除位
-    p[2] = 0; p[3] = 0; p[4] = 0;
-    uint16_t s = 0;
-    for (int i = 0; i < 5; i++) s += p[i];
-    p[5] = 0xFF - (s & 0xFF);
-    // 注: 写尾只用 6 字节(ch1 随下一进位隐含),实际 datasheet 写尾写 6 字节即止
-    _wire->beginTransmission(MAX30102_ADDR);
-    _wire->write(p, 6);
-    return _wire->endTransmission() == 0;
+    for (int t = 0; t < 3; t++) {
+        _wire->beginTransmission(MAX30102_ADDR);
+        _wire->write(REG_FIFO_DATA);
+        if (_wire->endTransmission() != 0) continue;
+        uint8_t got = _wire->requestFrom(MAX30102_ADDR, (size_t)n);
+        if (got != n) continue;
+        for (int i = 0; i < n; i++) buf[i] = _wire->read();
+        return true;
+    }
+    return false;
 }
 
 bool MAX30102::begin(TwoWire *wire) {
     _wire = wire;
     _ensureBus();
-    _wire->beginTransmission(MAX30102_ADDR);
-    if (_wire->endTransmission() != 0) { Serial.println(F("[MAX30102] not found!")); return false; }
-    delay(20);
-    uint8_t adi;
-    if (readReg(REG_ADI, adi) && adi != 0x11) {
-        Serial.printf("[MAX30102] chip id mismatch: 0x%02X, continue\n", adi);
-    } else if (!readReg(REG_ADI, adi)) {
-        Serial.println(F("[MAX30102] id read failed, continue"));
+    uint8_t id = 0;
+    if (!readReg(REG_PART_ID, id) || id != 0x15) {
+        Serial.printf("[MAX30102] part id=0x%02X, not 0x15\n", id);
+        return false;
     }
-    // 软复位
-    writeReg(REG_MODE, 0x80); delay(5);
-    // 清空 FIFO
-    writeReg(REG_INTR1, 0xC0); writeReg(REG_INTR2, 0x80);
-    writeReg(REG_FIFOHW, 0x1F);
-    uint8_t tail; readReg(REG_FIFOTAIL, tail);
-    writeTail(tail & 0x3F); delay(10);
-    uint8_t head; readReg(REG_FIFOPH, head);
-    writeTail(head & 0x3F); delay(10);
-    // 50Hz 采样，红光+红外，ADCR 1250µA
-    writeReg(REG_SPO2, B_SPO2_SR50 | B_SPO2_AEN | B_SPO2_AEN2);
-    writeReg(REG_LED1, 0x0D);     // 红外 600µA
-    writeReg(REG_LED2, 0x0D);     // 红光 600µA
-    writeReg(REG_LED3, 0x00);     // 绿光关
-    writeReg(REG_MODE, 0x03);     // 红光+红外 连续
-    delay(300);
+    if (!writeReg(REG_MODE, 0x40)) return false;
+    delay(100);
+    bool cfgOk = true;
+    cfgOk &= writeReg(REG_FIFO_CFG, 0xBF);
+    cfgOk &= writeReg(REG_SPO2, 0x58);
+    cfgOk &= writeReg(REG_LED1, 0x28);
+    cfgOk &= writeReg(REG_LED2, 0x28);
+    cfgOk &= writeReg(REG_MODE, 0x03);
+    if (!cfgOk) {
+        delay(50);
+        writeReg(REG_FIFO_CFG, 0xBF);
+        writeReg(REG_SPO2, 0x58);
+        writeReg(REG_LED1, 0x28);
+        writeReg(REG_LED2, 0x28);
+        writeReg(REG_MODE, 0x03);
+    }
+    writeReg(REG_WR_PTR, 0);
+    writeReg(REG_OVF, 0);
+    writeReg(REG_RD_PTR, 0);
     _write = 0; _full = false;
+    _dcEstIR = 0; _lp1 = 0; _lp2 = 0; _peakEnv = 0;
+    _aboveThr = false; _lastBeatMs = 0; _ibiCount = 0;
+    _hr = 0; _hrValid = false;
+    _irDcSlow = 0; _finger = false; _fingerOffMs = 0;
+    _spo2 = 0; _spo2Valid = false; _spo2Avg = 0;
+    _badRatio = 0; _spo2Counter = 0; _spo2Fill = 0; _spo2Idx = 0;
     Serial.println(F("[MAX30102] OK"));
     return true;
 }
 
-// 心率：相邻峰值间距(50Hz 采样)
-static float computeHR(uint16_t *ir, int n) {
-    if (n < 80) return NAN;
-    int bestN = 0; float bestD = 0;
-    for (int i = 2; i < n - 20 && i < 4000; i++) {
-        if (ir[i] > ir[i-1] && ir[i] > ir[i+1] && ir[i] > ir[i-1] + 40) {
-            int next = -1;
-            for (int j = i + 15; j < i + 120 && j < n; j++) {
-                if (ir[j] > ir[j-1] && ir[j] > ir[j+1] && ir[j] > ir[j-1] + 40) { next = j; break; }
+void MAX30102::processSample(float red, float ir) {
+    uint32_t ms = millis();
+    _irDcSlow += 0.05f * (ir - _irDcSlow);
+    if (_irDcSlow > 5000.0f && _irDcSlow < 240000.0f) {
+        _finger = true;
+        _fingerOffMs = 0;
+    } else {
+        if (_finger && _fingerOffMs == 0) _fingerOffMs = ms;
+        if (_fingerOffMs && ms - _fingerOffMs > 1500) {
+            _finger = false;
+            _hrValid = false;
+            _spo2Valid = false;
+            _ibiCount = 0;
+            _spo2Fill = 0;
+            _spo2Avg = 0;
+            _badRatio = 0;
+            _peakEnv = 0;
+            _aboveThr = false;
+        }
+    }
+    if (_finger) {
+        float ac = ir - _dcEstIR;
+        _dcEstIR += 0.98f * ac;
+        _lp1 += 0.25f * (ac - _lp1);
+        _lp2 += 0.25f * (_lp1 - _lp2);
+        float v = _lp2;
+        float av = v < 0 ? -v : v;
+        if (av > _peakEnv) _peakEnv = av; else _peakEnv *= 0.99f;
+        float thr = _peakEnv * 0.5f;
+        if (!_aboveThr && v > thr && thr > 10.0f && (_lastBeatMs == 0 || ms - _lastBeatMs > 450)) {
+            _aboveThr = true;
+            if (_lastBeatMs != 0) {
+                uint32_t ibi = ms - _lastBeatMs;
+                if (ibi > 400 && ibi < 1500) {
+                    if (_ibiCount >= 3) {
+                        uint32_t s[7];
+                        memcpy(s, _ibis, _ibiCount * sizeof(uint32_t));
+                        for (int i = 0; i < _ibiCount; i++)
+                            for (int j = i + 1; j < _ibiCount; j++)
+                                if (s[j] < s[i]) { uint32_t t = s[i]; s[i] = s[j]; s[j] = t; }
+                        uint32_t med = s[_ibiCount / 2];
+                        uint32_t diff = ibi > med ? ibi - med : med - ibi;
+                        if (diff * 100 > med * 35) { _lastBeatMs = ms; }
+                    } else {
+                        if (_ibiCount < 7) _ibis[_ibiCount++] = ibi;
+                        else { memmove(_ibis, _ibis + 1, 6 * sizeof(uint32_t)); _ibis[6] = ibi; }
+                    }
+                    if (_ibiCount >= 2) {
+                        uint32_t s[7];
+                        memcpy(s, _ibis, _ibiCount * sizeof(uint32_t));
+                        for (int i = 0; i < _ibiCount; i++)
+                            for (int j = i + 1; j < _ibiCount; j++)
+                                if (s[j] < s[i]) { uint32_t t = s[i]; s[i] = s[j]; s[j] = t; }
+                        uint32_t med = (_ibiCount == 2) ? (s[0] + s[1]) / 2 : s[_ibiCount / 2];
+                        int newHr = (int)(60000UL / med);
+                        if (newHr >= 40 && newHr <= 150) {
+                            _hr = _hrValid ? (int)(_hr * 0.6f + newHr * 0.4f) : newHr;
+                            _hrValid = true;
+                        }
+                    }
+                }
             }
-            if (next > 0) {
-                int d = next - i;
-                if (d >= 10 && d <= 90) { bestD += d; bestN++; }
+            _lastBeatMs = ms;
+        } else if (_aboveThr && v < thr * 0.4f) {
+            _aboveThr = false;
+        }
+        if (_hrValid && _lastBeatMs && ms - _lastBeatMs > 5000) {
+            _hrValid = false;
+            _ibiCount = 0;
+        }
+        _redBuf[_spo2Idx] = red;
+        _irBuf[_spo2Idx] = ir;
+        _spo2Idx = (_spo2Idx + 1) % BUF;
+        if (_spo2Fill < BUF) _spo2Fill++;
+        _spo2Counter++;
+        if (_spo2Fill >= BUF && _spo2Counter >= 25) {
+            _spo2Counter = 0;
+            float mr = 0, mi = 0;
+            for (int i = 0; i < BUF; i++) { mr += _redBuf[i]; mi += _irBuf[i]; }
+            mr /= BUF; mi /= BUF;
+            float ar = 0, ai = 0;
+            for (int i = 0; i < BUF; i++) {
+                float dr = _redBuf[i] - mr;
+                float di = _irBuf[i] - mi;
+                ar += dr * dr;
+                ai += di * di;
+            }
+            ar = sqrtf(ar / BUF);
+            ai = sqrtf(ai / BUF);
+            if (mr > 1000.0f && mi > 1000.0f && ar > 15.0f && ai > 15.0f) {
+                float R = (ar / mr) / (ai / mi);
+                if (R > 0.3f && R < 3.5f) {
+                    float s = -45.060f * R * R + 30.354f * R + 94.845f;
+                    if (s > 60.0f && s <= 100.0f) {
+                        _spo2Avg = _spo2Valid ? (_spo2Avg * 0.6f + s * 0.4f) : s;
+                        _spo2 = (int)(_spo2Avg + 0.5f);
+                        _spo2Valid = true;
+                        _badRatio = 0;
+                    }
+                } else if (++_badRatio > 3) {
+                    _spo2Valid = false;
+                    _spo2Avg = 0;
+                }
+            } else if (++_badRatio > 3) {
+                _spo2Valid = false;
+                _spo2Avg = 0;
             }
         }
     }
-    if (bestN < 3 || bestD <= 0) return NAN;
-    float hr = 3000.0f * bestN / bestD;
-    if (hr < 30 || hr > 220) return NAN;
-    return hr;
-}
-// 血氧：DC 比值法(经验曲线, 70~100)
-static float computeSPO2(uint16_t *ir, uint16_t *red, int n) {
-    float irMax = 0, redMax = 0, irMin = 1<<30, redMin = 1<<30;
-    for (int i = 0; i < n; i++) {
-        if (ir[i] > irMax) irMax = ir[i]; if (ir[i] < irMin) irMin = ir[i];
-        if (red[i] > redMax) redMax = red[i]; if (red[i] < redMin) redMin = red[i];
-    }
-    if (irMin <= 0 || redMin <= 0) return NAN;
-    float ratioA = (redMax - redMin) / (redMax + redMin + 1);
-    float ratioB = (irMax - irMin) / (irMax + irMin + 1);
-    if (ratioB <= 0 || ratioA <= 0) return NAN;
-    float R = ratioA / ratioB;
-    float spo2 = 104.0f - 17.0f * R;
-    if (spo2 > 100) spo2 = 100;
-    if (spo2 < 70) spo2 = NAN;
-    return spo2;
 }
 
 bool MAX30102::read(float &sp_o2, float &hr_bpm) {
-    uint8_t ph;
-    if (!readReg(REG_FIFOPH, ph)) return false;
-    int toRead = (ph & 0x3F);
-    if (toRead == 0) return false;
-    if (toRead > 32) toRead = 32;
-
-    int readOk = 0;
-    for (int k = 0; k < toRead; k++) {
-        uint8_t di = (uint8_t)DATA_START + (uint8_t)(k * 6);
-        uint16_t red = 0, ir = 0;
-        if (!readFifoSample(di, red, ir)) break;
-        _redBuf[_write] = red;
-        _irBuf[_write]  = ir;
-        _write = (_write + 1) % BUF;
-        if (_write == 0) _full = true;
-        readOk++;
+    uint8_t wr = 0, rd = 0;
+    if (!readReg(REG_WR_PTR, wr) || !readReg(REG_RD_PTR, rd)) return false;
+    uint8_t n = (uint8_t)((wr - rd) & 0x1F);
+    if (n == 0) return false;
+    if (n > 8) n = 8;
+    uint8_t buf[6 * 8];
+    if (!readFifo(buf, (uint8_t)(n * 6))) return false;
+    for (uint8_t i = 0; i < n; i++) {
+        uint32_t red = ((uint32_t)(buf[i * 6] & 0x03) << 16) | ((uint32_t)buf[i * 6 + 1] << 8) | (uint32_t)buf[i * 6 + 2];
+        uint32_t ir = ((uint32_t)(buf[i * 6 + 3] & 0x03) << 16) | ((uint32_t)buf[i * 6 + 4] << 8) | (uint32_t)buf[i * 6 + 5];
+        processSample((float)red, (float)ir);
     }
-    if (readOk == 0) return false;
-
-    int valid = _full ? BUF : (_write == 0 ? 0 : _write);
-    if (valid < 40) return false;
-    uint16_t ir[BUF], red[BUF];
-    for (int i = 0; i < valid; i++) {
-        ir[i]  = _irBuf[(_write - valid + i + BUF) % BUF];
-        red[i] = _redBuf[(_write - valid + i + BUF) % BUF];
-    }
-    hr_bpm = computeHR(ir, valid);
-    sp_o2  = computeSPO2(ir, red, valid);
-
-    if (readOk > 0) {
-        uint8_t tailCur;
-        if (readReg(REG_FIFOTAIL, tailCur)) {
-            uint8_t newTail = (uint8_t)((tailCur & 0x3F) + readOk);
-            newTail &= 0x3F;
-            writeTail(newTail);
-        }
-    }
-    return true;
+    sp_o2 = _spo2Valid ? (float)_spo2 : NAN;
+    hr_bpm = _hrValid ? (float)_hr : NAN;
+    return _spo2Valid || _hrValid;
 }

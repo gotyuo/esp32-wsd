@@ -4,7 +4,7 @@
 // 纯手写实现，无第三方依赖
 // 接法: VCC->3V3, GND->GND, SDA->独立引脚, SCL->独立引脚
 //        (与 AHT20/BMP280 不再共用同一组 SDA/SCL)
-// 输出: sp_o2(血氧%) + pr_hr(脉率 bpm)，通过内部 4s 窗口(50Hz)计算
+// 输出: sp_o2(血氧%) + pr_hr(脉率 bpm)，通过内部 4s 窗口计算
 // 量程: SpO2 70~100%   心率 30~220 bpm
 // ============================================================
 #include <Arduino.h>
@@ -15,25 +15,42 @@
 class MAX30102 {
 public:
     bool begin(TwoWire *wire = &Wire);
-    // 设置 I2C 引脚（仅 ESP8266 等单总线芯片需要时分复用）
     void setPins(int sda, int scl) { _sda = sda; _scl = scl; }
-    // 采集一次血氧/心率。返回 true = 有结果。
-    // 内部以 50Hz 连续采样一个 4s 窗口；窗口未满则沿用上次结果
     bool read(float &sp_o2, float &hr_bpm);
 
 private:
     bool     writeReg(uint8_t addr, uint8_t val);
     bool     readReg(uint8_t addr, uint8_t &val);
-    bool     readFifoSample(uint8_t dataIndex, uint16_t &red, uint16_t &ir);
-    bool     writeTail(uint8_t tail);
-    // ESP8266 单总线时分复用：每次 I2C 操作前切到目标引脚
+    bool     readFifo(uint8_t *buf, uint8_t n);
+    void     processSample(float red, float ir);
     void     _ensureBus();
 
-    static const int BUF = 200;          // 50Hz × 4s
-    uint16_t _irBuf[BUF];
-    uint16_t _redBuf[BUF];
+    static const int BUF = 100;          // 约 4s @ 25Hz
+    float    _irBuf[BUF];
+    float    _redBuf[BUF];
     int      _write = 0;
     bool     _full  = false;
+
+    float    _dcEstIR = 0;
+    float    _lp1 = 0, _lp2 = 0;
+    float    _peakEnv = 0;
+    bool     _aboveThr = false;
+    uint32_t _lastBeatMs = 0;
+    uint32_t _ibis[7];
+    uint8_t  _ibiCount = 0;
+    int      _hr = 0;
+    bool     _hrValid = false;
+    float    _irDcSlow = 0;
+    bool     _finger = false;
+    uint32_t _fingerOffMs = 0;
+
+    int      _spo2 = 0;
+    bool     _spo2Valid = false;
+    float    _spo2Avg = 0;
+    uint8_t  _badRatio = 0;
+    uint32_t _spo2Counter = 0;
+    int      _spo2Fill = 0;
+    int      _spo2Idx = 0;
 
     TwoWire *_wire = nullptr;
     int      _sda  = -1;
