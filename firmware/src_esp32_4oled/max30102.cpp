@@ -223,16 +223,27 @@ bool MAX30102::read(float &sp_o2, float &hr_bpm) {
 
     _hr = -999;
     _hrValid = false;
-    if (nPeaks >= 2) {
-        long peakSum = 0;
-        for (uint8_t p = 1; p < nPeaks; p++) peakSum += (locs[p] - locs[p - 1]);
-        long avgInt = peakSum / (nPeaks - 1);
-        if (avgInt > 0) {
-            long h = (long)MAX30102_SAMPLE_FREQ * 60L / avgInt;
-            if (h >= 30 && h <= 220) {
+    if (nPeaks >= 3) {
+        long intervals[15] = {};
+        uint8_t intervalN = 0;
+        for (uint8_t p = 1; p < nPeaks && intervalN < 15; p++) {
+            long iv = (long)locs[p] - (long)locs[p - 1];
+            if (iv < 7) continue; // reject too-fast/artifact intervals
+            if (iv > 60) continue; // reject too-slow/artifact intervals
+            intervals[intervalN++] = iv;
+        }
+        if (intervalN >= 2) {
+            for (uint8_t a = 0; a < intervalN; a++) {
+                for (uint8_t b = a + 1; b < intervalN; b++) {
+                    if (intervals[b] < intervals[a]) { long t = intervals[a]; intervals[a] = intervals[b]; intervals[b] = t; }
+                }
+            }
+            long med = intervals[intervalN / 2];
+            long h = (long)MAX30102_SAMPLE_FREQ * 60L / med;
+            if (h >= 40 && h <= 150) {
                 _hr = (int)h;
                 _hrValid = true;
-                _hrAvg = _hrAvgValid ? (float)(_hrAvg * 0.7 + _hr * 0.3) : (float)_hr;
+                _hrAvg = _hrAvgValid ? (float)(_hrAvg * 0.8f + _hr * 0.2f) : (float)_hr;
                 _hrAvgValid = true;
             }
         }
