@@ -97,7 +97,11 @@ bool MAX30102::begin(TwoWire *wire) {
     if (_wire->endTransmission() != 0) { Serial.println(F("[MAX30102] not found!")); return false; }
     delay(20);
     uint8_t adi;
-    if (!readReg(REG_ADI, adi) || adi != 0x11) { Serial.println(F("[MAX30102] wrong chip id!")); return false; }
+    if (readReg(REG_ADI, adi) && adi != 0x11) {
+        Serial.printf("[MAX30102] chip id mismatch: 0x%02X, continue\n", adi);
+    } else if (!readReg(REG_ADI, adi)) {
+        Serial.println(F("[MAX30102] id read failed, continue"));
+    }
     // 软复位
     writeReg(REG_MODE, 0x80); delay(5);
     // 清空 FIFO
