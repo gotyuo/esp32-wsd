@@ -332,7 +332,7 @@ void NetManager::handleHistHtml() { web.send(200, "text/html", FPSTR(HIST_HTML))
 // ---------- 状态机入口 ----------
 void NetManager::begin() {
     WiFi.setAutoReconnect(true);
-    WiFi.setSleepMode(WIFI_NONE_SLEEP);
+    WiFi.setSleepMode(WIFI_MODEM_SLEEP);
     _ap_ssid = apSsidOrDefault();
 
     if (!_cfg->has_wifi()) {
@@ -358,7 +358,7 @@ void NetManager::tryReconnect() {
     uint32_t now = millis();
     if (now - _lastTry < _retryDelay) return;
     _lastTry = now;
-    _retryDelay = min((uint32_t)30000, _retryDelay * 2);
+    _retryDelay = min((uint32_t)10000, _retryDelay * 2);
     Serial.println(F("[NET] WiFi lost, reconnecting..."));
     WiFi.disconnect(true, false);
     delay(300);
