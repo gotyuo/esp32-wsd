@@ -4015,7 +4015,7 @@ function assessPatient(){
   var pid=MONITOR_PID;if(!pid){toast("请先选择患者","alarm");return;}
   // 从设置同步 AI 开关（默认关），按钮切换与设置页一致
   if(AI_SETTINGS["ai.enabled"]==="true"||AI_SETTINGS["ai.enabled"]==="1"||AI_ASSESS){AI_ASSESS=true;}
-  $("mAssessBtn").textContent=AI_ASSESS?"⏳ AI 评估中…":"⏳ 评估中…";
+  $("mAssessBtn").textContent="⏳ AI 评估中…";
   var url="/api/patients/"+pid+"/assessment?hours=24";
   if(AI_ASSESS)url=url+"&ai=true";
   api(url).then(function(d){
@@ -4041,7 +4041,7 @@ function assessPatient(){
       aiHtml+="<div class='a-summary' style='margin-top:6px'>"+esc(d.ai_summary)+"</div></details></div>";
     }
     if(d.ai_error){
-      aiHtml+="<div class='a-actions' style='margin-top:6px'><strong>⚠ AI 解读暂不可用：</strong>"+esc(d.ai_error)+"（已自动回退纯规则评估） <button class='secondary small' onclick='assessPatient()'>重试</button></div>";
+      aiHtml+="<div class='a-actions' style='margin-top:6px'><strong>⚠ AI 解读暂不可用：</strong>"+esc(d.ai_error)+"（已自动回退纯规则评估）</div>";
     }
     $("mSummary").textContent=d.summary||"";
     $("mActions").innerHTML="<strong>⚡ 建议：</strong>"+(d.actions||[]).map(function(a){return "• "+a;}).join("<br>")+(aiHtml?"<div style='margin-top:6px'>"+aiHtml+"</div>":"");
