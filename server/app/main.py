@@ -404,7 +404,7 @@ def _trigger_ai_alarm_analysis(device_id: str, level: int, reason: str,
             try:
                 content, err, usage = ai_client.call_model(icu.list_settings_raw(), [
                     {"role": "user", "content": prompt},
-                ], timeout_s=25)
+                ], retries=1)
             except Exception as e:  # noqa: BLE001
                 content, err = "", "LLM 调用异常: " + str(e)
             usage_text = None
@@ -2647,17 +2647,8 @@ def ai_test_connection(user: Dict = Depends(require_admin)):
     try:
         from . import ai_client
         content, err, usage = ai_client.test_connection(icu.list_settings_raw())
-        # BUG-38: 错误消息转中文
-        err_msg = None
-        if err:
-            if "Connection refused" in err or "Errno 111" in err:
-                err_msg = "无法连接 AI 服务，请检查 ollama 是否已启动"
-            elif "Connection reset" in err:
-                err_msg = "AI 服务连接被拒绝"
-            elif "timed out" in err or "Timeout" in err:
-                err_msg = "AI 服务响应超时"
-            else:
-                err_msg = "AI 连接失败: " + err
+        # v7.53: 统一走 ai_client.friendly_error（超时/断连/鉴权/模型 404 等中文映射）
+        err_msg = ai_client.friendly_error(err) if err else None
         if not err_msg and not content:
             err_msg = "AI 返回空响应，请检查 model 名称、api_key 和 base_url 是否正确"
         return {
@@ -3665,7 +3656,7 @@ def create_ai_analysis(body: Dict[str, Any]):
             return {"ok": False, "error": "AI 模型未配置 (ai.model 为空)"}
 
         content, err, usage = ai_client.call_model(
-            ai_client._read_settings(icu),
+            ai_client._read_settings(icu.list_settings_raw()),
             [{"role": "system", "content": "你是 ICU 重症监护助理。请根据监护数据做简要的中文医学分析。"},
              {"role": "user", "content": prompt}],
         )

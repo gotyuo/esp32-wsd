@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
 import hashlib
 import json
+import time
 
 _lock = threading.Lock()
 
@@ -1073,8 +1074,17 @@ def set_setting(key: str, value) -> bool:
 
 
 # ---------- 联网 AI 解读 ----------
+# 成功摘要短缓存：避免实时评估反复点击重复调 LLM、放大超时概率（规则部分总是最新）
+_AI_ASSESS_CACHE_TTL = 60
+_AI_ASSESS_CACHE: Dict[tuple, tuple] = {}
+
+
 def assess_with_ai(patient_id: int, hours: int = 24) -> Dict:
-    """在原规则评估基础上，可选追加 LLM 解读。失败不抛错，回退纯规则。"""
+    """在原规则评估基础上，可选追加 LLM 解读。失败不抛错，回退纯规则。
+
+    v7.53：统一走 ai_client（唯一调用入口），超时跟随 ai.timeout，瞬时故障自动重试，
+    错误经 friendly_error 翻译成中文提示；成功摘要 60s 内复用，降低重复调用与超时概率。
+    """
     try:
         base = assess_patient(patient_id, hours)
     except ValueError:
@@ -1084,18 +1094,21 @@ def assess_with_ai(patient_id: int, hours: int = 24) -> Dict:
     if not enabled:
         return base
 
-    provider = str(get_setting("ai.provider", "openai") or "openai")
-    base_url = str(get_setting("ai.base_url", "https://api.deepseek.com/v1") or "https://api.deepseek.com/v1")
-    model = str(get_setting("ai.model", "deepseek-v3.2") or "deepseek-v3.2")
+    # 注意：get_setting 对未配置 key 会回退 _AI_DEFAULTS，model 恒有默认值，
+    # 因此用 api_key 作为“是否真正配好”的门控；未配好直接回退纯规则。
+    model = str(get_setting("ai.model", "") or "")
     api_key = str(get_setting("ai.api_key", "") or "")
-    prompt = str(get_setting("ai.prompt") or _AI_DEFAULTS["ai.prompt"])
-
-    if not api_key:
+    if not model.strip() or not api_key:
         return base
 
-    url = base_url.rstrip("/") + "/chat/completions"
-    if not url.startswith("http"):
+    key = (patient_id, hours)
+    now_ts = time.time()
+    cached = _AI_ASSESS_CACHE.get(key)
+    if cached and (now_ts - cached[0]) < _AI_ASSESS_CACHE_TTL:
+        base.update(cached[1])
         return base
+
+    from . import ai_client
 
     data_for_llm = {
         "pid": base.get("pid"),
@@ -1108,32 +1121,30 @@ def assess_with_ai(patient_id: int, hours: int = 24) -> Dict:
         "io_balance": base.get("io_balance"),
     }
 
-    try:
-        import requests
-        resp = requests.post(
-            url,
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": json.dumps(data_for_llm, ensure_ascii=False)},
-                ],
-                "temperature": 0,
-            },
-            headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
-            timeout=(3, 25),
-        )
-        resp.raise_for_status()
-        js = resp.json()
-        choices = js.get("choices") or []
-        msg = choices[0].get("message", {}) if choices else {}
-        text = msg.get("content", "") if isinstance(msg, dict) else ""
-        if text:
-            base["ai_summary"] = text.strip()
-            base["ai_source"] = "llm:" + model
-            base["ai_provider"] = provider
-    except Exception as e:  # noqa: BLE001
-        base["ai_error"] = "AI 解读调用失败：" + str(e)
+    content, err, usage = ai_client.call_model(
+        list_settings_raw(),
+        [{"role": "user", "content": json.dumps(data_for_llm, ensure_ascii=False)}],
+        retries=1,  # 瞬时超时/断连自动补跑一次，绝大多数抖动可自愈
+    )
+    if content:
+        base["ai_summary"] = content.strip()
+        base["ai_source"] = "llm:" + model
+        base["ai_provider"] = str(get_setting("ai.provider", "openai"))
+        if usage:
+            base["ai_usage"] = usage
+        _AI_ASSESS_CACHE[key] = (time.time(), {
+            "ai_summary": base["ai_summary"],
+            "ai_source": base["ai_source"],
+            "ai_provider": base["ai_provider"],
+            "ai_usage": base.get("ai_usage"),
+        })
+        # 兜底清理过期条目，防止缓存无限增长
+        if len(_AI_ASSESS_CACHE) > 200:
+            for k in list(_AI_ASSESS_CACHE):
+                if time.time() - _AI_ASSESS_CACHE[k][0] > _AI_ASSESS_CACHE_TTL:
+                    _AI_ASSESS_CACHE.pop(k, None)
+    else:
+        base["ai_error"] = "AI 解读调用失败：" + ai_client.friendly_error(err or "未知错误")
         base["ai_source"] = "rule"
     return base
 
