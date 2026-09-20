@@ -1592,16 +1592,6 @@ async def scan_lan_devices():
                         dev_id = m.group(1)
                         break
             if not dev_id:
-                # BUG-FIX(重复设备): 解析不出 device_id 时不能盲目造 esp-<ip> 新行——
-                # 若该 IP 已在 devices 表登记过真实 id（MQTT/HTTP 遥测自动注册），直接沿用，
-                # 避免同一物理设备出现 esp-<ip> + 真实 id 两行、前端显示两次。
-                rows = db.query(
-                    "SELECT id FROM devices WHERE ip_addr=? AND COALESCE(deleted,0)=0 LIMIT 1",
-                    (ip,),
-                )
-                if rows:
-                    dev_id = rows[0]["id"]
-            if not dev_id:
                 dev_id = f"esp-{ip}"
 
             port, path, text = found_paths[0]
@@ -1615,33 +1605,21 @@ async def scan_lan_devices():
 
         # HTTP 探测失败时，退回到 ICMP：路由器能看到、但设备 HTTP 无响应的场景
         if await _ping_ip(ip):
-            ping_dev_id = f"esp-{ip}"
-            rows = db.query(
-                "SELECT id FROM devices WHERE ip_addr=? AND COALESCE(deleted,0)=0 LIMIT 1",
-                (ip,),
-            )
-            if rows:
-                ping_dev_id = rows[0]["id"]
             return {
                 "ip": ip,
                 "port": 0,
                 "path": "ping",
-                "device_id": ping_dev_id,
+                "device_id": f"esp-{ip}",
                 "snippet": "ping-only reachable (no HTTP reply)",
             }
         return None
 
     # 并发扫描子网
     found = []
-    seen_keys = set()
     tasks = [_probe_ip(f"{subnet}.{i}") for i in range(1, 255)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for r in results:
         if r and isinstance(r, dict):
-            key = (r["device_id"], r["ip"])
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
             found.append(r)
             # 只把 HTTP 命中且可识别为设备的项入库；ping-only 只用于兜底展示，
             # 不自动注册，避免把路由器/其他主机误登记成设备。

@@ -362,15 +362,11 @@ void NetManager::handleData() {
 void NetManager::handleJson() {
     SensorSnapshot s;
     if (_onData) s = _onData();
-    // BUG-FIX(重复设备): 补上 dev/device_id 字段，服务器局域网扫描才能解析出真实设备 id，
-    // 否则会被兜底注册成 esp-<ip>，与 MQTT 遥测自动注册的真实 id 各占一行、前端显示两次。
-    char buf[640];
+    char buf[512];
     snprintf(buf, sizeof(buf),
-        "{\"dev\":\"%s\",\"device_id\":\"%s\","
-        "\"temp_c\":%.1f,\"hum_pct\":%.1f,\"pres_hpa\":%.0f,"
+        "{\"temp_c\":%.1f,\"hum_pct\":%.1f,\"pres_hpa\":%.0f,"
         "\"sp_o2\":%.0f,\"pr_hr\":%.0f,\"mic\":%.3f,"
         "\"wifi\":%s,\"mqtt\":%s,\"uptime\":%u,\"valid\":%s}",
-        g_cfg.device_id, g_cfg.device_id,
         s.temp_c, s.hum_pct, s.pres_hpa,
         s.sp_o2, s.pr_hr, s.mic,
         wifiConnected() ? "true" : "false",
