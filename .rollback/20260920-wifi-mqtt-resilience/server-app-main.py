@@ -1326,7 +1326,7 @@ PROBE_TIMEOUT_S = 3.0
 # 必须与 aggregator.OFFLINE_TIMEOUT_S 取同一个值——两者是同一套「多少秒没数据
 # 就算离线」的定义，各写各的会互相打架：聚合线程按它的窗口把设备标成离线，
 # 而 probe 按自己的窗口又判它在线，页面上就会来回翻转。故统一读 OFFLINE_TIMEOUT_S。
-OFFLINE_TIMEOUT_S = float(os.environ.get("OFFLINE_TIMEOUT_S", "120"))
+OFFLINE_TIMEOUT_S = float(os.environ.get("OFFLINE_TIMEOUT_S", "90"))
 TELEMETRY_FRESH_S = OFFLINE_TIMEOUT_S
 
 

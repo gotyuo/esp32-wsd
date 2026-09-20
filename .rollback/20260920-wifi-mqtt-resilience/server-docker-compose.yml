@@ -79,16 +79,10 @@ services:
       - TTS_HOST=piper
       - TTS_PORT=10200
       - TTS_VOICE=${TTS_VOICE:-zh_CN-huayan-medium}
-      # 后端扫描局域网的出口 IP。默认留空 = 自动探测本机 LAN IP（推荐）。
-      # 注意：不要硬编码成某台机器的内网 IP，否则换机器后扫描会去扫错误的子网、
-      # 永远发现不了设备。多网卡/容器网络误判时才在 .env 里按宿主机实际内网 IP 显式指定，
-      # 例如 DISC_IP=192.168.1.100。
-      - DISC_IP=${DISC_IP:-}
+      # 显式指定后端扫描局域网的出口 IP，避免 Docker 网桥把扫描目标带到 172.28.0.0/24
+      - DISC_IP=${DISC_IP:-172.22.22.83}
       # 语音播报开关（1=开启报警自动语音，0=关闭）
       - TTS_ENABLED=${TTS_ENABLED:-1}
-      # 设备离线判定窗口（秒）：超过该时长无遥测即判离线。默认 120s，
-      # 必须大于设备上报间隔（默认 10s，阈值页可调大）。上报间隔调大时请同步调大此值。
-      - OFFLINE_TIMEOUT_S=${OFFLINE_TIMEOUT_S:-120}
     volumes:
       - ./data:/data
     depends_on:

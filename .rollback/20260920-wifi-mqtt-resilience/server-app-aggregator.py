@@ -18,7 +18,7 @@ log = logging.getLogger("envmon.agg")
 
 RAW_RETENTION_DAYS = int(os.environ.get("RAW_RETENTION_DAYS", "7"))
 MINUTE_RETENTION_DAYS = int(os.environ.get("MINUTE_RETENTION_DAYS", "400"))
-OFFLINE_TIMEOUT_S = int(os.environ.get("OFFLINE_TIMEOUT_S", "120"))
+OFFLINE_TIMEOUT_S = int(os.environ.get("OFFLINE_TIMEOUT_S", "90"))
 
 
 class Aggregator:

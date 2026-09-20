@@ -371,7 +371,7 @@ void NetManager::tryReconnect() {
     _lastTry = now;
     _retryDelay = min((uint32_t)30000, _retryDelay * 2);
     Serial.println(F("[NET] WiFi lost, reconnecting..."));
-    WiFi.disconnect(false, false);
+    WiFi.disconnect(true, false);
     delay(300);
     WiFi.begin(_cfg->wifi_ssid, _cfg->wifi_pass);
 }
@@ -402,10 +402,14 @@ void NetManager::loop() {
             }
         } else {
             if (_staConnectedLocked) {
-                // 之前连上过、现在掉线：一直重试回 STA，绝不切 AP 配网模式。
-                // 切 AP 后设备脱离局域网（扫描不到、MQTT 断、页面离线），且不会自动回 STA，
-                // 路由抖动/信号波动会把设备永久“卡”在配网模式。
-                tryReconnect();
+                // 之前连过, 现在断了 -> 走重连, 60s 没恢复则切 AP
+                if (millis() - _lastTry > 60000) {
+                    Serial.println(F("[NET] STA down >60s, dropping to AP config"));
+                    _staConnectedLocked = false;
+                    startAP();
+                } else {
+                    tryReconnect();
+                }
             } else if (millis() - _staAttemptStart >= _staAttemptTimeout) {
                 // 首次连接超时, 切 AP
                 Serial.printf("[NET] STA connect timeout (%ds), dropping to AP\n",

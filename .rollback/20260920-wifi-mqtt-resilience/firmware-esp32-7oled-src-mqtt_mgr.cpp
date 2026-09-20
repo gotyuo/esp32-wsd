@@ -120,13 +120,7 @@ void MqttMgr::ensureConn() {
 }
 
 void MqttMgr::loop() {
-    if (!g_cfg.has_mqtt()) return;
-    if (!g_net.wifiConnected()) {
-        // WiFi 断开 = MQTT TCP 必然失效。立即主动断开（复位 _connected），
-        // 否则 WiFi 恢复后 MQTT 还自认为已连接、永不重连（“假在线”）。
-        _client.disconnect();
-        return;
-    }
+    if (!g_cfg.has_mqtt() || !g_net.wifiConnected()) return;
     ensureConn();
     _client.loop();
 }

@@ -72,7 +72,7 @@ bool MqttClient::connect(const char *host, uint16_t port, const char *clientId,
     _connected = false;
 
     _net->stop();
-    if (!_net->connect(host, port, 5000)) {
+    if (!_net->connect(host, port)) {
         _state = -2;   // TCP 连接失败
         return false;
     }
@@ -236,15 +236,6 @@ void MqttClient::loop() {
         uint8_t ping[2] = {0xC0, 0x00};
         _net->write(ping, 2);
         _lastSend = millis();
-    }
-
-    // BUG-FIX(在线一会儿就离线): TCP 半开时 PINGREQ 发出去无回应，_connected 恒为 true，
-    // 设备自认为在线、永不重连，broker 侧却早已断开并发布 LWT offline。
-    // 连续 keepalive×2.5 秒收不到任何数据（PINGRESP / 下发消息）即判定连接失效，
-    // 强制断开，由 MqttMgr::ensureConn() 指数退避重连。
-    if (millis() - _lastRecv >= (uint32_t)_keepalive * 2500UL) {
-        _connected = false;
-        _net->stop();
     }
 }
 
