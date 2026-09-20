@@ -1197,15 +1197,11 @@ function scanLanDevices(ev){
   toast("正在扫描局域网，约需5-10秒…");
   api("/api/devices/scan",{method:"POST"}).then(function(d){
     var found=d.found||[];
-    var unid=d.unidentified_hosts||[];
     if(found.length){
-      toast("发现 "+found.length+" 台设备: "+found.map(function(x){return (x.name||x.device_id);}).join(", "));
+      toast("发现 "+found.length+" 台设备: "+found.map(function(x){return x.device_id;}).join(", "));
       loadDevices();
     }else{
       toast("未发现新设备（扫描 "+(d.scanned||0)+" 个IP）"+(d.error?" · "+d.error:""));
-    }
-    if(unid.length){
-      toast("另有 "+unid.length+" 个不可识别主机（未登记为设备，可能为路由器/AP隔离下主机）","warn");
     }
   }).catch(function(e){
     toast("扫描失败: "+(e&&e.message||""),"alarm");

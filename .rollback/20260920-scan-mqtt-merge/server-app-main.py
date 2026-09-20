@@ -1468,18 +1468,10 @@ def _probe_status_ids(ids: List[str]) -> Set[str]:
 
 @app.post("/api/devices/scan", dependencies=[Depends(require_admin)])
 async def scan_lan_devices():
-    """扫描局域网，发现设备。
+    """扫描局域网子网，发现 ESP 设备的 web 配置门户（端口 80）。
 
-    三条信息来源合并：
-      1) MQTT / 遥测已知设备（权威）：设备向 MQTT 周期上报即是「正在局域网里活着」
-         的最可靠证据。凡最近 OFFLINE_TIMEOUT_S 秒内有真实遥测、或 broker 保留
-         status=online 的设备，直接列为已发现——即使 80 端口探测不通（AP 隔离 /
-         容器网段误判 / 固件未开数据服务），也能扫到并展示完整信息。
-      2) HTTP 门户探测：并发探测子网内各 IP 的 80/8000/8080/8081/6667 上的
-         /api/data 与 /json，命中 envmon/ESP 指纹且能解析 device_id 的登记。
-      3) 未识别主机：TCP 可达但无法确认是 ESP 设备的主机（含 ping-only / HTTP
-         命中但无 device_id），单独返回 unidentified_hosts，不注册、不当设备展示，
-         避免出现 esp-<ip> 空壳设备。
+    通过并发探测服务器所在子网的每个 IP 的 80 端口，
+    如果响应含 envmon/ESP 字样则判定为 ESP 设备并自动注册。
     """
     import socket
     import asyncio
@@ -1498,37 +1490,10 @@ async def scan_lan_devices():
         except OSError:
             return None
 
-    def _looks_docker_bridge(ip: str) -> bool:
-        """Docker 网桥网段（docker0=172.17.0.0/16，compose 用户桥接常取 172.18-172.24）。"""
-        try:
-            p = str(ip).split(".")
-            a, b = int(p[0]), int(p[1])
-        except (ValueError, IndexError):
-            return False
-        return a == 172 and 17 <= b <= 24
-
     def _get_lan_ip():
-        """确定扫描出口 LAN IP。优先级：
-           1. DISC_IP 显式指定
-           2. 已知设备的 ip_addr（遥测携带的真实 LAN IP，最可靠）
-           3. DISC_IFACE 指定网卡
-           4. 多播/出网路由接口（跳过 Docker 网桥段）
-        """
         disc_ip = os.environ.get("DISC_IP", "").strip()
         if disc_ip:
             return disc_ip
-        try:
-            rows = db.query(
-                "SELECT ip_addr FROM devices "
-                "WHERE ip_addr IS NOT NULL AND ip_addr != '' "
-                "AND COALESCE(deleted,0)=0 ORDER BY last_seen DESC"
-            )
-            for r in rows:
-                ip = (r["ip_addr"] or "").strip()
-                if db._is_lan_ip(ip) and not _looks_docker_bridge(ip):
-                    return ip
-        except Exception:  # noqa: BLE001
-            pass
         disc_iface = os.environ.get("DISC_IFACE", "").strip()
         if disc_iface:
             ip = _iface_ipv4(disc_iface)
@@ -1540,52 +1505,25 @@ async def scan_lan_devices():
             s.connect(("239.255.1.1", 12091))
             ip = s.getsockname()[0]
             s.close()
-            if ip and db._is_lan_ip(ip) and not _looks_docker_bridge(ip):
-                return ip
-        except Exception:  # noqa: BLE001
+            return ip
+        except Exception:
             pass
         for iface in ("eth0", "wlan0", "enp2s0", "enp1s0", "ens33", "wlp1s0"):
             ip = _iface_ipv4(iface)
-            if ip and not _looks_docker_bridge(ip):
+            if ip:
                 return ip
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
             s.close()
-            if ip:
-                return ip
-        except Exception:  # noqa: BLE001
-            pass
-        return None
-
-    # ---------- 1) MQTT/遥测已知设备（权威来源） ----------
-    mqtt_records = []
-    try:
-        devs = db.list_devices()
-        fresh_ids = {d["id"] for d in devs if _is_dev_recent(d["id"])}
-        retained = _scan_retained_status([d["id"] for d in devs])
-        for d in devs:
-            if d["id"] in fresh_ids or retained.get(d["id"]) == "online":
-                mqtt_records.append({
-                    "ip": d.get("ip_addr"),
-                    "port": 0,
-                    "path": "mqtt",
-                    "device_id": d["id"],
-                    "name": d.get("name"),
-                    "fw_version": d.get("fw_version"),
-                    "online": True,
-                    "snippet": "",
-                })
-    except Exception:  # noqa: BLE001
-        log.exception("collect MQTT-known devices failed")
+            return ip
+        except Exception:
+            return None
 
     lan_ip = _get_lan_ip()
     if not lan_ip:
-        return {"found": mqtt_records, "unidentified_hosts": [],
-                "mqtt_known": len(mqtt_records),
-                "error": "无法确定内网 IP（可能在容器隔离网络中）",
-                "subnet": None, "scanned": 0}
+        return {"found": [], "error": "无法确定内网 IP（可能在容器隔离网络中）"}
 
     parts = lan_ip.split(".")
     subnet = ".".join(parts[:3])  # 如 192.168.1
@@ -1654,112 +1592,80 @@ async def scan_lan_devices():
                         dev_id = m.group(1)
                         break
             if not dev_id:
-                # 该 IP 已在 devices 表登记过真实 id（MQTT/HTTP 遥测自动注册），直接沿用
+                # BUG-FIX(重复设备): 解析不出 device_id 时不能盲目造 esp-<ip> 新行——
+                # 若该 IP 已在 devices 表登记过真实 id（MQTT/HTTP 遥测自动注册），直接沿用，
+                # 避免同一物理设备出现 esp-<ip> + 真实 id 两行、前端显示两次。
                 rows = db.query(
                     "SELECT id FROM devices WHERE ip_addr=? AND COALESCE(deleted,0)=0 LIMIT 1",
                     (ip,),
                 )
                 if rows:
                     dev_id = rows[0]["id"]
-            # 解析不出 device_id 的 HTTP 命中：不硬造 esp-<ip>，归入未识别列表
             if not dev_id:
-                port, path, text = found_paths[0]
-                return {
-                    "ip": ip,
-                    "port": port,
-                    "path": path,
-                    "device_id": None,
-                    "identified": False,
-                    "snippet": text[:200],
-                }
+                dev_id = f"esp-{ip}"
 
             port, path, text = found_paths[0]
-            name = None
-            rows = db.query(
-                "SELECT name FROM devices WHERE id=? AND COALESCE(deleted,0)=0 LIMIT 1",
-                (dev_id,),
-            )
-            if rows and rows[0]["name"]:
-                name = rows[0]["name"]
             return {
                 "ip": ip,
                 "port": port,
                 "path": path,
                 "device_id": dev_id,
-                "identified": True,
-                "name": name,
                 "snippet": text[:200],
             }
 
-        # HTTP 探测失败时，退回到 TCP80：路由器能看到、但设备 HTTP 无响应的场景。
-        # 无法确认是 ESP 设备 → 归入未识别主机，不注册空壳设备。
+        # HTTP 探测失败时，退回到 ICMP：路由器能看到、但设备 HTTP 无响应的场景
         if await _ping_ip(ip):
+            ping_dev_id = f"esp-{ip}"
             rows = db.query(
                 "SELECT id FROM devices WHERE ip_addr=? AND COALESCE(deleted,0)=0 LIMIT 1",
                 (ip,),
             )
             if rows:
-                return {
-                    "ip": ip, "port": 0, "path": "ping",
-                    "device_id": rows[0]["id"], "identified": True,
-                    "snippet": "ping-only, mapped to known device",
-                }
+                ping_dev_id = rows[0]["id"]
             return {
-                "ip": ip, "port": 0, "path": "ping",
-                "device_id": None, "identified": False,
+                "ip": ip,
+                "port": 0,
+                "path": "ping",
+                "device_id": ping_dev_id,
                 "snippet": "ping-only reachable (no HTTP reply)",
             }
         return None
 
     # 并发扫描子网
     found = []
-    unidentified_hosts = []
+    seen_keys = set()
     tasks = [_probe_ip(f"{subnet}.{i}") for i in range(1, 255)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for r in results:
-        if not r or not isinstance(r, dict):
-            continue
-        if not r.get("identified", True) or not r.get("device_id"):
-            unidentified_hosts.append(r)
-            continue
-        if any(x["device_id"] == r["device_id"] for x in found):
-            continue
-        found.append(r)
-        try:
-            db.upsert_device(r["device_id"], ip_addr=r["ip"])
-            db.set_device_online(r["device_id"], True)
-            db.set_device_seen(r["device_id"], None)
-            db.upsert_scan_snapshot(
-                device_id=r["device_id"],
-                name=r.get("name"),
-                ip_addr=r["ip"],
-                online=True,
-                fw_version=None,
-                first_seen=None,
-            )
-        except Exception:  # noqa: BLE001
-            pass
+        if r and isinstance(r, dict):
+            key = (r["device_id"], r["ip"])
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            found.append(r)
+            # 只把 HTTP 命中且可识别为设备的项入库；ping-only 只用于兜底展示，
+            # 不自动注册，避免把路由器/其他主机误登记成设备。
+            if r.get("path") == "ping":
+                continue
+            try:
+                db.upsert_device(r["device_id"], ip_addr=r["ip"])
+                db.set_device_online(r["device_id"], True)
+                db.set_device_seen(r["device_id"], None)
+                db.upsert_scan_snapshot(
+                    device_id=r["device_id"],
+                    name=None,
+                    ip_addr=r["ip"],
+                    online=True,
+                    fw_version=None,
+                    first_seen=None,
+                )
+            except Exception:
+                pass
 
-    # 合并 MQTT/遥测已知设备（信息更完整，优先展示）
-    found_by_id = {rec["device_id"]: rec for rec in found}
-    for rec in mqtt_records:
-        found_by_id[rec["device_id"]] = rec
-        try:
-            db.upsert_scan_snapshot(
-                device_id=rec["device_id"],
-                name=rec.get("name"),
-                ip_addr=rec.get("ip"),
-                online=True,
-                fw_version=rec.get("fw_version"),
-                first_seen=None,
-            )
-        except Exception:  # noqa: BLE001
-            pass
-    found = [found_by_id[k] for k in sorted(found_by_id)]
+    return {"found": found, "subnet": f"{subnet}.0/24", "scanned": 254}
 
-    return {"found": found, "unidentified_hosts": unidentified_hosts,
-            "mqtt_known": len(mqtt_records),
-            "subnet": f"{subnet}.0/24", "scanned": 254}
+
+
 @app.post("/api/devices/probe", dependencies=[Depends(require_admin)])
 def probe_devices(body: dict = None):
     """主动扫描设备在线状态：读取 broker 上每台设备的 status 保留消息。
