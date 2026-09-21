@@ -468,6 +468,30 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
         if not _has_col(conn, _tbl, "deleted"):
             conn.execute(f"ALTER TABLE {_tbl} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
             _log.info("migration v7.47: added %s.deleted column (soft delete)", _tbl)
+
+    # v7.54: 集成平台医嘱扩展列——频次/用法说明/开嘱科室/备注。
+    # orders 表旧库无这些列，ALTER 幂等补列；schema.sql 新库直接建全。
+    for _col in ("freq", "instruction", "dept", "remark"):
+        if not _has_col(conn, "orders", _col):
+            conn.execute(f"ALTER TABLE orders ADD COLUMN {_col} TEXT DEFAULT NULL")
+            _log.info("migration v7.54: added orders.%s column", _col)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_order_no ON orders(patient_id, order_no)")
+    # integration_messages 消息日志表（schema.sql 已定义，此处保证老库也存在）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS integration_messages ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "message_id TEXT, "
+        "source_system TEXT, "
+        "biz_type TEXT, "
+        "patient_pid TEXT, "
+        "raw_xml TEXT NOT NULL, "
+        "digest TEXT NOT NULL, "
+        "result_code INTEGER NOT NULL DEFAULT 0, "
+        "result_content TEXT, "
+        "created_at TEXT NOT NULL)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_integration_msg_id ON integration_messages(message_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_integration_created ON integration_messages(created_at)")
     conn.commit()
 
 

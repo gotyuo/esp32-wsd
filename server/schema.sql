@@ -214,9 +214,14 @@ CREATE TABLE IF NOT EXISTS orders (
     rate_mlph   REAL,                       -- 泵速 mL/h
     status      TEXT DEFAULT 'active',      -- active / stopped / completed
     operator    TEXT,
+    freq        TEXT,                       -- 频次
+    instruction TEXT,                       -- 用法说明
+    dept        TEXT,                       -- 开嘱科室
+    remark      TEXT,                       -- 备注/明细
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_orders_patient_ts ON orders(patient_id, start_ts);
+CREATE INDEX IF NOT EXISTS idx_orders_order_no ON orders(patient_id, order_no);
 
 -- LIS 检验结果
 CREATE TABLE IF NOT EXISTS lab_results (
@@ -351,3 +356,22 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_device ON messages(device_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
+
+-- ============================================================
+-- 集成平台消息日志：HIS/集成平台推送给本系统的 XML 消息原始记录。
+-- 幂等：同一 (message_id, digest) 已成功处理后重复推送直接跳过。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS integration_messages (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id     TEXT,                    -- 集成平台消息 ID（Header.MessageID）
+    source_system  TEXT,                    -- 来源系统编码（Header.SourceSystem）
+    biz_type       TEXT,                    -- 业务节点（AddOrdersRt / ...）
+    patient_pid    TEXT,                    -- 患者编号（Body 内解析，可为空）
+    raw_xml        TEXT NOT NULL,           -- 原始消息全文
+    digest         TEXT NOT NULL,           -- raw_xml SHA256（幂等指纹）
+    result_code    INTEGER NOT NULL DEFAULT 0,  -- 0=成功 1=患者未建档 2=XML错误 3=不支持 4=内部错误
+    result_content TEXT,
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_integration_msg_id ON integration_messages(message_id);
+CREATE INDEX IF NOT EXISTS idx_integration_created ON integration_messages(created_at);

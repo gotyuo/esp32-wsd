@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import db
@@ -3308,6 +3308,31 @@ async def ingest_clinical(request: Request):
 
     else:
         raise HTTPException(422, f"未知 data_type: {data_type}，支持: order/lab/exam/io/vital")
+
+
+# ================================================================ 集成平台接收
+# HIS/医院集成平台推送 XML 消息（医嘱/检查/检验/病理结果）。
+# 鉴权（可选）：配置 INTEGRATION_TOKEN 环境变量后，请求需带 X-Integration-Token 头；
+# 未配置则默认放行（内网对接调试用）。
+INTEGRATION_TOKEN = os.environ.get("INTEGRATION_TOKEN", "")
+
+
+@app.post("/api/integration/receive")
+async def integration_receive(request: Request,
+                              x_integration_token: Optional[str] = Header(default=None)):
+    """接收集成平台 XML 消息，解析入库并应答集成平台规范 XML。
+
+    请求体: <Request><Header>...</Header><Body><AddOrdersRt>...</AddOrdersRt></Body></Request>
+    应答体: <Response><Header>...</Header><Body><ResultCode>0</ResultCode>...</Body></Response>
+    """
+    if INTEGRATION_TOKEN and x_integration_token != INTEGRATION_TOKEN:
+        raise HTTPException(401, "集成平台 token 无效")
+
+    from .integration import handle_integration_request
+    raw = await request.body()
+    xml_text = raw.decode("utf-8", errors="replace")
+    resp_xml = handle_integration_request(xml_text)
+    return Response(content=resp_xml, media_type="application/xml; charset=utf-8")
 
 
 @app.post("/api/devices/{device_id}/push-config", dependencies=[Depends(require_admin)])

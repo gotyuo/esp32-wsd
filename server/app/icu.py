@@ -375,13 +375,16 @@ def order_insert(patient_id: int, source: str = "his",
                  dosage: str = None, route: str = None,
                  start_ts: str = None, end_ts: str = None,
                  rate_mlph: float = None, status: str = "active",
-                 operator: str = None) -> int:
+                 operator: str = None, freq: str = None,
+                 instruction: str = None, dept: str = None,
+                 remark: str = None) -> int:
     start = start_ts or _now()
     return run(
-        "INSERT INTO orders (patient_id,source,order_no,drug_name,dosage,route,start_ts,end_ts,rate_mlph,status,operator,created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO orders (patient_id,source,order_no,drug_name,dosage,route,start_ts,end_ts,rate_mlph,status,operator,freq,instruction,dept,remark,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (patient_id, source, order_no, drug_name, dosage, route,
-         start, end_ts, rate_mlph, status, operator, _now()),
+         start, end_ts, rate_mlph, status, operator, freq, instruction,
+         dept, remark, _now()),
     )
 
 
