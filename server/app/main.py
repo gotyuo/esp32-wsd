@@ -3681,17 +3681,27 @@ def create_ai_analysis(body: Dict[str, Any]):
             return {"ok": False, "error": "AI 模型未配置 (ai.model 为空)"}
 
         content, err, usage = ai_client.call_model(
-            ai_client._read_settings(icu.list_settings_raw()),
+            icu.list_settings_raw(),
             [{"role": "system", "content": "你是 ICU 重症监护助理。请根据监护数据做简要的中文医学分析。"},
              {"role": "user", "content": prompt}],
         )
         if err:
             return {"ok": False, "error": f"AI 分析失败: {err}"}
-        # 落库
-        db.execute(
-            "INSERT INTO ai_analyses (device_id, ts, prompt, content, usage) "
-            "VALUES (?,?,?,?,?)",
-            (device_id, db.utcnow(), prompt, content, str(usage or {})))
+        # 落库：与 db.list_ai_analyses / alarm_ai_analyses 表结构一致
+        _model = icu.get_setting_raw("ai.model") or ""
+        _provider = icu.get_setting_raw("ai.provider") or ""
+        db.insert_ai_analysis(
+            device_id=device_id,
+            patient_id=str(patient_id) if patient_id else None,
+            patient_name=patient_name,
+            doctor_id=None, doctor_name=None,
+            level=int(alarm_level or 0),
+            reason=text,
+            model=_model, provider=_provider,
+            prompt_len=len(prompt), analysis=content,
+            usage_text=str(usage or {}),
+            weixin_sent=0, weixin_err=None,
+        )
         return {"ok": True, "content": content, "usage": usage}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": f"AI 分析失败: {e}"}
