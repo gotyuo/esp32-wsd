@@ -4687,20 +4687,25 @@ async def restore_backup(file: UploadFile = File(...)):
     """上传备份文件并恢复数据库。
 
     流程：保存上传文件 → 校验是合法 SQLite → 备份当前库 →
-         断开 DB 连接 + 清理 WAL → 替换 .db → 重连（重新执行 PRAGMA）。
+         用临时连接 checkpoint WAL → 关闭主连接 → 清理 -wal/-shm
+         → os.replace 原子替换 → 重连（重新执行 PRAGMA）。
 
     **关键**：必须在替换前关闭当前连接、清除 -wal/-shm 残留，
     否则容器内 SQLite 页缓存与磁盘新文件不一致，所有读操作会
     抛 `sqlite3.OperationalError: disk I/O error`（宿主机看
     integrity_check 仍 ok，容器内却报错）。这是恢复后"数据丢失"
     假象的真实根因——数据没丢，是缓存脏了。
+
+    **WAL 模式陷阱**：checkpoint 必须在**旧连接上**跑（它持有 WAL
+    读锁，能正确 checkpoint）；用新连接 checkpoint 已关闭的 DB
+    可能漏掉最后未提交页。os.replace 原子替换比重命名+copy 更安全。
     """
     import sqlite3 as _sqlite3
     import tempfile
-    import shutil as _shutil
+    from . import db as _db_mod
 
     # 1. 保存上传文件到临时路径
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".db")
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".db", dir=os.path.dirname(icu.DB_PATH) or ".")
     try:
         with os.fdopen(tmp_fd, "wb") as f:
             while True:
@@ -4709,7 +4714,10 @@ async def restore_backup(file: UploadFile = File(...)):
                     break
                 f.write(chunk)
     except Exception as e:
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
         raise HTTPException(400, f"上传失败: {e}")
 
     # 2. 校验是合法 SQLite 数据库
@@ -4733,22 +4741,26 @@ async def restore_backup(file: UploadFile = File(...)):
     except Exception as e:
         log.warning("pre-restore backup failed: %s", e)
 
-    # 3b. **关键步骤**：先关闭当前 SQLite 连接，避免双写。
-    #     宿主机写 .db 时容器内的连接还持有旧页缓存，替换后
-    #     读操作会 I/O error。
-    from . import db as _db_mod
+    # 4. **关键**：在旧连接上 checkpoint WAL，然后关闭它。
+    #    - checkpoint 把 WAL 里未刷的页写回主 .db（TRUNCATE 后 WAL 归零）
+    #    - 关闭连接释放对 DB 的所有句柄和页缓存
     old_conn = _db_mod._conn
     if old_conn is not None:
         try:
             with _db_mod._lock:
+                try:
+                    r = old_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                    log.info("restore: wal_checkpoint busy=%s log=%s ckpt=%s",
+                             r[0] if r else "?", r[1] if r else "?", r[2] if r else "?")
+                except Exception as ck_err:
+                    log.warning("restore: wal_checkpoint failed: %s", ck_err)
                 old_conn.close()
                 _db_mod._conn = None
             log.info("restore: closed old sqlite connection")
         except Exception as e:
-            log.warning("restore: close old conn failed: %s", e)
+            log.error("restore: close old conn failed: %s", e)
 
-    # 3c. 清理 WAL/SHM 残留——即使 -wal 是 0 字节，容器进程
-    #     也会拿它当有效 WAL 读，导致 I/O error。
+    # 5. 清理 -wal/-shm 残留（即使 0 字节也会让 SQLite 当作有效 WAL 读）
     try:
         with _db_mod._lock:
             for ext in ("-wal", "-shm"):
@@ -4759,17 +4771,19 @@ async def restore_backup(file: UploadFile = File(...)):
     except Exception as e:
         log.warning("restore: cleanup wal/shm failed: %s", e)
 
-    # 4. 替换数据库文件（此时没有容器连接持有旧缓存）
+    # 6. 用 os.replace 原子替换（比 shutil.copy2 安全：读者看到的是
+    #    旧文件或新文件，不会看到中间态）
     try:
-        _shutil.copy2(tmp_path, icu.DB_PATH)
+        os.replace(tmp_path, icu.DB_PATH)
         log.info("database restored from uploaded file: %s", file.filename)
     except Exception as e:
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
         raise HTTPException(500, f"恢复失败: {e}")
-    finally:
-        os.unlink(tmp_path)
 
-    # 5. 重连（get_conn 会重新 PRAGMA journal_mode=WAL + 应用行工厂）
+    # 7. 重连（get_conn 会重新 PRAGMA journal_mode=WAL + 应用行工厂）
     try:
         with _db_mod._lock:
             _db_mod.get_conn()
