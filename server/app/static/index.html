@@ -2065,8 +2065,8 @@ function paintSpark(c,vals){
   ctx.strokeStyle="#8ab4f8";ctx.lineWidth=1.5;ctx.stroke();
 }
 
-var MONITOR_TREND_HOURS = 24;
-var _TREND_HOUR_LABELS={0.5:"最近30分钟",1:"最近1小时",3:"最近3小时",6:"最近6小时",12:"最近12小时",24:"最近24小时"};
+var MONITOR_TREND_HOURS = 168;
+var _TREND_HOUR_LABELS={0.5:"最近30分钟",1:"最近1小时",3:"最近3小时",6:"最近6小时",12:"最近12小时",24:"最近24小时",168:"最近7天",720:"最近30天"};
 var MONITOR_TREND_NOTE="";
 var MONITOR_TREND_FALLBACK=false;
 // 健壮的 ts 解析：'Z' / '+08:00' 原样解析；空格分隔无时区的补 'Z'（按 UTC），失败返回 NaN
@@ -2238,13 +2238,15 @@ function drawMonitorTrend(){
       var gy = padT + (ph/3)*i;
       ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w-padR, gy); ctx.stroke();
     }
-    // 曲线：按数据缺口分段绘制（缺口超过窗口5%且≥30分钟则断开），避免直线补足长空缺
+    // 曲线：所有点连成一条连续线（不按时间间隔断线）。
+    // 手工录入的体征（体温/GCS 等）间隔常几小时到几天，若按窗口百分比
+    // 断线会让新录入的点变成独立线头，用户看着像"曲线重新开始"。
+    // 时间间隔反映的是采样频率而非数据缺失——所有点连起来才是真实趋势。
     var pairs = [];
     pts.forEach(function(p){
       var pt = parseTs(p.ts);
       if(!isNaN(pt) && p[key]!=null && !isNaN(p[key])) pairs.push({t:pt, v:p[key]});
     });
-    var maxGap = Math.max(30*60*1000, (tMax - tMin) * 0.05);
     ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;
     ctx.fillStyle = s.color;
     var lastX = 0, lastY = 0;
@@ -2261,12 +2263,7 @@ function drawMonitorTrend(){
       var lp = seg[seg.length-1];
       lastX = px(lp); lastY = py(lp);
     }
-    var seg = [];
-    pairs.forEach(function(pair){
-      if(seg.length && (pair.t - seg[seg.length-1].t) > maxGap){ drawSeg(seg); seg = []; }
-      seg.push(pair);
-    });
-    drawSeg(seg);
+    drawSeg(pairs);
     // 最新值标注在最后数据点旁
     if(pairs.length){
       var lastVal = pairs[pairs.length-1].v;
