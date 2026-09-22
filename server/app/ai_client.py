@@ -187,7 +187,11 @@ def call_model(
 
     api_key = cfg["api_key"]
     if not api_key:
-        return "", "未配置 ai.api_key", None
+        # v7.58：内网部署（active=lan，或 provider 为 custom/ollama/xinference）
+        # 的 vLLM / Xinference 等服务通常不启用鉴权，此时无 key 属正常，不应阻断。
+        # 外网（cloud）仍严格要求填写 key。
+        if cfg["active"] != "lan" and cfg["provider"] not in ("custom", "ollama", "xinference"):
+            return "", "未配置 ai.api_key", None
 
     base_url = _resolve_base_url(cfg["provider"], cfg["base_url"])
     if not base_url:

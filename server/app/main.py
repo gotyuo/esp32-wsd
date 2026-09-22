@@ -2584,7 +2584,7 @@ class AiSettingsPatch(BaseModel):
     model: Optional[str] = None
     api_key: Optional[str] = None
     timeout: Optional[int] = Field(default=None, ge=5, le=300)
-    max_tokens: Optional[int] = Field(default=None, ge=50, le=8192)
+    max_tokens: Optional[int] = Field(default=None, ge=50, le=32768)
     system_prompt: Optional[str] = None
 
 
