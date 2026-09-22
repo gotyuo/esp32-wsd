@@ -745,6 +745,7 @@ VITAL_NORMAL_RANGES = {
     "dbp": (50, 100, "舒张压"),
     "temp_c": (35.5, 38.0, "体温"),
     "glucose": (3.9, 11.1, "血糖"),
+    "gcs": (13, 15, "GCS"),
 }
 
 
@@ -3852,7 +3853,7 @@ def latest_signs(pid: str):
 
     # 需要独立取值的指标列表
     signs = ["ecg_hr", "sp_o2", "rr_bpm", "sbp", "dbp", "temp_c", "glucose",
-             "hum_pct", "pres_hpa", "pr_hr", "map_bp"]
+             "gcs", "hum_pct", "pres_hpa", "pr_hr", "map_bp"]
     result = {}
 
     conn = icu._get_conn()

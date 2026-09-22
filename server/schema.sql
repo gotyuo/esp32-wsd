@@ -175,6 +175,7 @@ CREATE TABLE IF NOT EXISTS vitals (
     ibp             REAL,                  -- 有创血压 mmHg
     temp_c          REAL,                  -- 体温
     glucose         REAL,                  -- 血糖 mmol/L
+    gcs             REAL,                  -- 格拉斯哥昏迷评分 3-15（人工床旁评估，无设备接入）
     -- 环境指标 (ESP32)
     hum_pct         REAL,
     pres_hpa        REAL,

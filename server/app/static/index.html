@@ -395,6 +395,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 <div class="m-card" data-param="sbp"><div class="m-head"><span>🩺 血压</span><span style="display:flex;gap:8px"><span onclick="loadVitalOne('sbp',event)" style="cursor:pointer">刷新</span><span onclick="addVitalOne('sbp')" style="cursor:pointer">录入</span><span id="vh_sbp" onclick="toggleVitalOneHist('sbp')" style="cursor:pointer">历史</span></span><span class="t">mmHg</span></div><div class="m-val"><span class="v">--/--</span><span class="u">mmHg</span><span class="trend"></span></div><canvas class="m-spark"></canvas><div class="vital-one-detail hidden" data-param="sbp" style="margin-top:4px;max-height:120px;overflow:auto;font-size:10px;border-top:1px dashed var(--line);padding-top:4px"></div><div class="vital-one-hist hidden" data-param="sbp" style="margin-top:4px;max-height:120px;overflow:auto;font-size:10px;border-top:1px dashed var(--line);padding-top:4px"></div></div>
 <div class="m-card" data-param="temp_c"><div class="m-head"><span>🌡 体温</span><span style="display:flex;gap:8px"><span onclick="loadVitalOne('temp_c',event)" style="cursor:pointer">刷新</span><span onclick="addVitalOne('temp_c')" style="cursor:pointer">录入</span><span id="vh_temp_c" onclick="toggleVitalOneHist('temp_c')" style="cursor:pointer">历史</span></span><span class="t">℃</span></div><div class="m-val"><span class="v">--</span><span class="u">℃</span><span class="trend"></span></div><canvas class="m-spark"></canvas><div class="vital-one-detail hidden" data-param="temp_c" style="margin-top:4px;max-height:120px;overflow:auto;font-size:10px;border-top:1px dashed var(--line);padding-top:4px"></div><div class="vital-one-hist hidden" data-param="temp_c" style="margin-top:4px;max-height:120px;overflow:auto;font-size:10px;border-top:1px dashed var(--line);padding-top:4px"></div></div>
 <div class="m-card" data-param="glucose"><div class="m-head"><span>💉 血糖</span><span style="display:flex;gap:8px"><span onclick="loadVitalOne('glucose',event)" style="cursor:pointer">刷新</span><span onclick="addVitalOne('glucose')" style="cursor:pointer">录入</span><span id="vh_glucose" onclick="toggleVitalOneHist('glucose')" style="cursor:pointer">历史</span></span><span class="t">mmol/L</span></div><div class="m-val"><span class="v">--</span><span class="u">mmol/L</span><span class="trend"></span></div><canvas class="m-spark"></canvas><div class="vital-one-detail hidden" data-param="glucose" style="margin-top:4px;max-height:120px;overflow:auto;font-size:10px;border-top:1px dashed var(--line);padding-top:4px"></div><div class="vital-one-hist hidden" data-param="glucose" style="margin-top:4px;max-height:120px;overflow:auto;font-size:10px;border-top:1px dashed var(--line);padding-top:4px"></div></div>
+<div class="m-card" data-param="gcs"><div class="m-head"><span>🧠 GCS</span><span style="display:flex;gap:8px"><span onclick="loadVitalOne('gcs',event)" style="cursor:pointer">刷新</span><span onclick="addVitalOne('gcs')" style="cursor:pointer">录入</span><span id="vh_gcs" onclick="toggleVitalOneHist('gcs')" style="cursor:pointer">历史</span></span><span class="t">3-15</span></div><div class="m-val"><span class="v">--</span><span class="u">分</span><span class="trend"></span></div><canvas class="m-spark"></canvas><div class="vital-one-detail hidden" data-param="gcs" style="margin-top:4px;max-height:120px;overflow:auto;font-size:10px;border-top:1px dashed var(--line);padding-top:4px"></div><div class="vital-one-hist hidden" data-param="gcs" style="margin-top:4px;max-height:120px;overflow:auto;font-size:10px;border-top:1px dashed var(--line);padding-top:4px"></div></div>
 </div>
 <div id="vitalHist" class="hidden" style="margin-top:6px;max-height:180px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px"></div>
 <div class="m-bottom" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -2551,14 +2552,15 @@ function loadVitals(ev){_refreshBtn(ev,function(){
 });}
 
 // ==================== 单体征卡片操作（刷新/录入/历史/删除） ====================
-var VITAL_LABELS={ecg_hr:"心率",sp_o2:"血氧",rr_bpm:"呼吸",sbp:"血压",temp_c:"体温",glucose:"血糖"};
+var VITAL_LABELS={ecg_hr:"心率",sp_o2:"血氧",rr_bpm:"呼吸",sbp:"血压",temp_c:"体温",glucose:"血糖",gcs:"GCS"};
 var VITAL_FIELDS={
   ecg_hr:["ecg_hr","vHr"],
   sp_o2:["sp_o2","vSpO2"],
   rr_bpm:["rr_bpm","vRr"],
   sbp:["sbp","vSbp"],   // 血压同时有 dbp
   temp_c:["temp_c","vTemp"],
-  glucose:["glucose","vGlu"]
+  glucose:["glucose","vGlu"],
+  gcs:["gcs","vGcs"]
 };
 // 刷新单个体征卡片
 function loadVitalOne(param,ev){
@@ -2571,14 +2573,14 @@ function loadVitalOne(param,ev){
       var valEl=card.querySelector(".v");
       var trendEl=card.querySelector(".trend");
       card.classList.remove("warn","crit");
-      var bands={ecg_hr:[60,100],sp_o2:[95,100],rr_bpm:[12,25],sbp:[100,140],temp_c:[36.0,37.5],glucose:[3.9,6.1]};
+      var bands={ecg_hr:[60,100],sp_o2:[95,100],rr_bpm:[12,25],sbp:[100,140],temp_c:[36.0,37.5],glucose:[3.9,6.1],gcs:[13,15]};
       if(param==="sbp"){
         var sv=signs["sbp"]?signs["sbp"].value:null, dv=signs["dbp"]?signs["dbp"].value:null;
         valEl.textContent=(sv!=null&&dv!=null)?sv.toFixed(0)+"/"+dv.toFixed(0):"--";
         if(sv!=null){if(sv<90||sv>180)card.classList.add("crit");else if(sv<100||sv>140)card.classList.add("warn");}
       }else{
         var v=signs[param]?signs[param].value:null;
-        valEl.textContent=v==null||isNaN(v)?"--":v.toFixed(1);
+        valEl.textContent=v==null||isNaN(v)?(param==="sbp"?"--/--":"--"):(param==="gcs"||param==="sbp"||param==="ecg_hr"||param==="rr_bpm"?v.toFixed(0):v.toFixed(1));
         if(v!=null&&bands[param]){var b=bands[param];if(v<b[0]-1.5*(b[1]-b[0])||v>b[1]+1.5*(b[1]-b[0]))card.classList.add("crit");else if(v<b[0]||v>b[1])card.classList.add("warn");}
       }
       trendEl.textContent="";
@@ -2621,6 +2623,11 @@ function addVitalOne(param){
     fieldsHtml="<label>体温 (℃) *</label><input id='voVal' type='number' step='0.1' placeholder='如 36.5' autofocus>";
   }else if(param==="glucose"){
     fieldsHtml="<label>血糖 (mmol/L) *</label><input id='voVal' type='number' step='0.1' placeholder='如 5.5' autofocus>";
+  }else if(param==="gcs"){
+    fieldsHtml="<label>格拉斯哥昏迷评分 GCS (3-15) *</label><input id='voVal' type='number' step='1' min='3' max='15' placeholder='如 13' autofocus>"
+      +"<div style='font-size:10px;color:var(--dim);line-height:1.5;margin:6px 0 8px'>"
+      +"<b>E</b>睁眼 1-4 · <b>V</b>语言 1-5 · <b>M</b>运动 1-6<br>"
+      +"≤8 重度昏迷（高危）· 9-12 中度 · 13-15 意识清楚</div>";
   }
   $("modalInner").innerHTML =
     "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+label+" · 数据录入</h2>" +
@@ -2689,6 +2696,10 @@ function doAddVitalOne(param){
   }else{
     var val=$("voVal").value;
     if(!val){alert("请输入"+(VITAL_LABELS[param]||param)+"数据");return;}
+    if(param==="gcs"){
+      var g=parseFloat(val);
+      if(isNaN(g)||g<3||g>15){alert("GCS 评分须在 3-15 之间（E睁眼1-4 + V语言1-5 + M运动1-6）");return;}
+    }
     body[param]=parseFloat(val);
   }
   var oper=$("voOper")?$("voOper").value.trim():"";

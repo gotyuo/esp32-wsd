@@ -258,6 +258,7 @@ def devices_for_patient(patient_id: int) -> List[Dict]:
 VITAL_FIELDS = [
     "sp_o2", "pr_hr", "ecg_hr", "ecg_st", "rr_bpm", "etco2",
     "sbp", "dbp", "map_bp", "ibp", "temp_c", "glucose",
+    "gcs",
     "hum_pct", "pres_hpa",
     "k_mmol", "na_mmol", "cl_mmol", "ca_mmol", "glucose_lab", "lactate",
     "ph", "pco2", "po2", "hco3", "be",
@@ -785,11 +786,28 @@ def assess_patient(patient_id: int, hours: int = 24) -> Dict:
         systems["respiratory"]["note"] = "血氧偏低，调整吸氧流量"
 
     # 神经
-    systems["neuro"] = {
+    gcs = _get("gcs")
+    gcs_val = gcs[-1] if gcs else None
+    neuro = {
         "label": "神经系统",
-        "gcs": None, "trend": "➡", "risk": 0,
-        "note": "GCS 未接入，请人工评估",
+        "gcs": gcs_val,
+        "trend": _trend_arrow(gcs),
+        "risk": 0,
+        "note": None,
     }
+    if gcs_val is not None:
+        if gcs_val <= 8:
+            # 重度昏迷：机械通气指征，提示气道保护
+            neuro["risk"] = 2
+            neuro["note"] = "GCS ≤8 重度昏迷，评估气道保护/机械通气指征"
+        elif gcs_val <= 12:
+            neuro["risk"] = 1
+            neuro["note"] = "GCS 9-12 中度意识障碍，动态监测意识/瞳孔"
+        else:
+            neuro["note"] = "GCS 13-15 意识清楚，持续监测意识变化"
+    else:
+        neuro["note"] = "GCS 未录入，请床旁人工评估（点「🧠 GCS」卡片的「录入」）"
+    systems["neuro"] = neuro
 
     # 内分泌 / 血糖
     glu = _get("glucose")
@@ -916,6 +934,11 @@ def assess_patient(patient_id: int, hours: int = 24) -> Dict:
         lines.append(f"呼吸：RR {systems['respiratory']['rr']:.0f} rpm{systems['respiratory']['trend']}{spo_txt}。")
     if systems["endo"]["glucose"] is not None:
         lines.append(f"血糖 {systems['endo']['glucose']:.1f} mmol/L{systems['endo']['trend']}。")
+    if systems["neuro"]["gcs"] is not None:
+        gcs_level = "意识清楚" if systems["neuro"]["gcs"] >= 13 else ("中度意识障碍" if systems["neuro"]["gcs"] >= 9 else "重度昏迷")
+        lines.append(f"神经系统：GCS {systems['neuro']['gcs']:.0f}（{gcs_level}）{systems['neuro']['trend']}。")
+    elif systems["neuro"]["note"]:
+        lines.append(f"神经系统：{systems['neuro']['note']}。")
     if systems["renal"]["creatinine"] is not None:
         lines.append(f"肌酐 {systems['renal']['creatinine']:.1f} μmol/L，尿量 {systems['renal']['urine_hr_ml']:.1f} ml/h。")
     if systems["acid_base"]["ph"] is not None:

@@ -205,6 +205,7 @@ class VitalIn(BaseModel):
     ibp: Optional[float] = None
     temp_c: Optional[float] = None
     glucose: Optional[float] = None
+    gcs: Optional[float] = None
     hum_pct: Optional[float] = None
     pres_hpa: Optional[float] = None
     k_mmol: Optional[float] = None
