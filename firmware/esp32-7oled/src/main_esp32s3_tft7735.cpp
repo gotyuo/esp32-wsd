@@ -130,7 +130,7 @@ static void renderTft() {
         g_tft.print("SSID:" + apName);
         g_tft.setTextColor(C_GREEN);
         g_tft.setCursor(4, 44);
-        g_tft.print("PWD:12345689");
+        g_tft.print("PWD:open");
         g_tft.setTextColor(C_CYAN);
         g_tft.setCursor(4, 56);
         g_tft.print("IP:192.168.4.1");

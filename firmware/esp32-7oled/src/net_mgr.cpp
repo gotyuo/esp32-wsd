@@ -275,21 +275,12 @@ void NetManager::loop() {
 // ---------------- AP 配网 ----------------
 void NetManager::startAP() {
     _mode = MODE_AP;
-    // 使用已保存的热点名，未设置时用默认值
-    if (_cfg->ap_ssid[0] != '\0') {
-        _ap_ssid = String(_cfg->ap_ssid);
-    } else {
-        uint8_t mac[6];
-        esp_read_mac(mac, ESP_MAC_WIFI_STA);
-        char buf[24];
-        snprintf(buf, sizeof(buf), "esp32-%02x%02x%02x", mac[3], mac[4], mac[5]);
-        _ap_ssid = String(buf);
-    }
+    _ap_ssid = "esp32-7oled";
 
     // 纯 AP 模式: 配网时用 AP,连上 WiFi 后自动关闭 AP(见 loop 的 WiFiConnected 处理)
-    // 热点密码: 12345689
+    // 热点密码: 已清空，默认开放热点
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(_ap_ssid.c_str(), "12345689", 6, 0);  // 固定信道 6
+    WiFi.softAP(_ap_ssid.c_str(), nullptr, 6, 0);  // 固定信道 6
     delay(300);
     dns.start(53, "*", WiFi.softAPIP());
     startPortalServer();

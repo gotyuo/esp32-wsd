@@ -20,6 +20,7 @@ bool SensorHub::begin() {
     Wire.setClock(400000);
     delay(50);
 
+    max30.setPins(PIN_MAX30102_SDA, PIN_MAX30102_SCL);
     if (aht.begin(&Wire)) {
         _aht_ok = true;
         Serial.println(F("[SENSOR] AHT20 OK"));

@@ -4686,8 +4686,14 @@ def delete_backup(filename: str):
 async def restore_backup(file: UploadFile = File(...)):
     """上传备份文件并恢复数据库。
 
-    流程：保存上传文件 → 校验是合法 SQLite → 备份当前库 → 替换 → 重连。
-    需要重启服务才能完全生效（重新执行 init_db / bootstrap_admin）。
+    流程：保存上传文件 → 校验是合法 SQLite → 备份当前库 →
+         断开 DB 连接 + 清理 WAL → 替换 .db → 重连（重新执行 PRAGMA）。
+
+    **关键**：必须在替换前关闭当前连接、清除 -wal/-shm 残留，
+    否则容器内 SQLite 页缓存与磁盘新文件不一致，所有读操作会
+    抛 `sqlite3.OperationalError: disk I/O error`（宿主机看
+    integrity_check 仍 ok，容器内却报错）。这是恢复后"数据丢失"
+    假象的真实根因——数据没丢，是缓存脏了。
     """
     import sqlite3 as _sqlite3
     import tempfile
@@ -4727,7 +4733,33 @@ async def restore_backup(file: UploadFile = File(...)):
     except Exception as e:
         log.warning("pre-restore backup failed: %s", e)
 
-    # 4. 替换数据库文件
+    # 3b. **关键步骤**：先关闭当前 SQLite 连接，避免双写。
+    #     宿主机写 .db 时容器内的连接还持有旧页缓存，替换后
+    #     读操作会 I/O error。
+    import db as _db_mod
+    old_conn = _db_mod._conn
+    if old_conn is not None:
+        try:
+            with _db_mod._lock:
+                old_conn.close()
+                _db_mod._conn = None
+            log.info("restore: closed old sqlite connection")
+        except Exception as e:
+            log.warning("restore: close old conn failed: %s", e)
+
+    # 3c. 清理 WAL/SHM 残留——即使 -wal 是 0 字节，容器进程
+    #     也会拿它当有效 WAL 读，导致 I/O error。
+    try:
+        with _db_mod._lock:
+            for ext in ("-wal", "-shm"):
+                p = icu.DB_PATH + ext
+                if os.path.exists(p):
+                    os.unlink(p)
+                    log.info("restore: removed stale %s", p)
+    except Exception as e:
+        log.warning("restore: cleanup wal/shm failed: %s", e)
+
+    # 4. 替换数据库文件（此时没有容器连接持有旧缓存）
     try:
         _shutil.copy2(tmp_path, icu.DB_PATH)
         log.info("database restored from uploaded file: %s", file.filename)
@@ -4737,7 +4769,16 @@ async def restore_backup(file: UploadFile = File(...)):
     finally:
         os.unlink(tmp_path)
 
-    return {"ok": True, "msg": "数据库已恢复，请重启服务使更改完全生效"}
+    # 5. 重连（get_conn 会重新 PRAGMA journal_mode=WAL + 应用行工厂）
+    try:
+        with _db_mod._lock:
+            _db_mod.get_conn()
+        log.info("restore: reopened sqlite connection (post-restore)")
+    except Exception as e:
+        log.error("restore: reopen failed: %s", e)
+        raise HTTPException(500, f"恢复后重连数据库失败: {e}")
+
+    return {"ok": True, "msg": "数据库已恢复，服务连接已重建"}
 
 
 # ================================================================ ICU 重症监护路由组

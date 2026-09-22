@@ -148,6 +148,21 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
 .menuDrop div:hover{background:var(--panel2);color:var(--txt)}
 .kv{display:grid;grid-template-columns:100px 1fr;gap:6px 12px;font-size:12px;align-items:center}
 .kv label{color:var(--sub)}
+/* GCS 评分专用 */
+.gcs-section{margin-bottom:10px}
+.gcs-sec-head{font-size:12px;font-weight:600;color:var(--ink);margin-bottom:5px}
+.gcs-sec-head small{font-weight:normal;color:var(--sub);font-size:11px;margin-left:3px}
+.gcs-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.gcs-grid.cols-5{grid-template-columns:repeat(5,1fr)}
+.gcs-opt{padding:6px 2px;border:1px solid var(--line);border-radius:5px;cursor:pointer;font-size:12px;text-align:center;color:var(--sub);background:var(--panel2);user-select:none;line-height:1.35;transition:all .12s}
+.gcs-opt:hover{border-color:var(--blue);color:var(--txt)}
+input:checked+.gcs-opt{background:var(--blue);color:#00141f;border-color:var(--blue);font-weight:600}
+input[type=radio][disabled]+.gcs-opt{opacity:.35;cursor:not-allowed}
+.gcs-row{display:flex;align-items:center;justify-content:space-between;padding:7px 9px;background:rgba(0,0,0,.22);border:1px solid var(--line);border-radius:6px;margin:10px 0 6px;font-size:12px}
+.gcs-total{font-size:24px;font-weight:700;color:var(--blue);font-variant-numeric:tabular-nums}
+.gcs-level{padding:3px 11px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap}
+.gcs-tip{font-size:11px;color:var(--dim);line-height:1.55;margin-top:5px}
+
 
 /* Toast & Banner */
 .toastWrap{position:fixed;top:64px;right:16px;z-index:200;display:flex;flex-direction:column;gap:6px}
@@ -1885,7 +1900,19 @@ function restoreBackup(input){
   var file=input.files[0];
   if(!file)return;
   if(!file.name.endsWith(".db")){toast("请选择 .db 数据库文件","alarm");input.value="";return;}
-  if(!confirm("⚠️ 确认恢复数据库？\n\n此操作将覆盖当前所有数据，不可撤销。\n恢复前会自动备份当前数据库。\n恢复后需要重启服务才能完全生效。"))return;
+  var sz=file.size<1024?file.size+" B":file.size<1024*1024?(file.size/1024).toFixed(1)+" KB":(file.size/1024/1024).toFixed(2)+" MB";
+  if(!confirm("⚠️ 高危操作：恢复数据库\n"+"─".repeat(20)+"\n\n"+
+    "文件："+file.name+"\n大小："+sz+"\n"+
+    "\n影响：\n"+
+    "  1. 将覆盖当前数据库全部业务数据\n"+
+    "  2. 此操作不可撤销\n"+
+    "  3. 恢复过程中服务将短暂不可用\n"+
+    "  4. 完成后需重启服务才能完全生效\n"+
+    "\n安全提示：\n"+
+    "  · 已自动备份当前数据库（安全网）\n"+
+    "  · 建议在「维护窗口」执行\n"+
+    "  · 若有多个实例连接本数据库，请全部停止后重试\n"+
+    "\n继续？"))return;
   var fd=new FormData();
   fd.append("file",file);
   fetch("/api/backup/restore",{
@@ -2656,13 +2683,31 @@ function addVitalOne(param){
   }else if(param==="glucose"){
     fieldsHtml="<label>血糖 (mmol/L) *</label><input id='voVal' type='number' step='0.1' placeholder='如 5.5' autofocus>";
   }else if(param==="gcs"){
-    fieldsHtml="<label>格拉斯哥昏迷评分 GCS (3-15) *</label><input id='voVal' type='number' step='1' min='3' max='15' placeholder='如 13' autofocus>"
-      +"<div style='font-size:10px;color:var(--dim);line-height:1.5;margin:6px 0 8px'>"
-      +"<b>E</b>睁眼 1-4 · <b>V</b>语言 1-5 · <b>M</b>运动 1-6<br>"
-      +"≤8 重度昏迷（高危）· 9-12 中度 · 13-15 意识清楚</div>";
+    fieldsHtml="<div class='gcs-section'>"
+      +"<div class='gcs-row'><span>总分</span><span><span id='gcsTotal'>--</span><span class='gcs-total'> 分</span></span><span id='gcsLevel' class='gcs-level'>--</span></div>"
+      +"<div class='gcs-tip' id='gcsTip'>请选择以下三个维度的评分项</div>"
+      +"<div class='gcs-sec-head'>E 睁眼反应 <small>(1-4)</small></div><div class='gcs-grid'>"
+      +"<label><input type='radio' name='gcsE' value='4' onchange='gcsSel(&quot;E&quot;)'><span class='gcs-opt'>自发<br><b>4</b></span></label>"
+      +"<label><input type='radio' name='gcsE' value='3' onchange='gcsSel(&quot;E&quot;)'><span class='gcs-opt'>呼唤<br><b>3</b></span></label>"
+      +"<label><input type='radio' name='gcsE' value='2' onchange='gcsSel(&quot;E&quot;)'><span class='gcs-opt'>疼痛<br><b>2</b></span></label>"
+      +"<label><input type='radio' name='gcsE' value='1' onchange='gcsSel(&quot;E&quot;)'><span class='gcs-opt'>无反应<br><b>1</b></span></label>"
+      +"</div><div class='gcs-sec-head'>V 语言反应 <small>(1-5)</small></div><div class='gcs-grid cols-5'>"
+      +"<label><input type='radio' name='gcsV' value='5' onchange='gcsSel(&quot;V&quot;)'><span class='gcs-opt'>正常<br><b>5</b></span></label>"
+      +"<label><input type='radio' name='gcsV' value='4' onchange='gcsSel(&quot;V&quot;)'><span class='gcs-opt'>混乱<br><b>4</b></span></label>"
+      +"<label><input type='radio' name='gcsV' value='3' onchange='gcsSel(&quot;V&quot;)'><span class='gcs-opt'>单词<br><b>3</b></span></label>"
+      +"<label><input type='radio' name='gcsV' value='2' onchange='gcsSel(&quot;V&quot;)'><span class='gcs-opt'>短语<br><b>2</b></span></label>"
+      +"<label><input type='radio' name='gcsV' value='1' onchange='gcsSel(&quot;V&quot;)'><span class='gcs-opt'>无反应<br><b>1</b></span></label>"
+      +"</div><div class='gcs-sec-head'>M 运动反应 <small>(1-6)</small></div><div class='gcs-grid'>"
+      +"<label><input type='radio' name='gcsM' value='6' onchange='gcsSel(&quot;M&quot;)'><span class='gcs-opt'>遵嘱<br><b>6</b></span></label>"
+      +"<label><input type='radio' name='gcsM' value='5' onchange='gcsSel(&quot;M&quot;)'><span class='gcs-opt'>定位<br><b>5</b></span></label>"
+      +"<label><input type='radio' name='gcsM' value='4' onchange='gcsSel(&quot;M&quot;)'><span class='gcs-opt'>主动退缩<br><b>4</b></span></label>"
+      +"<label><input type='radio' name='gcsM' value='3' onchange='gcsSel(&quot;M&quot;)'><span class='gcs-opt'>异常屈曲<br><b>3</b></span></label>"
+      +"<label><input type='radio' name='gcsM' value='2' onchange='gcsSel(&quot;M&quot;)'><span class='gcs-opt'>异常伸展<br><b>2</b></span></label>"
+      +"<label><input type='radio' name='gcsM' value='1' onchange='gcsSel(&quot;M&quot;)'><span class='gcs-opt'>无反应<br><b>1</b></span></label>"
+      +"</div></div>";
   }
   $("modalInner").innerHTML =
-    "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+label+" · 数据录入</h2>" +
+    (param==="gcs" ? "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>🧠 GCS 格拉斯哥昏迷评分录入</h2>" : "<h2 style='font-size:14px;margin-bottom:14px;color:var(--sub);letter-spacing:1px'>"+label+" · 数据录入</h2>") +
     "<div style='display:flex;gap:4px;margin-bottom:14px'>" +
       "<span class='chip active' onclick='switchVitalTab(\"manual\")' id='vtab-manual'>📝 录入</span>" +
       "<span class='chip' onclick='switchVitalTab(\"sync\")' id='vtab-sync'>🔄 同步数据</span>" +
@@ -2702,7 +2747,18 @@ function addVitalOne(param){
   $("modalBox").classList.remove("hidden");
   // 自动加载绑定设备列表（供实时获取页签展示）
   _loadEspDevicesForModal(pid);
+  if(param==="gcs")gcsInit();
 }
+// ==================== GCS 评分：E睁眼(1-4) + V语言(1-5) + M运动(1-6) → 总分3-15 ====================
+var GCS_DEFS={E:{label:"E 睁眼反应",opts:{4:"自发",3:"呼唤",2:"疼痛",1:"无反应"}},V:{label:"V 语言反应",opts:{5:"正常",4:"混乱",3:"单词",2:"短语",1:"无反应"}},M:{label:"M 运动反应",opts:{6:"遵嘱",5:"定位",4:"主动退缩",3:"异常屈曲",2:"异常伸展",1:"无反应"}}};
+function gcsGet(name){var el=document.querySelector('input[name="'+name+'"]:checked');return el?parseInt(el.value,10):null;}
+function gcsTotal(){var e=gcsGet("E"),v=gcsGet("V"),m=gcsGet("M");return (e===null||v===null||m===null)?null:e+v+m;}
+function gcsLevel(t){if(t===null)return null;if(t<=8)return{txt:"≤8 重度昏迷（高危）",color:"var(--red)"};if(t<=12)return{txt:"9-12 中度意识障碍",color:"var(--orange)"};return{txt:"13-15 意识清楚",color:"var(--green)"};}
+function gcsCalc(){var e=gcsGet("E"),v=gcsGet("V"),m=gcsGet("M");var t=(e&&v&&m)?(e+v+m):null;var lv=gcsLevel(t);var tot=document.getElementById("gcsTotal"),lvl=document.getElementById("gcsLevel"),tip=document.getElementById("gcsTip");if(tot)tot.textContent=t===null?"--":t;if(lvl){lvl.textContent=lv?lv.txt:"--";lvl.style.background=lv?lv.color:"rgba(255,255,255,.06)";lvl.style.color=lv?"#00141f":"var(--dim)";}if(tip){tip.textContent=t===null?"请选择以下三个维度的评分项":("E "+e+" + V "+v+" + M "+m+" = "+t+" 分　·　"+(lv?lv.txt:""));}}
+function gcsSel(dim){gcsCalc();}
+function gcsInit(){var sel={E:gcsGet("E"),V:gcsGet("V"),M:gcsGet("M")};["E","V","M"].forEach(function(d){var radios=document.querySelectorAll('input[name="'+d+'"]');radios.forEach(function(r){var off=(sel[d]!==null&&parseInt(r.value,10)!==sel[d]);r.disabled=off;r.closest("label").style.opacity=off?".35":"1";});});gcsCalc();}
+
+// 手工录入保存：source=manual，从输入框取值
 // 录入弹窗页签切换——切换不需要填数据，互不干扰
 function switchVitalTab(tab){
   ["manual","sync","esp"].forEach(function(t){
@@ -2725,13 +2781,14 @@ function doAddVitalOne(param){
     if(!sbp){alert("请输入收缩压");return;}
     body.sbp=parseFloat(sbp);
     if(dbp)body.dbp=parseFloat(dbp);
+  }else if(param==="gcs"){
+    var gt=gcsTotal();
+    if(gt===null){alert("请依次选择 E 睁眼 / V 语言 / M 运动 三个维度的评分项");return;}
+    if(gt<3||gt>15){alert("GCS 总分应在 3-15 之间，请核对选择项");return;}
+    body.gcs=gt;
   }else{
     var val=$("voVal").value;
     if(!val){alert("请输入"+(VITAL_LABELS[param]||param)+"数据");return;}
-    if(param==="gcs"){
-      var g=parseFloat(val);
-      if(isNaN(g)||g<3||g>15){alert("GCS 评分须在 3-15 之间（E睁眼1-4 + V语言1-5 + M运动1-6）");return;}
-    }
     body[param]=parseFloat(val);
   }
   var oper=$("voOper")?$("voOper").value.trim():"";
