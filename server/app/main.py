@@ -4736,7 +4736,7 @@ async def restore_backup(file: UploadFile = File(...)):
     # 3b. **关键步骤**：先关闭当前 SQLite 连接，避免双写。
     #     宿主机写 .db 时容器内的连接还持有旧页缓存，替换后
     #     读操作会 I/O error。
-    import db as _db_mod
+    from . import db as _db_mod
     old_conn = _db_mod._conn
     if old_conn is not None:
         try:
