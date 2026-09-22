@@ -900,7 +900,13 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
         </div>
       </h2>
       <p style="color:var(--sub);font-size:12px;margin:6px 0 14px">
-        数据库每天凌晨 2:00 自动备份，保留 2 天。可手动备份、下载导出、删除旧备份，或上传备份文件恢复数据。
+        <b>备份文件</b>每天凌晨 2:00 自动备份，保留 2 天（下表可手动备份/导出/删除/恢复）。
+        <b>业务数据保留策略</b>另见下表，与备份文件无关：
+        <table style="margin-top:8px;border-collapse:collapse;font-size:12px">
+          <tr><td style="padding:2px 12px 2px 0;color:var(--sub)">设备遥测 telemetry</td><td style="padding:2px 0">最近 2 天</td><td style="padding:2px 0;color:var(--dim)">10 秒/条高频数据</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:var(--sub)">分钟聚合 telemetry_1m</td><td style="padding:2px 0">400 天</td><td style="padding:2px 0;color:var(--dim)">长期趋势看这里</td></tr>
+          <tr><td style="padding:2px 12px 2px 0;color:var(--sub)">监护体征 vitals / 报警</td><td style="padding:2px 0">永久保留</td><td style="padding:2px 0;color:var(--dim)">含报警 400 天</td></tr>
+        </table>
         <br>⚠️ 恢复操作会覆盖当前数据库，请谨慎操作。恢复后需重启服务。
       </p>
       <table class="data" id="backupTable">

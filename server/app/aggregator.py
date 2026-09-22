@@ -16,7 +16,11 @@ from . import db
 
 log = logging.getLogger("envmon.agg")
 
-RAW_RETENTION_DAYS = int(os.environ.get("RAW_RETENTION_DAYS", "7"))
+# 原始遥测（telemetry）保留期。2026-09-22 按需求从 7 天改为 2 天：
+# 遥测是 10 秒/条的高频数据（3 台设备 ~7 万行/7天），只留最近 2 天足够趋势回看；
+# 长期趋势靠 telemetry_1m（MINUTE_RETENTION_DAYS=400）分钟聚合，不丢细节。
+# 改此值后需手动清理一次历史，之后由 Aggregator 每轮自动按此值删。
+RAW_RETENTION_DAYS = int(os.environ.get("RAW_RETENTION_DAYS", "2"))
 MINUTE_RETENTION_DAYS = int(os.environ.get("MINUTE_RETENTION_DAYS", "400"))
 OFFLINE_TIMEOUT_S = int(os.environ.get("OFFLINE_TIMEOUT_S", "120"))
 
@@ -103,12 +107,19 @@ class Aggregator:
                 self._on_device_offline(r["id"])
 
     def _cleanup(self):
+        # telemetry.ts 由服务器写入时带毫秒（如 2026-09-22T15:40:07.713Z），
+        # 而 cutoff 历史上用 %H:%M:%SZ 不带毫秒。SQLite 按字符串比较，
+        # '.'(ASCII 46) < 'Z'(ASCII 90)，于是 "07.713Z" < "07Z" 恒成立，
+        # 导致 cutoff 那一秒内新写入的行被误删（每轮清理随机丢 0-1 条）。
+        # 修法：cutoff 补上 .000Z 与 ts 位数对齐，"07.713Z" > "07.000Z" 成立，不再误删。
         raw_cut = (datetime.now(timezone.utc) - timedelta(days=RAW_RETENTION_DAYS)) \
-            .strftime("%Y-%m-%dT%H:%M:%SZ")
+            .strftime("%Y-%m-%dT%H:%M:%S.000Z")
         db.execute("DELETE FROM telemetry WHERE ts < ?", (raw_cut,))
+        # telemetry_1m.ts_minute 形如 2026-09-22T15:37（无秒无毫秒），原格式正确，勿改。
         min_cut = (datetime.now(timezone.utc) - timedelta(days=MINUTE_RETENTION_DAYS)) \
             .strftime("%Y-%m-%dT%H:%M")
         db.execute("DELETE FROM telemetry_1m WHERE ts_minute < ?", (min_cut,))
+        # alarms.ts 为秒级不带毫秒，原格式与之对齐，无需改动。
         db.execute(
             "DELETE FROM alarms WHERE ts < ?",
             ((datetime.now(timezone.utc) - timedelta(days=MINUTE_RETENTION_DAYS))
