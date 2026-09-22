@@ -790,22 +790,48 @@ OBX|3|NM|SPO2^OXYGEN_SAT||98|%|95-100|N|||F</pre>
       </h2>
       <div id="ai-cfg">
         <p style="color:#666;font-size:13px;margin:6px 0 12px">
-          支持 OpenAI / Ollama / DeepSeek / Qwen / Gemini 等 <b>OpenAI 兼容</b> 接口。
+          支持 OpenAI / Ollama / DeepSeek / Qwen / Gemini / Xinference 等 <b>OpenAI 兼容</b> 接口。
           填好 provider、base_url、model、api_key 后可在"测试连接"Tab 验证。
           开启 <b>ai.enabled</b> 后报警会自动调用 LLM 分析；
           开启 <b>ai.push_wechat</b> 后可把分析结果通过企业微信推送到患者主管医生。
         </p>
+        <div style="display:flex;align-items:center;gap:10px;margin:0 0 14px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:6px">
+          <span style="font-size:13px;color:var(--sub)">当前调用模型：</span>
+          <button class="btn" id="ai-active-cloud" onclick="setAiActive('cloud')" style="font-size:13px;padding:6px 14px">☁️ 外网 AI</button>
+          <button class="btn secondary" id="ai-active-lan" onclick="setAiActive('lan')" style="font-size:13px;padding:6px 14px">🏠 内网 AI</button>
+          <span id="ai-active-hint" style="font-size:11px;color:var(--dim)"></span>
+        </div>
+        <!-- 外网 AI 配置 -->
+        <div id="ai-cfg-cloud">
         <div class="grid2">
           <div class="sg"><label>ai.enabled (true/false)</label><select id="s-ai.enabled"><option value="false">关闭</option><option value="true">开启</option></select></div>
-          <div class="sg"><label>provider</label><select id="s-ai.provider"><option>openai</option><option>ollama</option><option>deepseek</option><option>qwen</option><option>gemini</option><option>custom</option></select></div>
-          <div class="sg" style="grid-column:1/-1"><label>base_url</label><input id="s-ai.base_url" value=""/></div>
-          <div class="sg"><label>model</label><input id="s-ai.model" value=""/></div>
-          <div class="sg"><label>api_key</label><input id="s-ai.api_key" value="" type="password"/></div>
+          <div class="sg"><label>provider</label><select id="s-ai.provider"><option>openai</option><option>ollama</option><option>deepseek</option><option>qwen</option><option>gemini</option><option>xinference</option><option>custom</option></select></div>
+          <div class="sg" style="grid-column:1/-1"><label>base_url</label><input id="s-ai.base_url" value="" placeholder="如 https://api.openai.com/v1"/></div>
+          <div class="sg"><label>model</label><input id="s-ai.model" value="" placeholder="如 gpt-4o-mini"/></div>
+          <div class="sg"><label>api_key</label><input id="s-ai.api_key" value="" type="password" placeholder="留空=不修改已保存的 key"/></div>
           <div class="sg"><label>timeout (秒)</label><input id="s-ai.timeout" value=""/></div>
           <div class="sg"><label>max_tokens</label><input id="s-ai.max_tokens" value=""/></div>
           <div class="sg"><label>ai.push_wechat (0/1)</label><select id="s-ai.push_wechat"><option value="0">关闭</option><option value="1">开启</option></select></div>
-          <div class="sg" style="grid-column:1/-1"><label>system_prompt</label><textarea id="s-ai.system_prompt" rows="2"></textarea></div>
+          <div class="sg" style="grid-column:1/-1"><label>system_prompt（内外网共用）</label><textarea id="s-ai.system_prompt" rows="2"></textarea></div>
           <div class="sg" style="grid-column:1/-1"><label>push_doctor_id</label><select id="s-ai.push_doctor_id"><option value="">-- 自动 --</option></select></div>
+        </div>
+        </div>
+        <!-- 内网 AI 配置 -->
+        <div id="ai-cfg-lan" class="hidden">
+        <p style="color:#b388ff;font-size:12px;margin:0 0 12px">
+          🏠 内网模型走医院内网地址，数据不出院。地址填到 OpenAI 兼容接口根路径
+          （如 <code>http://172.18.10.200:1025/v1</code>），系统会自动拼接 <code>/chat/completions</code>。
+          若内网地址或模型名未填写，将自动回退到外网配置。
+        </p>
+        <div class="grid2">
+          <div class="sg"><label>provider</label><select id="s-ai.lan.provider"><option>custom</option><option>xinference</option><option>ollama</option><option>openai</option><option>deepseek</option><option>qwen</option><option>gemini</option></select></div>
+          <div class="sg"><label>model</label><input id="s-ai.lan.model" value="" placeholder="如 qwen3_32b"/></div>
+          <div class="sg" style="grid-column:1/-1"><label>base_url（内网地址）</label><input id="s-ai.lan.base_url" value="" placeholder="如 http://172.18.10.200:1025/v1"/></div>
+          <div class="sg"><label>api_key（内网可留空）</label><input id="s-ai.lan.api_key" value="" type="password" placeholder="内网服务通常无需 key"/></div>
+          <div class="sg"><label>temperature (0~2)</label><input id="s-ai.lan.temperature" value="0.2" step="0.1"/></div>
+          <div class="sg"><label>timeout (秒)</label><input id="s-ai.lan.timeout" value="60"/></div>
+          <div class="sg"><label>max_tokens</label><input id="s-ai.lan.max_tokens" value="1024"/></div>
+        </div>
         </div>
         <div style="margin-top:14px"><button class="btn" onclick="saveAiSettings()">💾 保存配置</button><span id="ai-save-msg" style="margin-left:12px;color:#0b6"></span></div>
       </div>
@@ -4485,7 +4511,8 @@ async function loadAiSettings(){
     const r = await api('/api/ai/settings');
     if(!r || !r.ai_settings) return;
     const m = r.ai_settings;
-    const set = (id,val)=>{ const e=document.getElementById(id); if(e){ e.value = val; }};
+    const lm = r.ai_lan_settings || {};
+    const set = (id,val)=>{ const e=document.getElementById(id); if(e && val!=null){ e.value = val; }};
     set('s-ai.enabled', (m['ai.enabled']==='true'||m['ai.enabled']==='1')?'true':'false');
     set('s-ai.provider', m['ai.provider']||'openai');
     set('s-ai.base_url', m['ai.base_url']||'');
@@ -4497,17 +4524,68 @@ async function loadAiSettings(){
     set('s-ai.system_prompt', m['ai.system_prompt']||'');
     set('s-ai.push_wechat', m['ai.push_wechat']||'0');
     set('s-ai.push_doctor_id', m['ai.push_doctor_id']||'');
+    // 内网 AI 配置
+    set('s-ai.lan.provider', lm['ai.lan.provider']||'custom');
+    set('s-ai.lan.base_url', lm['ai.lan.base_url']||'');
+    set('s-ai.lan.model', lm['ai.lan.model']||'');
+    set('s-ai.lan.api_key', lm['ai.lan.api_key']||'');
+    set('s-ai.lan.temperature', lm['ai.lan.temperature']||'0.2');
+    set('s-ai.lan.timeout', lm['ai.lan.timeout']||'60');
+    set('s-ai.lan.max_tokens', lm['ai.lan.max_tokens']||'1024');
+    applyAiActive(r.ai_active||'cloud');
   }catch(e){ console.error('loadAiSettings',e); }
 }
+// 切换当前生效的 AI 模型套（cloud 外网 / lan 内网）。
+// 立即写入后端 ai.active，使"测试连接"与后续调用即时生效；保存按钮可一并持久化其余字段。
+async function setAiActive(which){
+  const isLan = (which==='lan');
+  try{
+    const r = await api('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({'ai.active':which})});
+    if(r && AI_SETTINGS){ AI_SETTINGS['ai.active']=which; }
+    applyAiActive(which);
+  }catch(e){
+    // 写入失败仅本地切换显示，不阻塞使用
+    console.error('setAiActive',e);
+    applyAiActive(which);
+  }
+}
+// 同步内/外网切换按钮与两个配置表单的显示状态
+function applyAiActive(which){
+  const isLan = (which==='lan');
+  const btnCloud=document.getElementById('ai-active-cloud');
+  const btnLan=document.getElementById('ai-active-lan');
+  if(btnCloud){ btnCloud.className = isLan?'btn secondary':'btn'; }
+  if(btnLan){ btnLan.className = isLan?'btn':'btn secondary'; }
+  const c=document.getElementById('ai-cfg-cloud'); if(c) c.classList.toggle('hidden', isLan);
+  const l=document.getElementById('ai-cfg-lan'); if(l) l.classList.toggle('hidden', !isLan);
+  const hint=document.getElementById('ai-active-hint');
+  if(hint){
+    hint.textContent = isLan
+      ? '（已切到内网：请求发往内网地址，数据不出院）'
+      : '（已切到外网：请求发往公网模型服务）';
+  }
+}
 async function saveAiSettings(){
-  const ids = ['enabled','provider','base_url','model','api_key','timeout','max_tokens','system_prompt','push_wechat','push_doctor_id'];
   const body = {};
-  ids.forEach(id=>{ body['ai.'+id] = (document.getElementById('s-ai.'+id).value || ''); });
+  // 外网套
+  ['enabled','provider','base_url','model','api_key','timeout','max_tokens','system_prompt','push_wechat','push_doctor_id'].forEach(id=>{
+    const e=document.getElementById('s-ai.'+id); if(e) body['ai.'+id] = (e.value || '');
+  });
   // 脱敏值含 ****** 或 (已保存) 标记，跳过不提交以保留已保存的真实 key
   { const _k = document.getElementById('s-ai.api_key').value || '';
     if (_k.includes('******') || _k.includes('(已保存)')) { delete body['ai.api_key']; }
     else { body['ai.api_key'] = _k; }
   }
+  // 内网套
+  ['provider','base_url','model','api_key','temperature','timeout','max_tokens'].forEach(id=>{
+    const e=document.getElementById('s-ai.lan.'+id); if(e) body['ai.lan.'+id] = (e.value || '');
+  });
+  { const _k = document.getElementById('s-ai.lan.api_key').value || '';
+    if (_k.includes('******') || _k.includes('(已保存)')) { delete body['ai.lan.api_key']; }
+  }
+  // 当前生效套（cloud/lan）一并提交
+  body['ai.active'] = (document.getElementById('ai-active-lan') && document.getElementById('ai-active-lan').className==='btn') ? 'lan' : 'cloud';
   // ai.enabled 统一存为 'true'/'false'，与设置菜单 saveSettings() 和所有检查逻辑一致
   body['ai.enabled'] = document.getElementById('s-ai.enabled').value;
   // 同步 ai.prompt = ai.system_prompt，兼容后端 icu.py 的 assess_with_ai
@@ -4537,14 +4615,17 @@ async function aiTestConnect(){
   out.textContent = '⏳ 发送中…';
   try{
     const r = await api('/api/ai/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({prompt})});
+    // 标注当前测试的是哪一套模型（cloud 外网 / lan 内网）
+    const _active = (AI_SETTINGS && AI_SETTINGS['ai.active']) || 'cloud';
+    const _tag = _active==='lan' ? '🏠 内网 AI' : '☁️ 外网 AI';
     if(r && r.ok){
-      let s = '✅ 连接成功\n\n';
+      let s = '✅ 连接成功 ['+_tag+']\n\n';
       if(r.usage){ s += 'Token 用量: '+JSON.stringify(r.usage)+'\n\n'; }
       s += '回复:\n'+(r.content||'(空响应)');
       out.textContent = s;
     } else {
       let errMsg = (r&&r.error) || '测试失败（未收到有效响应）';
-      out.textContent = '❌ ' + errMsg;
+      out.textContent = '❌ 测试失败 ['+_tag+']\n\n' + errMsg;
       if(r && r.content) out.textContent += '\n响应内容: '+r.content;
     }
   }catch(e){ out.textContent = '❌ 请求失败: '+(e.message||e); }

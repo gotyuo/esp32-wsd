@@ -50,7 +50,9 @@ _TIMEOUT_MIN = 5
 _TIMEOUT_MAX = 300
 _TIMEOUT_DEFAULT = 30
 _MAX_TOKENS_MIN = 16
-_MAX_TOKENS_MAX = 8192
+# v7.58：内网部署的 32B 级模型（qwen3_32b 等）上下文远大于 8K，
+# 上限放宽到 32K 以支持长上下文生成；_clamp_int 仍兜底，非法值不受影响。
+_MAX_TOKENS_MAX = 32768
 _MAX_TOKENS_DEFAULT = 512
 
 
@@ -72,16 +74,30 @@ def _clamp_int(raw, default: int, lo: int, hi: int) -> int:
 def _read_settings(s: SettingsSource) -> Dict[str, str]:
     # 支持两种用法：可注入的 SettingsSource 实例；或直接传一个 dict（main.py 内部调用）
     get = s.get
+    # v7.58 双模型：ai.active=cloud(默认) 用 ai.* 键；ai.active=lan 用 ai.lan.* 键。
+    # 内网配置未填写时回退到外网配置，避免"选了内网但没填地址"直接不可用。
+    active = (get("ai.active") or "cloud").strip().lower()
+    p = "ai" if active != "lan" else "ai.lan"
+    base_url = (get(f"{p}.base_url") or "").strip()
+    model = (get(f"{p}.model") or "").strip()
+    provider = (get(f"{p}.provider") or "").strip()
+    if p == "ai.lan" and (not base_url or not model):
+        p = "ai"  # 内网配置不完整，回退外网
     return {
         "enabled": get("ai.enabled") or "",
-        "provider": get("ai.provider") or "openai",
-        "base_url": get("ai.base_url") or "",
-        "model": get("ai.model") or "",
-        "api_key": get("ai.api_key") or "",
-        "timeout": str(_clamp_int(get("ai.timeout"), _TIMEOUT_DEFAULT,
-                                  _TIMEOUT_MIN, _TIMEOUT_MAX)),
-        "max_tokens": str(_clamp_int(get("ai.max_tokens"), _MAX_TOKENS_DEFAULT,
-                                     _MAX_TOKENS_MIN, _MAX_TOKENS_MAX)),
+        "active": active,
+        "provider": provider or (get("ai.provider") or "openai"),
+        "base_url": get(f"{p}.base_url") or "",
+        "model": get(f"{p}.model") or "",
+        "api_key": get(f"{p}.api_key") or "",
+        # temperature 按当前套配置单独设置，缺省 0.3（原行为不变）
+        "temperature": get(f"{p}.temperature") or "0.3",
+        "timeout": str(_clamp_int(get(f"{p}.timeout") or get("ai.timeout"),
+                                   _TIMEOUT_DEFAULT,
+                                   _TIMEOUT_MIN, _TIMEOUT_MAX)),
+        "max_tokens": str(_clamp_int(get(f"{p}.max_tokens") or get("ai.max_tokens"),
+                                      _MAX_TOKENS_DEFAULT,
+                                      _MAX_TOKENS_MIN, _MAX_TOKENS_MAX)),
         # 兼容旧版本：旧设置页只写 ai.prompt，新设置页同时写 ai.system_prompt
         "system_prompt": get("ai.system_prompt") or get("ai.prompt") or "",
     }
@@ -185,9 +201,14 @@ def call_model(
         "model": model,
         "messages": _build_prompt_messages(cfg["system_prompt"], messages),
         "max_tokens": max_tokens,
+        "stream": False,  # 显式关闭流式：vLLM/Xinference 等网关要求或默认 stream=false
     }
-    # 温度默认 0.3，避免生成过长/发散；调用方可在 messages 后额外传 temperature
-    payload.setdefault("temperature", 0.3)
+    # 温度按当前套配置取值（0~2），无效值回退默认 0.3
+    _t = cfg["temperature"]
+    try:
+        payload["temperature"] = max(0.0, min(2.0, float(_t)))
+    except (TypeError, ValueError):
+        payload["temperature"] = 0.3
 
     url = base_url + "/chat/completions"
     req = urllib.request.Request(url, method="POST")
@@ -314,10 +335,17 @@ def test_connection(settings: Any) -> Tuple[str, str, Optional[Dict[str, Any]]]:
     msgs = [{"role": "user", "content": "你好，请回复 OK"}]
     # 注意：不能直接把 cfg 传给 call_model——call_model 会再次 _read_settings，
     # 但 cfg 的 key 已是 "enabled" 而非 "ai.enabled"，会导致误判未启用。
-    # 用一个代理 dict，把 key 反转为 ai.* 让 _read_settings 第二次取值正常。
-    proxy = {"ai.enabled": cfg["enabled"], "ai.provider": cfg["provider"],
-             "ai.base_url": cfg["base_url"], "ai.model": cfg["model"],
-             "ai.api_key": cfg["api_key"], "ai.timeout": cfg["timeout"],
-             "ai.max_tokens": cfg["max_tokens"], "ai.system_prompt": ""}
+    # 用一个代理 dict，把已解析的配置写回 _read_settings 期望的 ai.* / ai.lan.* 前缀，
+    # 确保第二次解析时命中同一套（active）配置，而非回退到另一套。
+    _pfx = "ai.lan" if cfg["active"] == "lan" else "ai"
+    proxy = {"ai.enabled": cfg["enabled"], "ai.active": cfg["active"],
+             f"{_pfx}.provider": cfg["provider"],
+             f"{_pfx}.base_url": cfg["base_url"],
+             f"{_pfx}.model": cfg["model"],
+             f"{_pfx}.api_key": cfg["api_key"],
+             f"{_pfx}.temperature": cfg["temperature"],
+             f"{_pfx}.timeout": cfg["timeout"],
+             f"{_pfx}.max_tokens": cfg["max_tokens"],
+             "ai.system_prompt": ""}
     # 测试按钮要求快速反馈：15s 单次 + 瞬时故障重试一次
     return call_model(proxy, msgs, timeout_s=15, retries=1)

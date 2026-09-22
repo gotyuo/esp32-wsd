@@ -2590,18 +2590,32 @@ class AiSettingsPatch(BaseModel):
 
 @app.get("/api/ai/settings")
 def ai_settings(user: Dict = Depends(require_admin)):
-    """读取 AI 模型接入配置（管理员）。"""
+    """读取 AI 模型接入配置（管理员）。
+
+    返回两套配置：外网（ai.*）与内网（ai.lan.*），以及当前生效的 active 切换。
+    """
     raw = icu.list_settings_raw()
-    keys = ["ai.enabled", "ai.provider", "ai.base_url", "ai.model",
-            "ai.api_key", "ai.timeout", "ai.max_tokens", "ai.system_prompt"]
+    # 外网套
+    cloud_keys = ["ai.enabled", "ai.provider", "ai.base_url", "ai.model",
+                  "ai.api_key", "ai.timeout", "ai.max_tokens", "ai.system_prompt"]
+    # 内网套（键名带 ai.lan. 前缀）
+    lan_keys = ["ai.lan.provider", "ai.lan.base_url", "ai.lan.model", "ai.lan.api_key",
+                "ai.lan.temperature", "ai.lan.timeout", "ai.lan.max_tokens"]
+    # 内网 key 也需脱敏
+    _LAN_SECRET = {"ai.lan.api_key"}
     return {
-        "ai_settings": {k: (_mask_secret(raw.get(k, "")) if k in _SENSITIVE_KEYS else raw.get(k, "")) for k in keys},
+        "ai_settings": {k: (_mask_secret(raw.get(k, "")) if k in _SENSITIVE_KEYS else
+                            raw.get(k, "")) for k in cloud_keys},
+        "ai_active": raw.get("ai.active") or "cloud",
+        "ai_lan_settings": {k: (_mask_secret(raw.get(k, "")) if k in _LAN_SECRET else
+                                raw.get(k, "")) for k in lan_keys},
         "providers": [
             {"value": "openai", "label": "OpenAI (api.openai.com)"},
             {"value": "deepseek", "label": "DeepSeek (api.deepseek.com)"},
             {"value": "qwen", "label": "通义千问 Qwen / 百炼"},
             {"value": "gemini", "label": "Google Gemini OpenAI 兼容"},
             {"value": "ollama", "label": "Ollama (本机/局域网)"},
+            {"value": "xinference", "label": "Xinference (内网 qwen 常用)"},
             {"value": "custom", "label": "自定义 OpenAI 兼容"},
         ],
     }
