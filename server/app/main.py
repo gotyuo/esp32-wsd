@@ -896,8 +896,10 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(30)
             try:
                 # SQLite datetime() 统一解析 ISO8601 时间戳，避免格式不一致导致字符串比较出错
+                # cutoff 格式必须与 SQLite datetime() 输出一致（空格分隔），
+                # 否则字符串比较时空格(32) < T(84)，所有设备永远被误判离线。
                 cutoff_s = (datetime.now(timezone.utc) - timedelta(seconds=OFFLINE_TIMEOUT_S)).strftime(
-                    "%Y-%m-%dT%H:%M:%S")
+                    "%Y-%m-%d %H:%M:%S")
                 rows = db.query(
                     "SELECT id FROM devices WHERE online=1 AND deleted=0 "
                     "AND last_seen IS NOT NULL "
