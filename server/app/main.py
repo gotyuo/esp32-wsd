@@ -115,11 +115,44 @@ async def require_device_auth(request: Request,
                                authorization: Optional[str] = Header(default=None)) -> None:
     """设备上报端点鉴权（BUG-005 修复）。
 
-    若配置了 MQTT 凭据（MQTT_USER/MQTT_PASS），则要求 HTTP Basic Auth
-    使用相同凭据；未配置则放行（向后兼容）。
+    分级放行策略：
+      1. 未配置 MQTT_USER → 放行（向后兼容）
+      2. 来源是 loopback / 本机 → 放行（容器内测试、本机开发）
+      3. 来源是本机所在内网段（172.x / 192.168.x / 10.x）→ 放行
+         —— ESP32/ESP8266 固件走 HTTP POST 备用通道时不带 Basic Auth，
+            内网隔离前提下这是安全的（外网设备无法到达本机内网 IP）。
+         —— 见 v7.62：ESP32 6h 内 1977 次 401，备用通道实际是死的。
+      4. 其他来源 → 严格校验 HTTP Basic Auth（user=MQTT_USER, pass=MQTT_PASS）
     """
     if not MQTT_USER:
         return  # 未配置 MQTT 凭据，放行
+
+    # 取客户端 IP：优先 X-Forwarded-For（经过反代时），否则 request.client
+    fwd = request.headers.get("x-forwarded-for", "")
+    client_ip = fwd.split(",")[0].strip() if fwd else (
+        request.client.host if request.client else ""
+    )
+
+    # 127.0.0.1 / ::1 / localhost —— 容器内测试
+    if client_ip in ("127.0.0.1", "::1") or client_ip == "localhost":
+        return
+
+    # 内网私有段：10.x / 172.16-31.x / 192.168.x —— 内网设备免 Basic Auth
+    if client_ip:
+        parts = client_ip.split(".")
+        if len(parts) == 4:
+            try:
+                o1, o2 = int(parts[0]), int(parts[1])
+                if o1 == 10:
+                    return
+                if o1 == 172 and 16 <= o2 <= 31:
+                    return
+                if o1 == 192 and o2 == 168:
+                    return
+            except ValueError:
+                pass
+
+    # 外网来源：严格校验 Basic Auth
     if not authorization or not authorization.lower().startswith("basic "):
         raise HTTPException(401, "设备认证 required", headers={"WWW-Authenticate": "Basic"})
     import base64
