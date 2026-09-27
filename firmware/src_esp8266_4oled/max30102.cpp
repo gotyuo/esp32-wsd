@@ -31,7 +31,11 @@ static const uint8_t B_SPO2_SR50 = 0x07;              // SPO2 采样率 50Hz
 
 // ESP8266 单 I2C 外设：Wire 已在 SensorHub::begin() 中固定到 D1/D2。
 // MAX30102 仍然通过 setPins 记录 D7/D8，但不再切换 Wire 引脚。
-void MAX30102::_ensureBus() {}
+void MAX30102::_ensureBus() {
+    if (_sda >= 0 && _scl >= 0 && _wire) {
+        _wire->begin(_sda, _scl);
+    }
+}
 
 // --- 1 字节 reg 写(控制寄存器用) ---
 bool MAX30102::writeReg(uint8_t addr, uint8_t val) {
@@ -104,8 +108,8 @@ bool MAX30102::begin(TwoWire *wire) {
     writeTail(head & 0x3F); delay(10);
     // 50Hz 采样，红光+红外，ADCR 1250µA
     writeReg(REG_SPO2, B_SPO2_SR50 | B_SPO2_AEN | B_SPO2_AEN2);
-    writeReg(REG_LED1, 0x1F);     // 红外 1250µA
-    writeReg(REG_LED2, 0x1F);     // 红光 1250µA
+    writeReg(REG_LED1, 0x7F);     // 红外 5000µA
+    writeReg(REG_LED2, 0x7F);     // 红光 5000µA
     writeReg(REG_LED3, 0x00);     // 绿光关
     writeReg(REG_MODE, 0x03);     // 红光+红外 连续
     delay(300);
