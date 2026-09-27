@@ -29,12 +29,9 @@ static const uint8_t DATA_START = 0x07;               // 数据组首 dataIndex
 static const uint8_t B_SPO2_AEN  = 0x20, B_SPO2_AEN2 = 0x10;
 static const uint8_t B_SPO2_SR50 = 0x07;              // SPO2 采样率 50Hz
 
-// --- ESP8266 单总线时分复用：切到目标引脚 ---
-void MAX30102::_ensureBus() {
-    if (_sda >= 0 && _scl >= 0 && _wire) {
-        _wire->begin(_sda, _scl);
-    }
-}
+// ESP8266 单 I2C 外设：Wire 已在 SensorHub::begin() 中固定到 D1/D2。
+// MAX30102 仍然通过 setPins 记录 D7/D8，但不再切换 Wire 引脚。
+void MAX30102::_ensureBus() {}
 
 // --- 1 字节 reg 写(控制寄存器用) ---
 bool MAX30102::writeReg(uint8_t addr, uint8_t val) {

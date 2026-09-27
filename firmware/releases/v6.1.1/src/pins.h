@@ -1,6 +1,6 @@
 #pragma once
 // ============================================================
-// v5.1 引脚定义 (ESP8266 ESP-12F)
+// v6.1 引脚定义 (ESP8266 ESP-12F)
 //
 // OLED 0.96" I2C (SSD1306):
 //   SCL=D5(GPIO14)  SDA=D6(GPIO12)  VDD=3V3  VSS=GND
@@ -43,7 +43,9 @@
 #define PIN_BOOT_KEY 255
 
 // ---------- 版本 ----------
+#ifndef FW_VERSION
 #define FW_VERSION "6.1.1"
+#endif
 #define FW_VER     FW_VERSION
 
 // ---------- OLED 界面轮播 ----------

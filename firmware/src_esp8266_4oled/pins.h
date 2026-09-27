@@ -1,14 +1,17 @@
 #pragma once
 // ============================================================
-// v4.0 引脚定义 (ESP8266 ESP-12F)
+// v6.1 引脚定义 (ESP8266 ESP-12F)
 //
 // OLED 0.96" I2C (SSD1306):
 //   SCL=D5(GPIO14)  SDA=D6(GPIO12)  VDD=3V3  VSS=GND
 //
-// AHT20 + BMP280 + MAX30102 (共用同一 I2C 总线):
-//   SCL=D8(GPIO15)  SDA=D7(GPIO13)  VDD=3V3  GND=GND
-//   ⚠️ D8=GPIO15 上电必须为低电平，需外接上拉电阻
-//   地址不冲突: AHT20=0x38, BMP280=0x76, MAX30102=0x57
+// AHT20 + BMP280 共用一条硬件 I2C 总线:
+//   SCL=D1(GPIO5)  SDA=D2(GPIO4)  VDD=3V3  GND=GND
+//   地址不冲突: AHT20=0x38, BMP280=0x76
+//
+// MAX30102 使用独立引脚, 由驱动单独 setPins:
+//   SDA=D7(GPIO13)  SCL=D8(GPIO15)
+//   地址: MAX30102=0x57
 //
 // ESP-12F 引脚映射:
 //   D0=GPIO16  D1=GPIO5  D2=GPIO4  D3=GPIO0  D4=GPIO2
@@ -21,11 +24,13 @@
 #define PIN_OLED_RST 255      // 未接 RST
 #define OLED_ADDR    0x3C
 
-// ---------- 传感器总线 (AHT20 + BMP280 + MAX30102 共用) ----------
-#define PIN_I2C_SDA  5       // D1 = GPIO5
-#define PIN_I2C_SCL  4       // D2 = GPIO4
-#define PIN_MAX30102_SDA PIN_I2C_SDA
-#define PIN_MAX30102_SCL PIN_I2C_SCL
+// ---------- 传感器总线 (AHT20 + BMP280 共用) ----------
+#define PIN_I2C_SDA  4       // D2 = GPIO4
+#define PIN_I2C_SCL  5       // D1 = GPIO5
+
+// ---------- MAX30102 独立 I2C 总线 ----------
+#define PIN_MAX30102_SDA  13       // D7 = GPIO13
+#define PIN_MAX30102_SCL  15       // D8 = GPIO15
 
 // ---------- 麦克风 ----------
 #define PIN_MIC A0
@@ -38,9 +43,8 @@
 #define PIN_BOOT_KEY 255
 
 // ---------- 版本 ----------
-// FW_VERSION is provided by PlatformIO build_flags.
 #ifndef FW_VERSION
-#define FW_VERSION "2.0.1"
+#define FW_VERSION "6.1.1"
 #endif
 #define FW_VER     FW_VERSION
 

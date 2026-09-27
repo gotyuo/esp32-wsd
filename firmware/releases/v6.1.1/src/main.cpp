@@ -340,14 +340,7 @@ void setup() {
 
     g_alarm.begin();
 
-    if (!g_sensors.begin()) {
-        Serial.println(F("[BOOT] WARNING: no sensors available"));
-    }
-
-    // 历史: 纯内存环形缓冲, 无需 begin 失败检查
-    g_hist.begin();
-
-    // OLED: u8g2 软件 I2C (SCL=GPIO14, SDA=GPIO12) — 与传感器硬件 Wire 独立
+    // OLED 先起来，避免传感器初始化异常时整片黑屏
     pinMode(PIN_OLED_SDA, INPUT);
     pinMode(PIN_OLED_SCL, INPUT);
     g_oled.setBusClock(400000);
@@ -360,6 +353,13 @@ void setup() {
     g_oledOk = true;
     Serial.printf("[BOOT] OLED OK (SW I2C: SDA=GPIO%d SCL=GPIO%d)\n",
                   PIN_OLED_SDA, PIN_OLED_SCL);
+
+    if (!g_sensors.begin()) {
+        Serial.println(F("[BOOT] WARNING: no sensors available"));
+    }
+
+    // 历史: 纯内存环形缓冲, 无需 begin 失败检查
+    g_hist.begin();
 
     // 网络: v4.0 默认上电进 AP 配网 (若无 WiFi 配置), 否则先 STA 后 AP 兜底
     g_net.setConfig(&g_cfg);

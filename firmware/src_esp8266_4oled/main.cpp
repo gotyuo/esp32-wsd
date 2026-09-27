@@ -1,9 +1,10 @@
 // ============================================================
-// EnvMon ESP8266 v4.0 固件主程序
+// EnvMon ESP8266 v6.1 固件主程序
 //
 // 硬件:
 //   OLED 0.96" I2C (SSD1306)  SCL=D5(GPIO14)  SDA=D6(GPIO12)
-//   AHT20 + BMP280 + MAX30102 共用总线  SCL=D8(GPIO15)  SDA=D7(GPIO13)
+//   AHT20 + BMP280 共用硬件 Wire: SCL=D1(GPIO5)  SDA=D2(GPIO4)
+//   MAX30102 独立引脚: SDA=D7(GPIO13)  SCL=D8(GPIO15)
 //
 // OLED 界面 (自动 5s 切换; 串口命令可手动切换/固定):
 //   1 环境  : 温度 湿度 气压
@@ -43,10 +44,8 @@ SensorHub          g_sensors;
 AlarmDevice        g_alarm;
 EnvData            g_last;
 uint32_t           g_lastRead = 0;
-uint32_t           g_lastVital = 0;
 uint32_t           g_lastPub  = 0;
 bool               g_mqttReady = false;
-bool               g_discActive = false;
 uint32_t           g_lastOled = 0;
 uint32_t           g_lastHist = 0;
 char               g_lastSsid[33] = "";
@@ -68,12 +67,6 @@ static void forceRefreshOled();
 static void nextPage();
 
 // ---------- 当前 SSID (WiFi 已连 -> SDK; AP -> AP-CONFIG; 已保存配置兜底) ----------
-static String makeDefaultApSsid() {
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    return "ESP8266OLED-" + String(mac[4], HEX) + String(mac[5], HEX);
-}
-
 static String getCurSsid() {
     wl_status_t st = WiFi.status();
     if (st == WL_CONNECTED) {
@@ -81,7 +74,7 @@ static String getCurSsid() {
         s.trim();
         if (!s.isEmpty()) return s;
     }
-    if (g_net.inAPMode()) return makeDefaultApSsid();
+    if (g_net.inAPMode()) return "AP-CONFIG";
     if (g_cfg.has_wifi()) return String(g_cfg.wifi_ssid);
     return "";
 }
@@ -169,14 +162,6 @@ static void renderPageVitals() {
 
     g_oled.setFont(u8g2_font_5x7_tr);
     g_oled.drawStr(2, 58, g_sensors.max_ok() ? "OK" : "no MAX30102");
-    g_oled.drawStr(84, 58, "MAXT");
-    if (!g_sensors.max_ok())      g_oled.drawStr(108, 58, "no dev");
-    else if (isnan(g_last.max_temp_c)) g_oled.drawStr(108, 58, "--");
-    else {
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%.1fC", g_last.max_temp_c);
-        g_oled.drawStr(108, 58, buf);
-    }
 }
 
 // ---------- 页面 3: 网络 (SSID/IP/AP) ----------
@@ -355,10 +340,7 @@ void setup() {
 
     g_alarm.begin();
 
-    // 历史: 纯内存环形缓冲, 无需 begin 失败检查
-    g_hist.begin();
-
-    // OLED: u8g2 软件 I2C (SCL=GPIO14, SDA=GPIO12) — 与传感器硬件 Wire 独立
+    // OLED 先起来，避免传感器初始化异常时整片黑屏
     pinMode(PIN_OLED_SDA, INPUT);
     pinMode(PIN_OLED_SCL, INPUT);
     g_oled.setBusClock(400000);
@@ -375,6 +357,9 @@ void setup() {
     if (!g_sensors.begin()) {
         Serial.println(F("[BOOT] WARNING: no sensors available"));
     }
+
+    // 历史: 纯内存环形缓冲, 无需 begin 失败检查
+    g_hist.begin();
 
     // 网络: v4.0 默认上电进 AP 配网 (若无 WiFi 配置), 否则先 STA 后 AP 兜底
     g_net.setConfig(&g_cfg);
@@ -407,13 +392,10 @@ void loop() {
     checkSsidChanged();
     uint32_t now = millis();
 
-    // ---------- 传感器采样 (环境 2s, 体征 50ms) ----------
+    // ---------- 传感器采样 (2s) ----------
     if (now - g_lastRead >= 2000) {
         g_lastRead = now;
         g_sensors.read(g_last);
-    }
-    if (now - g_lastVital >= 50) {
-        g_lastVital = now;
         g_sensors.readVitals(g_last);
     }
 
@@ -437,23 +419,6 @@ void loop() {
         }
         delay(10);
         return;
-    }
-
-    // ---------- UDP 自动发现 (server_mode=0 且无 mqtt_host) ----------
-    if (g_cfg.server_mode == 0 && !g_cfg.has_mqtt() && g_net.wifiConnected()) {
-        if (!g_discActive) {
-            g_net.startDiscover();
-        } else {
-            int dr = g_net.discoverLoop(now);
-            if (dr == 1) {
-                Serial.println(F("[MAIN] discovery success, rebooting"));
-                delay(500);
-                ESP.restart();
-            } else if (dr == -1) {
-                Serial.println(F("[MAIN] discovery failed -> entering AP portal"));
-                g_net.startAP();
-            }
-        }
     }
 
     // ---------- MQTT ----------
