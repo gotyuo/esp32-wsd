@@ -29,8 +29,8 @@
 #define PIN_I2C_SCL  5       // D1 = GPIO5
 
 // ---------- MAX30102 独立 I2C 总线 ----------
-#define PIN_MAX30102_SDA  15       // D8 = GPIO15
-#define PIN_MAX30102_SCL  13       // D7 = GPIO13
+#define PIN_MAX30102_SDA  13       // D7 = GPIO13
+#define PIN_MAX30102_SCL  15       // D8 = GPIO15
 
 // ---------- 麦克风 ----------
 #define PIN_MIC A0
