@@ -20,11 +20,13 @@
 #define PIN_OLED_RST 255      // 未接 RST
 #define OLED_ADDR    0x3C
 
-// ---------- 传感器总线 (AHT20 + BMP280 + MAX30102 共用) ----------
+// ---------- 传感器总线 (AHT20 + BMP280 共用) ----------
 #define PIN_I2C_SDA  4       // D2 = GPIO4
 #define PIN_I2C_SCL  5       // D1 = GPIO5
-#define PIN_MAX30102_SDA PIN_I2C_SDA
-#define PIN_MAX30102_SCL PIN_I2C_SCL
+
+// ---------- MAX30102 独立 I2C 总线 ----------
+#define PIN_MAX30102_SDA  13       // D7 = GPIO13
+#define PIN_MAX30102_SCL  15       // D8 = GPIO15
 
 // ---------- 麦克风 ----------
 #define PIN_MIC A0
