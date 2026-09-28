@@ -161,7 +161,7 @@ class SoundPrefIn(BaseModel):
 class PatientCreate(BaseModel):
     pid: str = Field(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9_-]+$")
     name: str = Field("", max_length=32)
-    gender: str = Field("", pattern=r"^(M|F|)$")
+    gender: str = Field("", pattern=r"^(M|F|男|女|)$")
     age: int = Field(0, ge=0, le=150)
     bed_no: str = Field("", max_length=16)
     admit_ts: str = Field("", max_length=32)
@@ -169,17 +169,19 @@ class PatientCreate(BaseModel):
     doctor: str = Field("", max_length=64)
     phone: str = Field("", max_length=20)
     wechat_userid: str = Field("", max_length=128)
+    nurse_level: str = Field("", max_length=32)
 
 
 class PatientUpdate(BaseModel):
     name: str = Field("", max_length=32)
-    gender: str = Field("", pattern=r"^(M|F|)$")
+    gender: str = Field("", pattern=r"^(M|F|男|女|)$")
     age: int = Field(0, ge=0, le=150)
     bed_no: str = Field("", max_length=16)
     diagnosis: str = Field("", max_length=512)
     doctor: str = Field("", max_length=64)
     phone: str = Field("", max_length=20)
     wechat_userid: str = Field("", max_length=128)
+    nurse_level: str = Field("", max_length=32)
 
 
 class LinkDeviceIn(BaseModel):

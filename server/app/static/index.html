@@ -181,6 +181,7 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
       <span class="vtab active" data-view="dashboard" onclick="switchView('dashboard')">📊 监护屏</span>
       <span class="vtab" data-view="monitor" onclick="switchView('monitor')">🖥 实时监护</span>
       <span class="vtab" data-view="patients" onclick="switchView('patients')">🏥 患者管理</span>
+      <span class="vtab" data-view="patientinfo" onclick="switchView('patientinfo')">🪪 患者档案</span>
       <span class="vtab" data-view="devices" onclick="switchView('devices')">🖥 设备管理</span>
       <span class="vtab" data-view="sessions" onclick="switchView('sessions')">📋 监护记录</span>
       <span class="vtab" data-view="alarms" onclick="switchView('alarms')">🚨 报警</span>
@@ -432,6 +433,20 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue)}
         </div>
       </h2>
       <div id="pGrid" class="devgrid"><div class="empty">加载中…</div></div>
+    </div>
+  </div>
+
+  <!-- ============= 患者档案 ============= -->
+  <div id="view-patientinfo" class="hidden">
+    <div class="section">
+      <h2>🪪 患者档案 / PATIENT INFO
+        <div class="actions" style="margin-top:0">
+          <button onclick="showPatientForm()">+ 新建患者</button>
+          <button class="small" onclick="loadPatients(event)">刷新患者</button>
+          <button class="secondary small" onclick="syncPatientFromServer(event)">🔄 从服务器同步</button>
+        </div>
+      </h2>
+      <div id="patientInfoGrid" class="devgrid"><div class="empty">加载中…</div></div>
     </div>
   </div>
 
@@ -815,8 +830,42 @@ function _refreshBtn(ev,fn){
 
 function switchView(v){CURRENT_VIEW=v;
   document.querySelectorAll(".vtab").forEach(function(t){t.classList.toggle("active",t.dataset.view===v)});
-  ["dashboard","monitor","patients","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai","datasource"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
-  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);MONITOR_REFRESH_TIMER=setInterval(function(){if(CURRENT_VIEW==="monitor")refreshMonitor();},5000);}if(v==="patients")loadPatients();if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}}
+  ["dashboard","monitor","patients","patientinfo","devices","sessions","alarms","hl7","access","doctors","remind","wechat","ai","datasource"].forEach(function(n){$("view-"+n).classList.toggle("hidden",n!==v)});
+  if(v==="dashboard"){loadReal();loadDashboardGrid();}if(v==="monitor"){loadPatientsForMonitor();refreshMonitor();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);MONITOR_REFRESH_TIMER=setInterval(function(){if(CURRENT_VIEW==="monitor")refreshMonitor();},5000);}if(v==="patients")loadPatients();if(v==="patientinfo"){loadPatientInfo();if(MONITOR_REFRESH_TIMER)clearInterval(MONITOR_REFRESH_TIMER);}if(v==="devices")loadDevices();if(v==="sessions")loadMonitorSessionsView();if(v==="alarms")loadAlarms();if(v==="hl7")loadHl7View();if(v==="access")loadAccess();if(v==="doctors")loadDoctorsView();if(v==="remind"){loadPatientsForRemind();loadRemindHistory();}if(v==="wechat")loadWechatTab();if(v==="ai"){loadSettings();loadAiSettings();}if(v==="datasource"){loadDsSettings();}}
+
+function loadPatientInfo(ev){_refreshBtn(ev,function(){
+  api("/api/patients").then(function(d){
+    var ps=d.patients||[];
+    var el=$("patientInfoGrid");
+    if(!ps.length){el.innerHTML='<div class="empty">暂无患者档案</div>';return;}
+    el.innerHTML=ps.map(function(p){
+      return '<div class="devcard">'
+        +'<div class="head"><span class="id">'+esc(p.pid)+'</span><span class="ok">'+esc(p.bed_no||"-")+'</span></div>'
+        +'<div class="kv">'
+          +'<div><span>姓名</span><b>'+esc(p.name||"-")+'</b></div>'
+          +'<div><span>性别</span><b>'+esc(p.gender||"-")+'</b></div>'
+          +'<div><span>床号</span><b>'+esc(p.bed_no||"-")+'</b></div>'
+          +'<div><span>护理级别</span><b>'+esc(p.nurse_level||"-")+'</b></div>'
+          +'<div><span>电话</span><b>'+esc(p.phone||"-")+'</b></div>'
+          +'<div><span>诊断</span><b>'+esc(p.diagnosis||"-")+'</b></div>'
+          +'<div><span>主管</span><b>'+esc(p.doctor||"-")+'</b></div>'
+        +'</div>'
+        +'<div class="actions">'
+          +'<button class="secondary small" onclick="showPatientForm(\''+esc(p.pid)+'\')">编辑</button>'
+          +'<button class="danger small" onclick="delPatient(\''+esc(p.pid)+'\')">删除</button>'
+        +'</div>'
+      +'</div>';
+    }).join("");
+  }).catch(function(){ $("patientInfoGrid").innerHTML='<div class="empty">加载失败</div>'; });
+});}
+function syncPatientFromServer(ev){
+  _refreshBtn(ev,function(){
+    api("/api/patients/sync",{method:"POST"}).then(function(d){
+      toast("同步完成：新增 "+(d.created||0)+"，更新 "+(d.updated||0)+(d.errors&&d.errors.length? "，错误 "+d.errors.length : ""));
+      loadPatientInfo();
+    }).catch(function(e){ toast("同步失败：" + (e&&e.message||e||"未知错误"),"alarm"); });
+  });
+}
 
 function dashboardSetMode(mode){
   DASHBOARD_MODE=mode;
@@ -1366,9 +1415,10 @@ function showPatientForm(pid){
         +"<label>床号</label><input id='pBed' value='"+esc(p.bed_no||"")+"' maxlength='16'>"
         +"<label>主管医生</label><select id='pDoc'><option value=''>-- 无 --</option></select>"
         +"<label>诊断</label><input id='pDiag' value='" + esc(p.diagnosis||"") + "' maxlength='512'>"
-        +"<label>联系电话</label><input id='pPhone' value='" + esc(p.phone||"") + "' maxlength='20'>"
-        +"<label>企业微信 userid（推送地址，可选）</label><input id='pWxId' value='" + esc(p.wechat_userid||"") + "' maxlength='128' placeholder='企微账号ID，如 zhangsan。提醒会推送到此账号'>"
-      +"</div>"
+        "<label>联系电话</label><input id='pPhone' value='" + esc(p.phone||"") + "' maxlength='20'>"
+        + "<label>护理级别</label><input id='pNurse' value='" + esc(p.nurse_level||"") + "' maxlength='16' placeholder='如 一级 / 二级'>"
+        + "<label>企业微信 userid（推送地址，可选）</label><input id='pWxId' value='" + esc(p.wechat_userid||"") + "' maxlength='128' placeholder='企微账号ID，如 zhangsan。提醒会推送到此账号'>"
+      + "</div>"
       +"<div class='actions'><button onclick='savePatient(\""+(pid||"")+"\")'>保存</button><button class='secondary' onclick='closeModal()'>取消</button></div>";
     $("modalBox").classList.remove("hidden");
   }).catch(function(e){

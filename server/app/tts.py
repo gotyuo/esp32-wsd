@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import wave
 from typing import Optional
 
@@ -247,7 +248,10 @@ async def synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
     finally:
         _tts_cache_lock.release()
 
-    wav_data = await _wyoming_synthesize(text, voice)
+    try:
+        wav_data = await _wyoming_synthesize(text, voice)
+    except Exception as exc:
+        wav_data = await _edge_tts_synth_fallback(text, voice, primary_error=exc)
 
     _tts_cache_lock.acquire()
     try:
@@ -260,6 +264,37 @@ async def synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
         _tts_cache_lock.release()
 
     return wav_data
+
+
+async def _edge_tts_synth_fallback(text: str, voice_id: Optional[str], primary_error: Exception) -> bytes:
+    """Piper 不可用时的降级合成，保证设备仍能拿到 WAV。"""
+    try:
+        import edge_tts  # type: ignore
+    except Exception as e:
+        raise RuntimeError(f"Piper 不可用({primary_error})，且未安装 edge-tts 降级支持: {e}") from e
+
+    voice = "zh-CN-XiaoxiaoNeural" if any("\u4e00" <= ch <= "\u9fff" for ch in text) else "en-US-EmmaMultilingualNeural"
+    communicate = edge_tts.Communicate(text=text, voice=voice)
+    chunks = []
+    async for chunk in communicate.stream():
+        if chunk.get("type") == "audio":
+            chunks.append(chunk["data"])
+    mp3_bytes = b"".join(chunks)
+    if not mp3_bytes:
+        raise RuntimeError("edge-tts 未返回音频数据")
+
+    cmd = [
+        "ffmpeg", "-v", "error", "-i", "pipe:0",
+        "-f", "wav", "-ar", "16000", "-ac", "1", "pipe:1",
+    ]
+    proc = subprocess.run(cmd, input=mp3_bytes, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg 重采样失败: {proc.stderr.decode('utf-8', 'replace')[:200]}")
+    wav = proc.stdout
+    if not wav.startswith(b"RIFF"):
+        raise RuntimeError("ffmpeg 返回的音频格式异常")
+    log.warning("Piper unavailable, using edge-tts fallback: %s", primary_error)
+    return wav
 
 
 def synthesize_sync(text: str, voice_id: Optional[str] = None) -> bytes:

@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS patients (
     diagnosis   TEXT,                      -- 诊断
     doctor      TEXT,                      -- 主管医生
     phone       TEXT,                      -- 联系电话
+    nurse_level TEXT,                      -- 护理级别
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );

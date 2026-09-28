@@ -149,6 +149,13 @@ def _post_migrate(conn: sqlite3.Connection) -> None:
             "ALTER TABLE doctors ADD COLUMN wechat_userid TEXT DEFAULT NULL"
         )
         _log.info("migration v2.8b: added doctors.wechat_userid column")
+    # v2.10: 患者护理级别。patients 表加 nurse_level 列，
+    # 便于在患者页签直接展示与编辑。
+    if not _has_col(conn, "patients", "nurse_level"):
+        conn.execute(
+            "ALTER TABLE patients ADD COLUMN nurse_level TEXT DEFAULT NULL"
+        )
+        _log.info("migration v2.10: added patients.nurse_level column")
     # 清理之前 value= 引号错位写入的 maxlength= 垃圾数据
     try:
         n1 = conn.execute(

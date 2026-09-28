@@ -2349,6 +2349,10 @@ def _parse_hl7(text: str) -> Dict[str, Any]:
         if len(pid) > 5:
             # PID-5 患者姓名，格式：姓^名
             patient["name"] = pid[5].replace("^", "") if pid[5] else ""
+        if len(pid) > 7:
+            sex = (pid[7] or "").strip().upper()
+            if sex in ("M", "F", "男性", "MALE", "女", "FEMALE"):
+                patient["gender"] = "M" if sex in ("M", "男性", "MALE") else "F"
         if len(pid) > 18:
             # PID-18 床号（部分系统用 PID-3 的访问号）
             patient["bed"] = pid[18] if pid[18] else ""
@@ -2975,6 +2979,95 @@ def test_datasource(name: str):
         return {"ok": False, "error": f"测试异常: {str(e)}"}
 
 
+@app.post("/api/patients/sync", dependencies=[Depends(require_admin)])
+def sync_patients():
+    """从数据源 URL 拉取患者信息并同步到本库。
+
+    支持：
+    - JSON 列表：[ {pid,name,gender,age,bed_no,nurse_level,diagnosis,doctor,phone}, ... ]
+    - JSON 单对象：{...}
+    - HL7 文本：MSH|...|PID|...|ADT...
+    """
+    raw = icu.list_settings_raw()
+    url = raw.get("datasource.patient.url", "").strip()
+    if not url:
+        return {"ok": False, "error": "患者数据源 URL 未配置"}
+    import urllib.request, urllib.error as ue
+    import re as _re
+    req = urllib.request.Request(url, method="GET")
+    req.add_header("User-Agent", "envmon-patient-sync/1.0")
+    auth_key = raw.get("datasource.patient.auth_key", "").strip()
+    if auth_key:
+        req.add_header("Authorization", f"Bearer {auth_key}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            text = resp.read().decode("utf-8", "replace")
+    except ue.HTTPError as e:
+        return {"ok": False, "error": f"HTTP {e.code}: {e.reason}"}
+    except ue.URLError as e:
+        return {"ok": False, "error": f"连接失败: {str(e.reason)}"}
+    except Exception as e:
+        return {"ok": False, "error": f"同步异常: {str(e)}"}
+
+    items = []
+    if text.strip().startswith("MSH|"):
+        parsed = _parse_hl7(text)
+        patient = parsed.get("patient", {})
+        if patient.get("pid"):
+            items = [{
+                "pid": patient.get("pid", ""),
+                "name": patient.get("name", ""),
+                "bed_no": patient.get("bed", ""),
+            }]
+    else:
+        data = json.loads(text)
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            # 支持本服务 /api/patients 风格返回：{"patients": [ ... ]}
+            if "patients" in data and isinstance(data["patients"], list):
+                items = data["patients"]
+            else:
+                items = [data]
+        else:
+            return {"ok": False, "error": "数据格式不支持"}
+
+    created = 0
+    updated = 0
+    errors = []
+    for item in items:
+        pid = str(item.get("pid") or item.get("id") or item.get("patient_id") or "").strip()
+        if not pid:
+            errors.append("缺少 pid")
+            continue
+        try:
+            existing = icu.patient_by_pid(pid)
+            fields = {
+                "name": item.get("name") or item.get("patient_name") or "",
+                "gender": item.get("gender") or item.get("sex") or "",
+                "age": item.get("age") if item.get("age") is not None else 0,
+                "bed_no": item.get("bed_no") or item.get("bed") or "",
+                "diagnosis": item.get("diagnosis") or "",
+                "doctor": item.get("doctor") or item.get("attending") or "",
+                "phone": item.get("phone") or item.get("tel") or "",
+                "nurse_level": item.get("nurse_level") or item.get("care_level") or "",
+                "wechat_userid": item.get("wechat_userid") or item.get("wechat") or "",
+            }
+            if existing:
+                icu.patient_update(existing["id"], **fields)
+                updated += 1
+            else:
+                icu.patient_create(
+                    pid, fields["name"], fields["gender"], fields["age"],
+                    fields["bed_no"], "", fields["diagnosis"], fields["doctor"],
+                    fields["phone"], fields["wechat_userid"], fields["nurse_level"],
+                )
+                created += 1
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{pid}: {e}")
+    return {"ok": True, "created": created, "updated": updated, "errors": errors}
+
+
 # ================================================================ P2 数据导出/时间同步/清理/AI创建
 @app.get("/api/export", dependencies=[Depends(require_user)])
 def export_data(device: Optional[str] = None, start: Optional[str] = None,
@@ -3102,7 +3195,7 @@ def create_patient(body: PatientCreate):
     pid_id = icu.patient_create(
         body.pid, body.name, body.gender, body.age, body.bed_no,
         body.admit_ts, body.diagnosis, body.doctor, body.phone,
-        body.wechat_userid,
+        body.wechat_userid, body.nurse_level,
     )
     return {"ok": True, "patient_id": pid_id, "pid": body.pid}
 
