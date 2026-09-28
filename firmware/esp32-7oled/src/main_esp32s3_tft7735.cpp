@@ -416,6 +416,31 @@ void loop() {
     AlarmLevel lvl = g_alarm.evaluate(g_last, g_cfg);
     g_alarm.update(lvl, g_cfg.alarm_sound);
 
+    // TTS 语音播报：收到后先播报提示音，再从服务器拉 WAV 播放
+    {
+        int ttsLevel = 0;
+        String ttsText = g_mqtt.takeTtsText(&ttsLevel);
+        if (ttsText.length() > 0) {
+            Serial.printf("[TTS] %s (level=%d)\n", ttsText.c_str(), ttsLevel);
+            if (!ttsIsPlaying() && g_cfg.has_mqtt() && g_net.wifiConnected() &&
+                g_cfg.http_port != 0) {
+                String url = String("http://") + g_cfg.mqtt_host + ":" + String(g_cfg.http_port) + "/api/tts/speak?text=";
+                for (int i = 0; i < ttsText.length(); i++) {
+                    unsigned char c = (unsigned char)ttsText[i];
+                    if (isalnum(c))       url += (char)c;
+                    else if (c == ' ')    url += '+';
+                    else if (c == '_' || c == '-' || c == '.') url += (char)c;
+                    else { char h[6]; sprintf(h, "%%%02X", c); url += h; }
+                }
+                ttsStart(url);
+            }
+            playTtsAlert(ttsLevel);
+        }
+        if (ttsIsPlaying()) {
+            ttsStep();
+        }
+    }
+
     // TFT 刷新: 非AP模式下每4秒切页轮播(WiFi/体征/血氧),切页时才重绘
     if (g_tftOk && !g_net.inAPMode()) {
         if (now - g_lastPageSwitch >= PAGE_INTERVAL) {

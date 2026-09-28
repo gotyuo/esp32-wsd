@@ -3,12 +3,20 @@
 // 报警模块：共阴 RGB LED + 无源蜂鸣器
 //  - 正常(NORMAL)  : 绿色慢速呼吸
 //  - 预警(WARNING) : 橙色闪烁（接近阈值）
-//  - 报警(ALARM)   : 红色快闪 + 蜂鸣器鸣响（超出阈值）
+//  - 报警(ALARM)   : 红色快闪 + 蜂鸣器/喇叭鸣响（超出阈值）
 //  全部为非阻塞实现，在 loop 中调用 update()
 // ============================================================
 #include <Arduino.h>
 #include "sensors.h"
 #include "config_store.h"
+
+// TTS I2S 输出引脚（仅用于 ESP32-S3 下的 WAV 播放）
+#ifndef TTS_I2S_SDOUT_PIN
+#define TTS_I2S_SDOUT_PIN 18
+#endif
+#ifndef TTS_I2S_BCLK_PIN
+#define TTS_I2S_BCLK_PIN  PIN_SPEAKER
+#endif
 
 enum AlarmLevel : uint8_t {
     AL_NORMAL  = 0,
@@ -42,3 +50,6 @@ private:
 
 // TTS 提示音播放函数（由主循环调用）
 void playTtsAlert(int level);
+void ttsStart(const String &url);
+void ttsStep();
+bool ttsIsPlaying();
