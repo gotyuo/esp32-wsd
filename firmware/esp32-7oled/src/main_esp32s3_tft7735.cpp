@@ -429,15 +429,8 @@ void loop() {
             snprintf(buf, sizeof(buf), "温度 %.1f 摄氏度, 湿度 %.1f 百分比",
                      g_last.temp_c, g_last.hum_pct);
             Serial.printf("[TTS] %s\n", buf);
-            String url = String("http://") + g_cfg.mqtt_host + ":" + String(g_cfg.http_port) + "/api/tts/speak?text=";
-            for (int i = 0; i < strlen(buf); i++) {
-                unsigned char c = (unsigned char)buf[i];
-                if (isalnum(c))       url += (char)c;
-                else if (c == ' ')    url += '+';
-                else if (c == '_' || c == '-' || c == '.') url += (char)c;
-                else { char h[6]; sprintf(h, "%%%02X", c); url += h; }
-            }
-            ttsStart(url);
+            String url = String("http://") + g_cfg.mqtt_host + ":" + String(g_cfg.http_port) + "/api/tts/speak";
+            ttsStart(url, buf);
         }
     }
 
@@ -449,15 +442,8 @@ void loop() {
             Serial.printf("[TTS] %s (level=%d)\n", ttsText.c_str(), ttsLevel);
             if (!ttsIsPlaying() && g_cfg.has_mqtt() && g_net.wifiConnected() &&
                 g_cfg.http_port != 0) {
-                String url = String("http://") + g_cfg.mqtt_host + ":" + String(g_cfg.http_port) + "/api/tts/speak?text=";
-                for (int i = 0; i < ttsText.length(); i++) {
-                    unsigned char c = (unsigned char)ttsText[i];
-                    if (isalnum(c))       url += (char)c;
-                    else if (c == ' ')    url += '+';
-                    else if (c == '_' || c == '-' || c == '.') url += (char)c;
-                    else { char h[6]; sprintf(h, "%%%02X", c); url += h; }
-                }
-                ttsStart(url);
+                String url = String("http://") + g_cfg.mqtt_host + ":" + String(g_cfg.http_port) + "/api/tts/speak";
+                ttsStart(url, ttsText);
             }
             playTtsAlert(ttsLevel);
         }

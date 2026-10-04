@@ -51,6 +51,6 @@ private:
 
 // TTS 提示音播放函数（由主循环调用）
 void playTtsAlert(int level);
-void ttsStart(const String &url);
+void ttsStart(const String &url, const String &text = "");
 void ttsStep();
 bool ttsIsPlaying();
