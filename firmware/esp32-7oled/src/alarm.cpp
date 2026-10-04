@@ -24,6 +24,7 @@ static uint16_t _ttsSampleRate = 16000;
 static WiFiClient _ttsNet;
 static const int TTS_MAX_SIZE = 128 * 1024;
 static const int TTS_HDR_BUF  = 4096;
+static uint8_t _ttsHdr[TTS_HDR_BUF];
 
 static void _ttsFree() {
     if (_ttsBuf) { free(_ttsBuf); _ttsBuf = nullptr; _ttsLen = 0; }
@@ -57,7 +58,7 @@ static bool _getTtsWav(const String &host, int port, const String &text) {
     req += body;
     _ttsNet.write(req.c_str(), req.length());
 
-    uint8_t hdr[TTS_HDR_BUF];
+    uint8_t *hdr = _ttsHdr;
     int hdrLen = 0;
     bool foundEnd = false;
     _ttsNet.setTimeout(5000);
@@ -158,7 +159,7 @@ void ttsStart(const String &url, const String &text) {
                  "Connection: close\r\n\r\n";
     _ttsNet.write(req.c_str(), req.length());
 
-    uint8_t hdr[TTS_HDR_BUF];
+    uint8_t *hdr = _ttsHdr;
     int hdrLen = 0;
     bool foundEnd = false;
     _ttsNet.setTimeout(5000);
