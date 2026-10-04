@@ -55,13 +55,20 @@ static bool _getTtsWav(const String &host, int port, const String &text) {
                  "Content-Length: " + String(body.length()) + "\r\n"
                  "User-Agent: EnvMon\r\n"
                  "Connection: close\r\n\r\n";
-    req += body;
-    _ttsNet.write(req.c_str(), req.length());
+    int hlen = req.length();
+    int wr = _ttsNet.write((const uint8_t *)req.c_str(), (size_t)hlen);
+    for (int i = 0; i < body.length(); i += 512) {
+        int chunk = body.length() - i;
+        if (chunk > 512) chunk = 512;
+        wr += _ttsNet.write((const uint8_t *)(body.c_str() + i), (size_t)chunk);
+    }
+    Serial.printf("[TTS] POST %s:%d wrote %d/%d hdr+len\n", host.c_str(), port, wr, hlen + body.length());
+    _ttsNet.flush();
 
     uint8_t *hdr = _ttsHdr;
     int hdrLen = 0;
     bool foundEnd = false;
-    _ttsNet.setTimeout(5000);
+    _ttsNet.setTimeout(1000);
     while (_ttsNet.connected() && hdrLen < TTS_HDR_BUF) {
         int n = _ttsNet.read(hdr + hdrLen, TTS_HDR_BUF - hdrLen);
         if (n <= 0) break;
@@ -75,7 +82,11 @@ static bool _getTtsWav(const String &host, int port, const String &text) {
         if (foundEnd) break;
     }
     if (!foundEnd) {
-        Serial.println("[TTS] header incomplete");
+        char dbg[64];
+        int sl = hdrLen < (int)sizeof(dbg) - 1 ? hdrLen : (int)sizeof(dbg) - 1;
+        memcpy(dbg, hdr, sl);
+        dbg[sl] = '\0';
+        Serial.printf("[TTS] header incomplete len=%d peer_connected=%d\n%s\n", hdrLen, _ttsNet.connected(), dbg);
         _ttsNet.stop();
         return false;
     }
