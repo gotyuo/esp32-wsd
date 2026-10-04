@@ -309,6 +309,15 @@ void setup() {
     Serial.printf("[BOOT] config %s, device_id=%s\n",
                   saved ? "loaded" : "NOT found (first boot)", g_cfg.device_id);
 
+    // 运维兼容：旧服务器 172.22.22.83 与已修复本机节点 172.22.22.75 属同一部署宿主，
+    // 但 .83 未同步最新服务端；运行时把旧 MQTT/TTS 目标纠偏到本机节点，保留原 WiFi 配置。
+    if (g_cfg.has_mqtt() && strcmp(g_cfg.mqtt_host, "172.22.22.83") == 0) {
+        snprintf(g_cfg.mqtt_host, sizeof(g_cfg.mqtt_host), "172.22.22.75");
+        if (g_cfg.mqtt_port != 18830) g_cfg.mqtt_port = 18830;
+        if (g_cfg.http_port != 12090) g_cfg.http_port = 12090;
+        Serial.printf("[BOOT] migrate mqtt host to %s:%u\n", g_cfg.mqtt_host, g_cfg.mqtt_port);
+    }
+
     g_alarm.begin();
 
     // 传感器
