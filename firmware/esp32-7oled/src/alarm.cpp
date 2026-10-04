@@ -68,7 +68,7 @@ static bool _getTtsWav(const String &host, int port, const String &text) {
     uint8_t *hdr = _ttsHdr;
     int hdrLen = 0;
     bool foundEnd = false;
-    _ttsNet.setTimeout(1000);
+    _ttsNet.setTimeout(8000);
     while (_ttsNet.connected() && hdrLen < TTS_HDR_BUF) {
         int n = _ttsNet.read(hdr + hdrLen, TTS_HDR_BUF - hdrLen);
         if (n <= 0) break;

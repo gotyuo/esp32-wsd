@@ -50,5 +50,5 @@
 
 // ---------- 固件版本 ----------
 #ifndef FW_VERSION
-#define FW_VERSION "20261005-v1.0.4"
+#define FW_VERSION "20261005-v1.0.5"
 #endif
