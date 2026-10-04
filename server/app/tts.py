@@ -250,9 +250,10 @@ async def synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
         _tts_cache_lock.release()
 
     try:
-        wav_data = await _wyoming_synthesize(text, voice)
+        wav_data = await _synthesize_with_fallbacks(text, voice)
     except Exception as exc:
-        wav_data = await _edge_tts_synth_fallback(text, voice, primary_error=exc)
+        log.warning("TTS synthesis returned no audio, using silence WAV: %s", exc)
+        wav_data = _silence_wav(0.8, 16000)
 
     _tts_cache_lock.acquire()
     try:
@@ -296,6 +297,37 @@ async def _edge_tts_synth_fallback(text: str, voice_id: Optional[str], primary_e
         raise RuntimeError("ffmpeg 返回的音频格式异常")
     log.warning("Piper unavailable, using edge-tts fallback: %s", primary_error)
     return wav
+
+
+def _silence_wav(seconds: float = 0.8, sample_rate: int = 16000) -> bytes:
+    """生成一段静音 WAV，保证 TTS 接口最终也能返回 WAV。"""
+    seconds = max(0.2, min(float(seconds), 3.0))
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(int(sample_rate))
+        wf.writeframes(b"\x00\x00" * int(sample_rate * seconds))
+    return buf.getvalue()
+
+
+async def _synthesize_with_fallbacks(text: str, voice: str) -> bytes:
+    """按 Piper -> edge-tts -> 静音 WAV 的顺序兜底。"""
+    last_exc: Optional[Exception] = None
+    try:
+        return await _wyoming_synthesize(text, voice)
+    except Exception as exc:
+        last_exc = exc
+        log.warning("Piper TTS failed: %s", exc)
+
+    try:
+        return await _edge_tts_synth_fallback(text, voice, primary_error=last_exc)
+    except Exception as exc:
+        last_exc = exc
+        log.warning("edge-tts fallback failed: %s", exc)
+
+    log.warning("Using silence WAV fallback after TTS failures: %s", last_exc)
+    return _silence_wav(0.8, 16000)
 
 
 def synthesize_sync(text: str, voice_id: Optional[str] = None) -> bytes:
