@@ -1,0 +1,31 @@
+# ============================================================
+#  EnvMon beacon 服务端 — Docker 部署
+#  版本: 20261006-v1.1
+#
+#  ⚠ 关键：必须用 network_mode: host
+#    bridge 模式下容器收不到 UDP 多播，设备永远发现不了服务器。
+# ============================================================
+
+services:
+  envmon-beacon:
+    build: .
+    image: envmon-beacon:20261006-v1.1
+    container_name: envmon-beacon
+
+    # ⚠ 多播必须宿主机网络，不要改成 bridge
+    network_mode: host
+
+    restart: unless-stopped
+
+    volumes:
+      # 配置外挂，改项目路由不用重建镜像
+      - ./projects.json:/app/projects.json:ro
+
+    # 多网卡机器：取消下一行注释并改成实际出口 IP
+    # command: ["python", "-u", "beacon_server.py", "--config", "projects.json", "--interface", "192.168.2.220"]
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
