@@ -9,17 +9,6 @@
 //   STA_CONNECTED 掉线 60s -> AP_CONFIG
 // ============================================================
 #include "net_mgr.h"
-
-// ---- Web 服务端口（与 ESP32 v2.1.1 保持一致）----
-// 原默认 80 极易与其它服务冲突，统一改 8822；访问须带端口 http://192.168.4.1:8822/
-#ifndef WEB_PORT
-  #define WEB_PORT 8822
-#endif
-
-// ---- 项目标识（多项目共存，与 ESP32 v2.1.x 同协议）----
-#ifndef PROJECT_ID
-  #define PROJECT_ID "default"
-#endif
 #include "pins.h"
 #include <ESP8266WiFi.h>
 #include <cstring>
@@ -447,7 +436,7 @@ void NetManager::startAP() {
     dns.start(53, "*", WiFi.softAPIP());
     startPortalServer();
     startDataService();
-    Serial.printf("[NET] AP started: %s (http://192.168.4.1:%d)\n", _ap_ssid.c_str(), (int)WEB_PORT);
+    Serial.printf("[NET] AP started: %s (http://192.168.4.1)\n", _ap_ssid.c_str());
     _scanCache = "[]";
     delay(800);
     WiFi.scanNetworks(true, false, 0, NULL);
@@ -462,10 +451,10 @@ void NetManager::startPortalServer() {
     });
     web.on("/save", HTTP_POST, [this]() { handleSave(); });
     web.onNotFound([this]() {
-        web.sendHeader("Location", String("http://192.168.4.1:") + String((int)WEB_PORT) + "/");
+        web.sendHeader("Location", "http://192.168.4.1/");
         web.send(302, "text/plain", "");
     });
-    web.begin(WEB_PORT);
+    web.begin();
     _portalRunning = true;
 }
 
@@ -558,10 +547,7 @@ String NetManager::jsonEscape(const String &s) {
 // 收到服务端 JSON 应答后立即保存配置并重启，进入正常 MQTT 上报。
 // 应答 JSON: {"ip":"192.168.1.100","port":18830,"user":"envmon","pass":"envmon"}
 static const int DISC_PORT = 12091;
-// v1.0(20261006): 改为带项目标识的探针，与 ESP32 v2.1.x 同协议；
-// 服务端只应答登记了该 pid 的项目 -> 多项目共存不串。应答格式不变。
-static const char DISC_REQ_FMT[] = "{\"probe\":\"EnvMon\",\"pid\":\"%s\",\"did\":\"%s\"}";
-static const char DISC_REQ_LEGACY[] = "ENVMON?";
+static const char DISC_REQ[] = "ENVMON?";
 static const uint32_t DISC_SEND_INTERVAL = 4000;   // 每 4s 发一次
 static const uint32_t DISC_TIMEOUT = 45000;        // 45s 超时回 AP
 
@@ -576,8 +562,8 @@ void NetManager::startDiscover() {
     _discLastSent = 0;
     _discStartAt  = millis();
     _discActive   = true;
-    Serial.printf("[DISC] mode=LAN discover, pid=%s, send every %us, timeout %us\n",
-                  PROJECT_ID, DISC_SEND_INTERVAL / 1000, DISC_TIMEOUT / 1000);
+    Serial.printf("[DISC] mode=LAN discover, send every %us, timeout %us\n",
+                  DISC_SEND_INTERVAL / 1000, DISC_TIMEOUT / 1000);
 }
 
 void NetManager::stopDiscover() {
@@ -626,10 +612,7 @@ int NetManager::discoverLoop(uint32_t now) {
     if ((now - _discLastSent) > DISC_SEND_INTERVAL) {
         _discLastSent = now;
         _udp.beginPacket(IPAddress(239, 255, 1, 1), DISC_PORT);
-        char _probe[192];
-        String _did = WiFi.macAddress();
-        snprintf(_probe, sizeof(_probe), DISC_REQ_FMT, PROJECT_ID, _did.c_str());
-        _udp.print(_probe);
+        _udp.print(DISC_REQ);
         _udp.endPacket();
     }
     int n = _udp.parsePacket();

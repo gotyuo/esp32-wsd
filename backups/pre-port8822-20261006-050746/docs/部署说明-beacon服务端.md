@@ -24,18 +24,8 @@
 |---|---|---|---|
 | **12091** | UDP | 设备发现（多播） | ✅ 服务端入站 |
 | 18830 | TCP | MQTT 上报 | ✅ |
-| **8822** | TCP | **HTTP 遥测上报**（原 12090，统一改 8822 避开冲突） | ✅ |
-| **8822** | TCP | **设备 Web**：配网页 / 数据页（原 80，极易冲突） | 配网与看数据时需要 |
-
-> **为什么统一改 8822**：设备 Web 原本用 80，与局域网/NAS 上其它服务（路由器管理页、群晖/飞牛面板等）
-> 极易冲突，且固件里 80 被写死无法配网时调整。现 ESP32 v2.1.1 与 ESP8266 源码均已改为 `WEB_PORT=8822`，
-> 可用编译参数 `-D WEB_PORT=xxxx` 覆盖。
->
-> **访问地址随之变化**（务必带端口）：
-> - 配网页面：`http://192.168.4.1:8822/`（AP 模式下）
-> - 数据页：`http://<设备IP>:8822/data`
-> - ⚠️ 副作用：改端口后手机的"强制门户自动弹窗"可能失效，需要**手动在浏览器输入地址**。
->   若更看重自动弹窗，把 `WEB_PORT` 改回 80 重新编译即可。
+| 12090 | TCP | HTTP 遥测上报 | ✅ |
+| 80 | TCP | AP 配网页面 `192.168.4.1` | 仅配网时需要 |
 
 ---
 
@@ -108,7 +98,7 @@ docker compose logs -f
 ```bat
 netsh advfirewall firewall add rule name="EnvMon Beacon UDP 12091" dir=in action=allow protocol=UDP localport=12091
 netsh advfirewall firewall add rule name="EnvMon MQTT 18830" dir=in action=allow protocol=TCP localport=18830
-netsh advfirewall firewall add rule name="EnvMon HTTP 8822" dir=in action=allow protocol=TCP localport=8822
+netsh advfirewall firewall add rule name="EnvMon HTTP 12090" dir=in action=allow protocol=TCP localport=12090
 ```
 
 **Linux：**
@@ -116,7 +106,7 @@ netsh advfirewall firewall add rule name="EnvMon HTTP 8822" dir=in action=allow 
 ```bash
 sudo ufw allow 12091/udp
 sudo ufw allow 18830/tcp
-sudo ufw allow 8822/tcp
+sudo ufw allow 12090/tcp
 ```
 
 ---

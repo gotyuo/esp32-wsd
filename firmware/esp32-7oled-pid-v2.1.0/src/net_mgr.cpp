@@ -1,4 +1,12 @@
 #include "net_mgr.h"
+
+// ---- Web 服务端口 ----
+// 原默认 80，与局域网/NAS 上其它服务极易冲突，统一改为 8822。
+// 访问配网页/数据页时须带端口，例：http://192.168.4.1:8822/
+// 可用编译参数 -D WEB_PORT=xxxx 覆盖
+#ifndef WEB_PORT
+  #define WEB_PORT 8822
+#endif
 #include "pins.h"
 #include <WiFi.h>
 #include <DNSServer.h>
@@ -284,7 +292,7 @@ void NetManager::startAP() {
     delay(300);
     dns.start(53, "*", WiFi.softAPIP());
     startPortalServer();
-    Serial.printf("[NET] AP started: %s (http://192.168.4.1)\n", _ap_ssid.c_str());
+    Serial.printf("[NET] AP started: %s (http://192.168.4.1:%d)\n", _ap_ssid.c_str(), (int)WEB_PORT);
 
     // 初始扫描改用 loop() 驱动(pollScan),避免 setup() 阻塞导致射频未稳时饿死。
     _scanCache = "[]";
@@ -309,10 +317,10 @@ void NetManager::startPortalServer() {
     web.on("/generate_204", HTTP_GET, [this]() { handleRoot(); });
     web.on("/hotspot-detect.html", HTTP_GET, [this]() { handleRoot(); });
     web.onNotFound([this]() {
-        web.sendHeader("Location", "http://192.168.4.1/", true);
+        web.sendHeader("Location", String("http://192.168.4.1:") + String((int)WEB_PORT) + "/", true);
         web.send(302, "text/plain", "");
     });
-    web.begin();
+    web.begin(WEB_PORT);
 }
 
 void NetManager::handleRoot() {
@@ -333,7 +341,7 @@ void NetManager::startDataServer() {
     _dataRunning = true;
     web.on("/", HTTP_GET, [this]() {
         // STA 模式: 根路径重定向到数据页,配置页移到 /config
-        web.sendHeader("Location", "http://" + WiFi.localIP().toString() + "/data", true);
+        web.sendHeader("Location", "http://" + WiFi.localIP().toString() + ":" + String((int)WEB_PORT) + "/data", true);
         web.send(302, "text/plain", "");
     });
     web.on("/config", HTTP_GET, [this]() { handleRoot(); });
@@ -341,9 +349,9 @@ void NetManager::startDataServer() {
     web.on("/json", HTTP_GET, [this]() { handleJson(); });
     web.on("/factory", HTTP_GET, [this]() { restoreFactory(); });
     web.on("/save", HTTP_POST, [this]() { handleSave(); });
-    web.begin();
-    Serial.printf("[NET] Data web server started on http://%s/data\n",
-                  WiFi.localIP().toString().c_str());
+    web.begin(WEB_PORT);
+    Serial.printf("[NET] Data web server started on http://%s:%d/data\n",
+                  WiFi.localIP().toString().c_str(), (int)WEB_PORT);
 }
 
 void NetManager::handleData() {

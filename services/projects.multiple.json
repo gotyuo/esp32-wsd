@@ -1,0 +1,35 @@
+{
+  "_版本": "20261006-v1.2",
+  "_用途": "多项目共存模板：需要两台以上服务器、按项目分流时使用",
+  "_用法": "复制为 projects.json 后，把 pid 与 ip 改成实际值；确认 default 为 null",
+  "_要点": "default 必须是 null，否则未登记 pid 的设备会被你的服务器误认领，项目就串了",
+
+  "projects": {
+    "clinic-a": {
+      "ip": "192.168.2.220",
+      "port": 18830,
+      "http_port": 8822,
+      "user": "envmon",
+      "pass": "envmon",
+      "note": "示例：A 区，服务器 .220"
+    },
+    "clinic-b": {
+      "ip": "192.168.2.221",
+      "port": 18830,
+      "http_port": 8822,
+      "user": "envmon",
+      "pass": "envmon",
+      "note": "示例：B 区，另一台服务器"
+    },
+    "ward-*": {
+      "ip": "192.168.2.222",
+      "port": 18830,
+      "http_port": 8822,
+      "user": "ward",
+      "pass": "ward",
+      "note": "前缀匹配：ward-101 / ward-102 都归这台"
+    }
+  },
+
+  "default": null
+}
