@@ -17,7 +17,7 @@
 #define NODATA_PERIOD   1600
 
 // TTS 播放内部状态
-static uint8_t _ttsPhase = 0;
+static uint8_t _ttsPhase = 0;  // 0 idle, 1 buffering, 2 playing, 3 buffered-ready
 static uint8_t *_ttsBuf = nullptr;
 static int     _ttsLen = 0;
 static int     _ttsPos = 0;
@@ -139,7 +139,7 @@ void ttsStart(const String &url, const String &text) {
 
     if (text.length() > 0) {
         if (_getTtsWav(host, port, text)) {
-            _ttsPhase = 2;
+            _ttsPhase = 3;
             return;
         }
     }
@@ -213,16 +213,53 @@ void ttsStep() {
             if (n > 0) { _ttsPos += n; return; }
         }
         _ttsNet.stop();
-        if (_ttsPos < 44 || _ttsBuf[0] != 'R' || _ttsBuf[1] != 'A' ||
-            _ttsBuf[2] != 'T' || _ttsBuf[3] != 'E') {
+        if (!_ttsBuf || _ttsPos < 44 || _ttsBuf[0] != 'R' || _ttsBuf[1] != 'I' ||
+            _ttsBuf[2] != 'F' || _ttsBuf[3] != 'F') {
             Serial.println("[TTS] bad WAV");
             _ttsFree(); _ttsPhase = 0; return;
         }
         _ttsChannels   = (_ttsBuf[22]) | (_ttsBuf[23] << 8);
         _ttsSampleRate = (_ttsBuf[24]) | (_ttsBuf[25] << 8);
-        if (_ttsPos < _ttsLen) {
+        _ttsPos = 44;
+        _ttsPhase = 2;
+#if CONFIG_IDF_TARGET_ESP32S3
+        i2s_driver_uninstall(I2S_NUM_0);
+        i2s_config_t i2s_cfg = {
+            .mode              = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+            .sample_rate       = _ttsSampleRate,
+            .bits_per_sample   = I2S_BITS_PER_SAMPLE_16BIT,
+            .channel_format    = _ttsChannels == 1 ? I2S_CHANNEL_FMT_ONLY_LEFT : I2S_CHANNEL_FMT_RIGHT_LEFT,
+            .communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_STAND_I2S),
+            .intr_alloc_flags  = 0,
+            .dma_buf_count     = 3,
+            .dma_buf_len       = 256,
+            .use_apll          = false,
+            .tx_desc_auto_clear = true,
+            .fixed_mclk        = 0,
+            .mclk_multiple     = I2S_MCLK_MULTIPLE_DEFAULT,
+            .bits_per_chan     = I2S_BITS_PER_CHAN_DEFAULT,
+        };
+        i2s_pin_config_t pin_cfg = {
+            .mck_io_num   = I2S_PIN_NO_CHANGE,
+            .bck_io_num   = TTS_I2S_BCLK_PIN,
+            .ws_io_num    = I2S_PIN_NO_CHANGE,
+            .data_out_num = TTS_I2S_SDOUT_PIN,
+            .data_in_num  = I2S_PIN_NO_CHANGE,
+        };
+        if (i2s_driver_install(I2S_NUM_0, &i2s_cfg, 0, NULL) == ESP_OK) {
+            i2s_set_pin(I2S_NUM_0, &pin_cfg);
+        }
+#endif
+        return;
+    }
+    if (_ttsPhase == 3) {
+        if (!_ttsBuf || _ttsPos < 44 || _ttsBuf[0] != 'R' || _ttsBuf[1] != 'I' ||
+            _ttsBuf[2] != 'F' || _ttsBuf[3] != 'F') {
+            Serial.println("[TTS] bad WAV");
             _ttsFree(); _ttsPhase = 0; return;
         }
+        _ttsChannels   = (_ttsBuf[22]) | (_ttsBuf[23] << 8);
+        _ttsSampleRate = (_ttsBuf[24]) | (_ttsBuf[25] << 8);
         _ttsPos = 44;
         _ttsPhase = 2;
 #if CONFIG_IDF_TARGET_ESP32S3
