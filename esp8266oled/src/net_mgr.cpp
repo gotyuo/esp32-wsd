@@ -399,6 +399,17 @@ void NetManager::loop() {
                 Serial.printf("[NET] STA connected: SSID=%s IP=%s (AP closed)\n",
                               WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
                 startDataService();
+                if (_cfg->server_mode == 0 && !_cfg->has_mqtt()) {
+                    startDiscover();
+                }
+            } else if (_cfg->server_mode == 0 && !_cfg->has_mqtt()) {
+                int dr = discoverLoop(millis());
+                if (dr == 1) {
+                    ESP.restart();
+                } else if (dr < 0) {
+                    startAP();
+                    return;
+                }
             }
         } else {
             if (_staConnectedLocked) {
