@@ -27,25 +27,34 @@ docker compose up -d --build
 ## 更新（Docker 部署）
 
 `backend` / `discovery` 都是 **`build: .` 本地构建**（无远程镜像），所以更新 = **拉代码 + 重建镜像 + 重启容器**，
-`docker pull` 无效。`.env` 与 `data/` 已在 `.gitignore` 中，`git pull` 不会覆盖配置与数据库。
+`docker pull` 无效。仓库为**公开仓库**，拉取不需要 token；`.env` 与 `data/` 已被 `.gitignore` 忽略，
+`git pull` 不会覆盖配置与数据库。
+
+**一条命令（推荐）：**
 
 ```bash
 cd server
+chmod +x deploy-update.sh   # 首次
+./deploy-update.sh          # 备份 -> 拉取 -> 重建 -> 重启 -> 自检
+```
+
+脚本还支持 `--force`（强制与远端一致）、`--no-build`（只重启）、`--rollback`（回退）、`--check-env`（只查 .env）。
+
+**手工等价操作：**
+
+```bash
 cp data/envmon.db data/envmon.db.bak-$(date +%Y%m%d-%H%M%S)   # 先备份
 cp .env .env.bak-$(date +%Y%m%d-%H%M%S)
-git pull
+git fetch --prune --depth 1 origin main && git reset --hard FETCH_HEAD
 diff <(grep -v '^#' .env.example | grep -v '^$') <(grep -v '^#' .env | grep -v '^$')  # 补新增变量
-docker compose build backend discovery
-docker compose up -d
+docker compose build backend discovery && docker compose up -d
 docker compose ps && docker compose logs --tail=50 backend discovery
 ```
 
 只更新单个服务：`docker compose up -d --build discovery`（或 `backend`）。
 
-回退：`git checkout <tag> -- server/ && docker compose up -d --build`
-
-> 完整流程、fnOS 图形界面做法、冲突处理、检查清单与常见坑，见
-> **`../docs/服务端Docker更新指南.md`**（版本 `20261006-v1.0`）。
+> 📖 **从零在 Linux 上部署**（克隆、写 `.env`、起容器、放行端口）、更新、回退、
+> 非 git 目录迁移、检查清单与常见坑，见 **`../docs/服务端Docker更新指南.md`**（版本 `20261006-v1.1`）。
 >
 > ⚠️ 在 Docker 图形界面单独「重启」容器**不会重建镜像**，改了代码必须执行 `build`。
 
