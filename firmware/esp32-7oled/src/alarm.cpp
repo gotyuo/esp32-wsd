@@ -2,6 +2,7 @@
 #include "pins.h"
 
 #include <stdint.h>
+#include <string.h>
 #include <WiFiClient.h>
 #include <HTTPClient.h>
 #include <driver/i2s.h>
@@ -27,6 +28,56 @@ static WiFiClient _ttsNet;
 static const int TTS_MAX_SIZE = 256 * 1024;
 static const int TTS_HDR_BUF  = 4096;
 static uint8_t _ttsHdr[TTS_HDR_BUF];
+
+static bool _parseTtsWav() {
+    if (!_ttsBuf || _ttsLen < 44) return false;
+    if (_ttsBuf[0] != 'R' || _ttsBuf[1] != 'I' || _ttsBuf[2] != 'F' || _ttsBuf[3] != 'F') {
+        Serial.println("[TTS] bad RIFF");
+        return false;
+    }
+    if (_ttsBuf[8] != 'W' || _ttsBuf[9] != 'A' || _ttsBuf[10] != 'V' || _ttsBuf[11] != 'E') {
+        Serial.println("[TTS] bad WAVE");
+        return false;
+    }
+    int pos = 12;
+    bool foundFmt = false;
+    bool foundData = false;
+    int dataOffset = -1;
+    int dataLen = -1;
+    _ttsChannels = 1;
+    _ttsSampleRate = 16000;
+    while (pos + 8 <= _ttsLen) {
+        char id[5] = {(char)_ttsBuf[pos], (char)_ttsBuf[pos + 1], (char)_ttsBuf[pos + 2], (char)_ttsBuf[pos + 3], '\0'};
+        uint32_t chunkSize = (uint32_t)_ttsBuf[pos + 4] |
+                             ((uint32_t)_ttsBuf[pos + 5] << 8) |
+                             ((uint32_t)_ttsBuf[pos + 6] << 16) |
+                             ((uint32_t)_ttsBuf[pos + 7] << 24);
+        int body = pos + 8;
+        if (chunkSize > (uint32_t)(_ttsLen - body)) {
+            chunkSize = (uint32_t)(_ttsLen - body);
+        }
+        if (strcmp(id, "fmt ") == 0) {
+            if (chunkSize >= 16) {
+                _ttsChannels = (int)(_ttsBuf[body + 2]) | ((int)_ttsBuf[body + 3] << 8);
+                _ttsSampleRate = (uint16_t)((_ttsBuf[body + 4]) | ((uint16_t)_ttsBuf[body + 5] << 8));
+            }
+            foundFmt = true;
+        } else if (strcmp(id, "data") == 0) {
+            dataOffset = body;
+            dataLen = (int)chunkSize;
+            foundData = true;
+            break;
+        }
+        pos = body + (int)chunkSize + ((chunkSize & 1) ? 1 : 0);
+    }
+    if (!foundFmt || !foundData || dataOffset < 0 || dataLen <= 0) {
+        Serial.println("[TTS] bad WAV chunks");
+        return false;
+    }
+    _ttsPos = dataOffset;
+    _ttsLen = dataOffset + dataLen;
+    return true;
+}
 
 static void _ttsFree() {
     if (_ttsBuf) { free(_ttsBuf); _ttsBuf = nullptr; _ttsLen = 0; }
@@ -213,14 +264,11 @@ void ttsStep() {
             if (n > 0) { _ttsPos += n; return; }
         }
         _ttsNet.stop();
-        if (!_ttsBuf || _ttsPos < 44 || _ttsBuf[0] != 'R' || _ttsBuf[1] != 'I' ||
-            _ttsBuf[2] != 'F' || _ttsBuf[3] != 'F') {
-            Serial.println("[TTS] bad WAV");
-            _ttsFree(); _ttsPhase = 0; return;
+        if (!_parseTtsWav()) {
+            _ttsFree();
+            _ttsPhase = 0;
+            return;
         }
-        _ttsChannels   = (_ttsBuf[22]) | (_ttsBuf[23] << 8);
-        _ttsSampleRate = (_ttsBuf[24]) | (_ttsBuf[25] << 8);
-        _ttsPos = 44;
         _ttsPhase = 2;
 #if CONFIG_IDF_TARGET_ESP32S3
         i2s_driver_uninstall(I2S_NUM_0);
@@ -253,14 +301,11 @@ void ttsStep() {
         return;
     }
     if (_ttsPhase == 3) {
-        if (!_ttsBuf || _ttsPos < 44 || _ttsBuf[0] != 'R' || _ttsBuf[1] != 'I' ||
-            _ttsBuf[2] != 'F' || _ttsBuf[3] != 'F') {
-            Serial.println("[TTS] bad WAV");
-            _ttsFree(); _ttsPhase = 0; return;
+        if (!_parseTtsWav()) {
+            _ttsFree();
+            _ttsPhase = 0;
+            return;
         }
-        _ttsChannels   = (_ttsBuf[22]) | (_ttsBuf[23] << 8);
-        _ttsSampleRate = (_ttsBuf[24]) | (_ttsBuf[25] << 8);
-        _ttsPos = 44;
         _ttsPhase = 2;
 #if CONFIG_IDF_TARGET_ESP32S3
         i2s_driver_uninstall(I2S_NUM_0);
