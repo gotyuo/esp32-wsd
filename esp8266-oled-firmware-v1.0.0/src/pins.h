@@ -44,7 +44,7 @@
 
 // ---------- 版本 ----------
 #ifndef FW_VERSION
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "6.1.3"
 #endif
 #define FW_VER     FW_VERSION
 
