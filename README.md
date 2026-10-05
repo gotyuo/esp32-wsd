@@ -11,14 +11,23 @@
 
 ```
 tio/
-├── firmware/                 固件源码（PlatformIO，双平台）
-│   ├── platformio.ini        [env:esp32-s3] 全功能：传感器+屏幕+体征+OTA
-│   ├── platformio_esp8266.ini / [env:esp8266] 精简：传感器+报警，无屏幕无体征
-│   ├── src/                  ESP32-S3 源码（main/sensors/ui/alarm/mqtt/ota/net_mgr/config）
-│   ├── src_esp8266/          ESP8266 源码（EEPROM+WiFi.scanNetworks+WebServer 配网）
-│   ├── docs/esp8266-wiring.md ESP8266 接线/烧录指南
-│   └── docker/               Docker 构建/烧录环境（一键：docker build + docker run 烧录）
-├── esp8266-oled-firmware-v1.0.0/  ESP8266 OLED 血氧版固件独立归档（v1.0.0，含 bin/elf+sha256/完整 src）
+├── esp8266oled/              ⭐ ESP8266 OLED 血氧版【唯一烧录入口】（自带 platformio.ini，独立编译）
+│   ├── platformio.ini        [env:esp8266oled] board=esp12e，U8g2+ESP8266WebServer
+│   ├── src/                  main/max30102/sensors/aht20/bmp280/mqtt/net_mgr/alarm/history
+│   └── WIRING.md             0.96" SPI OLED + MAX30102+AHT20+BMP280 接线
+├── esp8266-oled-firmware-v1.0.0/  ESP8266 OLED 血氧版【发布归档】20261005-v1.0.0（已验证 bin/elf+sha256+完整 src）
+├── firmware/                 固件源码（PlatformIO，4 板型共享一套 platformio.ini）
+│   ├── platformio.ini        build_src_filter 分派到下方各 src_ 目录
+│   ├── src/                  ESP32-S3 主源码
+│   ├── src_esp32_4oled/      ESP32-S3 + 4针 I2C OLED (SSD1306)
+│   ├── src_esp32_6oled/      ESP32-S3 + 6线 SPI TFT (ST7735) 全功能
+│   ├── src_esp8266_4oled/    ⚠️ 已废弃（见 LEGACY.md），已由 esp8266oled/ 取代
+│   ├── src_esp8266_6oled/    ESP8266 + 6线 SPI TFT (ST7735)
+│   ├── partitions_ota.csv    OTA 分区表
+│   ├── releases/             历史版本归档
+│   ├── firmware_bin/         编译产物
+│   ├── docs/                 esp32/esp8266 接线与烧录指南
+│   └── docker/               Docker 构建/烧录环境（一键：docker build + docker run）
 ├── server/                   Docker 后端（FastAPI + MQTT + SQLite）
 │   ├── app/                  icu.py / main.py / models.py / mqtt_bridge.py
 │   ├── static/               前端 UI（实时监护/患者管理/医嘱/历史/大屏 dashboard）
@@ -43,16 +52,40 @@ cd server && docker compose up -d          # 端口 12090:Web / 18830:MQTT / 120
 
 ## 固件构建 & 烧录（本机 PlatformIO）
 
+### ⚠️ 设备 → 烧录入口对照（避免交叉污染）
+
+**每块板子只走自己那一行**，不要在错误的环境里编译：
+
+| 设备（板子 + 屏幕 + 传感器） | 烧录入口 | 命令 |
+|---|---|---|
+| **ESP8266 + 0.96" SPI OLED + MAX30102 血氧版** ⭐ | `esp8266oled/`（根目录，**自带 platformio.ini**）| `cd esp8266oled && pio run -e esp8266oled -t upload --upload-port /dev/ttyUSB0` |
+| ESP32-S3 + 4针 I2C OLED (SSD1306) | `firmware/` | `cd firmware && pio run -e esp32-4oled -t upload --upload-port /dev/ttyACM0` |
+| ESP32-S3 + 6线 SPI TFT (ST7735) | `firmware/` | `cd firmware && pio run -e esp32-6oled -t upload --upload-port /dev/ttyACM0` |
+| ESP8266 + 6线 SPI TFT (ST7735) | `firmware/` | `cd firmware && pio run -e esp8266-6oled -t upload --upload-port /dev/ttyUSB0` |
+| ~~ESP8266 + 4针 I2C OLED~~（**已废弃**）| ~~`firmware/[env:esp8266-4oled]`~~ | 见 `firmware/src_esp8266_4oled/LEGACY.md` |
+
+> **关键区别**：ESP8266 血氧版（`esp8266oled/`）与 `firmware/` 下其他板型是**两套完全独立的构建系统** ——
+> 前者自带 `platformio.ini` 单独编译，后者用一套 `firmware/platformio.ini` 通过 `build_src_filter` 分派到各 `src_*` 目录。
+> 两者互不影响，烧录时只需进对目录。
+>
+> **血氧版固件唯一可信来源**：`esp8266-oled-firmware-v1.0.0/`（已烧录验证通过的 `20261005-v1.0.0`，含 bin/elf + SHA256）。
+> 修改代码在 `esp8266oled/`，发布前务必重新归档更新，禁止只改一边。
+
 ```bash
+# ESP32-S3（串口 /dev/ttyACM0，CH340）— 按屏幕类型选 env
 cd firmware
-# 本机需装 python3 + platformio：sudo pip3 install platformio
-# ESP32-S3（串口 /dev/ttyACM0，CH340）
-sudo -E $(which pio) run -e esp32-s3
-sudo -E $(which pio) run -e esp32-s3 -t upload --upload-port /dev/ttyACM0
-# ESP8266（串口 /dev/ttyUSB0，CP210x/CP2102）
-sudo -E $(which pio) run -e esp8266
-sudo -E $(which pio) run -e esp8266 -t upload --upload-port /dev/ttyUSB0
+sudo -E $(which pio) run -e esp32-6oled -t upload --upload-port /dev/ttyACM0
+
+# ESP8266 + SPI TFT（串口 /dev/ttyUSB0，CP210x/CP2102）
+cd firmware
+sudo -E $(which pio) run -e esp8266-6oled -t upload --upload-port /dev/ttyUSB0
+
+# ⭐ ESP8266 OLED 血氧版（独立目录，务必从根目录 esp8266oled/ 编译）
+cd esp8266oled
+sudo -E $(which pio) run -e esp8266oled -t upload --upload-port /dev/ttyUSB0
 ```
+
+> 本机需装 python3 + platformio：`sudo pip3 install platformio`
 
 ## 固件构建 & 烧录（Docker 一键，免装 PlatformIO）
 
