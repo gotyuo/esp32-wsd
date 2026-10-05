@@ -1,0 +1,3 @@
+1776e4dd896a69d0a5c2e79957b0e2a88aa4129b1381d6478683515a1f6af343  firmware/releases/backups/esp32-7oled-20261005-v1.0.11/rollback-bootloader.bin
+cbbdd602cab199d099490cea33dcb47cbca8fecad91651629f65945e14304329  firmware/releases/backups/esp32-7oled-20261005-v1.0.11/rollback-firmware.bin
+1d9cca96de0fe07ad7fc0648b9878ddecd9ce565e38b589ad20fea698ed4c80c  firmware/releases/backups/esp32-7oled-20261005-v1.0.11/rollback-partitions.bin

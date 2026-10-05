@@ -1,0 +1,6 @@
+60b0d277d5c5078a5b83981fc3839c78882ac7f5fd023c44277cdcf7b3b3158f  firmware/releases/esp32-7oled-20261005-v1.0.12/firmware.bin
+9e6b407e5f07fd134421c77fe2414786f774b1d00b153526def52b9dffa47af3  firmware/releases/esp32-7oled-20261005-v1.0.12/firmware.elf
+1776e4dd896a69d0a5c2e79957b0e2a88aa4129b1381d6478683515a1f6af343  firmware/releases/esp32-7oled-20261005-v1.0.12/bootloader.bin
+1d9cca96de0fe07ad7fc0648b9878ddecd9ce565e38b589ad20fea698ed4c80c  firmware/releases/esp32-7oled-20261005-v1.0.12/partitions.bin
+8c54b4491ac827f9d7d71ea29dd8fdfff3c6f817cae314a851ab9f7e9e1a2705  firmware/releases/esp32-7oled-20261005-v1.0.12/platformio.ini.snapshot
+167ae7fc5832b01c25191bd05ee7fc2fc821d31a242bf803395152caa310303b  firmware/releases/esp32-7oled-20261005-v1.0.12/RELEASE_NOTES.md
