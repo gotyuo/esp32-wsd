@@ -1,0 +1,30 @@
+[platformio]
+disable_auto_sync = true
+telemetry = disabled
+; 国内加速：优先走阿里云/腾讯云镜像，国内下载会快很多
+mirrors = 
+  github-release=https://mirrors.cloud.tencent.com/github-release
+  pypi=https://mirrors.cloud.tencent.com/pypi/simple
+; 复用本地现成平台/包缓存，避免重复联网下载
+packages_dir = /vol1/platformio-data/.platformio/packages
+platforms_dir = /vol1/platformio-data/.platformio/platforms
+
+[env:esp32-7oled]
+platform = /vol1/platformio-data/.platformio/platforms/espressif32@6.7.0
+board = esp32-s3-devkitc-1
+framework = arduino
+platform_packages =
+  /vol1/platformio-data/.platformio/packages/framework-arduinoespressif32
+  toolchain-xtensa-esp32s3@8.4.0+2021r2-patch5
+  toolchain-riscv32-esp@8.4.0+2021r2-patch5
+monitor_speed = 115200
+upload_speed = 921600
+upload_port = /dev/ttyACM0
+build_flags =
+    -DARDUINO_USB_MODE=0
+    -DARDUINO_USB_CDC_ON_BOOT=0
+    -DARDUINO_USB_MSC_ON_BOOT=0
+    -DCORE_DEBUG_LEVEL=3
+    -DFW_VERSION=\"20261005-v1.0.11\"
+partition_table = partitions_ota.csv
+monitor_filters = esp32_exception_decoder
