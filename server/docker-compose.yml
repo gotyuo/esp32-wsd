@@ -97,10 +97,15 @@ services:
       piper:
         condition: service_healthy
 
-  # 局域网设备自动发现应答器（UDP 多播）
-  # 设备端在 LAN 模式下广播 "ENVMON?" 到 239.255.1.1:12091，
-  # 本服务回复 {"ip":<本机LAN IP>,"port":18830,"user":...,"pass":...}，
-  # 设备据此自动保存配置并重启，无需手动填服务器地址。
+  # 局域网设备自动发现应答器（UDP 多播）  —— envmon-discovery 20261006-v2.0
+  # 设备在 LAN 模式下广播探针到 239.255.1.1:12091，本服务回复
+  # {"ip":<服务器IP>,"port":18830,"user":...,"pass":...}，设备自动保存并重启。
+  #
+  # v2.0 起同时支持两种探针：
+  #   v2.0.0 旧固件 "ENVMON?"                                （无身份）
+  #   v2.1.x 新固件 {"probe":"EnvMon","pid":"clinic-a",...}  （带项目标识）
+  # 并用 DISC_PROJECTS 按 pid 路由：未登记的项目一律不应答，多项目共存不串。
+  #
   # 采用 network_mode: host，直接监听宿主机网卡并发送多播。
   discovery:
     build: .
@@ -116,9 +121,19 @@ services:
       - MQTT_PORT=${MQTT_PORT:-18830}
       - MQTT_USER=${MQTT_USER:-envmon}
       - MQTT_PASS=${MQTT_PASS:-envmon}
+      # 回复给设备的「服务器 IP」。强烈建议显式设置（如 DISC_IP=172.22.22.83）：
+      # 多网卡/容器环境下自动探测常选到 docker0（172.17.x），设备拿到也连不上。
+      - DISC_IP=${DISC_IP:-}
+      # 多项目路由表（JSON 字符串）。例：
+      #   DISC_PROJECTS={"clinic-a":{"ip":"172.22.22.83","port":18830,"user":"envmon","pass":"envmon"}}
+      # 未登记的 pid 一律不应答；key 支持 `前缀*` 通配。留空 = 所有 pid 都用默认配置应答。
+      - DISC_PROJECTS=${DISC_PROJECTS:-}
+      # 是否应答旧固件的裸探针 "ENVMON?"。多项目共存时建议设 0，
+      # 否则未登记设备也会被本服务器认领，导致项目串。
+      - DISC_ALLOW_LEGACY=${DISC_ALLOW_LEGACY:-1}
       # 显式指定监听/发送的多播网卡，避免多网卡（含 Docker 网桥）环境下
-      # 默认多播路由选到 docker0 内部地址；回复给设备的 IP 也取该网卡地址。
-      # 如换机器/换网卡，在 .env 里改 DISC_IFACE=你的网卡名，或用 DISC_IP 强制回复 IP。
+      # 默认多播路由选到 docker0 内部地址。
+      # 如换机器/换网卡，在 .env 里改 DISC_IFACE=你的网卡名。
       - DISC_IFACE=${DISC_IFACE:-}
     depends_on:
       - mosquitto

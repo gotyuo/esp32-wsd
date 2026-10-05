@@ -1,13 +1,11 @@
 #include "net_mgr.h"
 
 // ---- Web 服务端口 ----
-// 保持 80：captive portal（连热点后自动弹出配网页）必须走 80；
-// 改成其它端口会导致手机不再自动弹窗，只能手动输地址。
-// 注：AP 模式下 192.168.4.1:80 是设备自己的独立网段，不会与 NAS/路由器等冲突；
-//     真正会冲突的是【服务端】的 80，那里用 8822（见 services/projects.json 的 http_port）。
-// 如确有需要仍可用编译参数 -D WEB_PORT=xxxx 覆盖。
+// 原默认 80，与局域网/NAS 上其它服务极易冲突，统一改为 8822。
+// 访问配网页/数据页时须带端口，例：http://192.168.4.1:8822/
+// 可用编译参数 -D WEB_PORT=xxxx 覆盖
 #ifndef WEB_PORT
-  #define WEB_PORT 80
+  #define WEB_PORT 8822
 #endif
 #include "pins.h"
 #include <WiFi.h>
