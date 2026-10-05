@@ -1,0 +1,31 @@
+{
+  "_说明": "多项目路由表：设备探针里的 pid 决定它拿到哪套服务器参数。示例请改成你的实际环境。",
+  "_pid来源": "设备 beacon 请求里的 pid 字段（需固件侧按补丁改造一行）；原版固件发裸 ENVMON? 则走 default",
+  "_default说明": "单项目环境可填一个对象 -> 任何设备都能接入；多项目共存请保持 null，避免设备连错项目",
+
+  "projects": {
+    "clinic-a": {
+      "ip": "192.168.2.220",
+      "port": 18830,
+      "user": "envmon",
+      "pass": "envmon",
+      "note": "门诊 A 区环境监测"
+    },
+    "clinic-b": {
+      "ip": "192.168.2.221",
+      "port": 18830,
+      "user": "envmon",
+      "pass": "envmon",
+      "note": "门诊 B 区，另一台服务器"
+    },
+    "ward-*": {
+      "ip": "192.168.2.222",
+      "port": 18830,
+      "user": "ward",
+      "pass": "ward",
+      "note": "前缀匹配示例：ward-101 / ward-102 都归到这台"
+    }
+  },
+
+  "default": null
+}
