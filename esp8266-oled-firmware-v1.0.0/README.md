@@ -1,31 +1,30 @@
-# EnvMon ESP8266 OLED v20261005 — 血氧版固件（独立归档）
+# EnvMon ESP8266 OLED v20261005-6.1.3 — 血氧版固件（独立归档）
 
 > 本归档对应**已烧录并通过 MAX30102 实测验证**的固件。
-> 版本命名规则：**年月日 + 语义版本** → `20261005-v1.0.0`。
+> 版本命名规则：**年月日 + 固件内部版本号** → `20261005-6.1.3`。
 
 ## 版本信息
 
 | 项目 | 值 |
 |------|-----|
-| 归档版本 | **20261005-v1.0.0** |
+| 归档版本 | **20261005-6.1.3** |
 | 发布日期 | 2026-10-05 |
 | 目标芯片 | ESP8266 ESP-12F / ESP-12E (`board = esp12e`) |
 | 编译环境 | PlatformIO, `espressif8266` (Arduino framework) |
-| 固件文件 | `firmware_esp8266_oled_v1.0.0.bin` (361808 bytes) |
+| 固件文件 | `firmware_esp8266_oled_v6.1.3.bin` (361808 bytes) |
 | 源码提交 | **`63658ef`**（与已烧录固件逐字节一致） |
-| Gitee tag | `20261005-v1.0.0` |
+| Gitee tag | `20261005-6.1.3` |
 | 源码仓库 | https://gitee.com/hotyuo/esp8266oled |
 | 内存占用 | Flash 34.2% (357659/1044464)，RAM 44.2% (36204/81920) |
 
 ### ⚠️ 关于固件内部版本号
 
 固件代码内 `FW_VERSION` 宏的值为 `"6.1.3"`（串口 banner 与 OLED 均显示
-`ESP8266 v6.1.3` / `EnvMon v6.1.3`）。这是因为 `63658ef` 处于 `6.1.x`
-开发线，`pins.h` 改成 `"1.0.0"` 是在其后的 `bdc1045` 提交。
+`ESP8266 v6.1.3` / `EnvMon v6.1.3`）。因为本归档的命名规则已经改成
+**年月日 + 固件内部版本号**，所以归档版本名直接和 `FW_VERSION` 对齐。
 
-本归档采用**发布线版本** `20261005-v1.0.0`（年月日+语义版本），与固件内部
-宏值无关。如需固件界面也显示 `1.0.0`，需基于本归档源码修改 `pins.h`
-后重新编译烧录——但那会改变已验证的固件内容，本归档不做此改动。
+这样做的目的：以后看归档名就能直接知道固件内部版本号，不需要再在
+`README` 和 `pins.h` 之间来回对照。
 
 ## 源码对应关系（已逐字节验证）
 
@@ -58,29 +57,29 @@ sha256sum -c firmware_esp8266_oled_v1.0.0.bin.sha256 firmware_esp8266_oled_v1.0.
 
 ## 目录结构
 
-```
-esp8266-oled-firmware-v1.0.0/
-├── firmware_esp8266_oled_v1.0.0.bin      编译固件（已烧录验证，烧录用）
-├── firmware_esp8266_oled_v1.0.0.bin.sha256
-├── firmware_esp8266_oled_v1.0.0.elf      ELF（调试用，无需烧录）
-├── firmware_esp8266_oled_v1.0.0.elf.sha256
+``
+esp8266-oled-firmware-v6.1.3/
+├── firmware_esp8266_oled_v6.1.3.bin      编译固件（已烧录验证，烧录用）
+├── firmware_esp8266_oled_v6.1.3.bin.sha256
+├── firmware_esp8266_oled_v6.1.3.elf      ELF（调试用，无需烧录）
+├── firmware_esp8266_oled_v6.1.3.elf.sha256
 ├── platformio.ini                        构建配置（复现编译）
 ├── WIRING.md                             接线表
 ├── README.md                             本文档
 └── src/                                  完整源码（23 文件，对应 63658ef）
-```
+``
 
 ## 与 `firmware/releases/v6.1.x` 的关系
 
 这是**独立产品线**，不是 v6.1 系列的后续：
 
-| | `firmware/releases/v6.1.x` | 本归档 20261005-v1.0.0 |
+| | `firmware/releases/v6.1.x` | 本归档 20261005-6.1.3 |
 |---|---|---|
 | 工程 | 主仓库 `firmware/` | 子仓库 `esp8266oled/`（嵌套独立 git） |
 | 产品名 | envmon（ICU 环境+体征多参数） | esp8266oled（床头卡血氧专版） |
 | 屏幕 | 4 引脚 I2C SSD1306（D5/D6） | 7 引脚 **SPI** SSD1306（SCK/MOSI/CS/DC/RST/BL） |
 | MAX30102 总线 | 独立 I2C（D7/D8） | 与环境传感器**共用**一条 I2C（D3/D4） |
-| 内部 FW_VERSION | 6.1.0 → 6.1.5 | 6.1.3（发布线记为 20261005-v1.0.0） |
+| 内部 FW_VERSION | 6.1.0 → 6.1.5 | 6.1.3（发布线记为 20261005-6.1.3） |
 
 ## 本版核心变更（相对 `7b86035`）
 
@@ -122,8 +121,8 @@ esp8266-oled-firmware-v1.0.0/
 
 `63658ef` 之后的提交不改变已验证固件内容，故不纳入本归档：
 
-- `bdc1045` (10:56) — 仅改 `pins.h` 的 `FW_VERSION` 为 `"1.0.0"` + 新增 WIRING.md
-- `5f42dd1` (11:07) — 目录隔离重构
+- `bdc1045` (10:56) — 仅改 `pins.h` 的 `FW_VERSION` 为 `"1.0.0"` + 新增 WIRING.md（仅开发线变更，不改变已验证固件内容）
+- `5f42dd1` (11:07) — 目录隔离重构（不影响本归档固件）
 
 ## 硬件接线（完整表格见 `WIRING.md`）
 
@@ -160,7 +159,7 @@ ESP8266 主板：VCC → 5V，GND → GND。
 # 串口通常是 /dev/ttyUSB0 (CP210x) 或 /dev/ttyACM0 (CH340)
 python3 -m esptool --chip esp8266 --port /dev/ttyUSB0 --baud 460800 \
   --before default-reset --after hard-reset \
-  write-flash 0x0 firmware_esp8266_oled_v1.0.0.bin
+  write-flash 0x0 firmware_esp8266_oled_v6.1.3.bin
 ```
 
 > ESP8266 的 `firmware.bin` 本身是**完整镜像**（含 bootloader 拼接），
@@ -170,7 +169,7 @@ python3 -m esptool --chip esp8266 --port /dev/ttyUSB0 --baud 460800 \
 ### 方式二：PlatformIO（可复现编译 + 烧录）
 
 ```bash
-cd esp8266-oled-firmware-v1.0.0
+cd esp8266-oled-firmware-v6.1.3
 pio run -e esp8266oled
 pio run -e esp8266oled -t upload --upload-port /dev/ttyUSB0
 ```
@@ -206,7 +205,7 @@ sha256 一致方可确认源码未被改动。
 
 ## 备注
 
-- 本目录是 **20261005-v1.0.0 的只读快照**，后续修改请在 `esp8266oled/`
+- 本目录是 **20261005-6.1.3 的只读快照**，后续修改请在 `esp8266oled/`
   子仓库进行，并新建归档目录（不覆盖本目录）。
 - 源码快照中的 `FW_VERSION` 宏位于 `src/pins.h`，当前值为 `"6.1.3"`。
 - `firmware.elf` 仅用于调试符号与反汇编，烧录只需 `.bin`。
