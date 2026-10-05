@@ -1,6 +1,7 @@
 #include "alarm.h"
 #include "pins.h"
 
+#include <stdint.h>
 #include <WiFiClient.h>
 #include <driver/i2s.h>
 #include <esp_err.h>
@@ -68,10 +69,15 @@ static bool _getTtsWav(const String &host, int port, const String &text) {
     uint8_t *hdr = _ttsHdr;
     int hdrLen = 0;
     bool foundEnd = false;
-    _ttsNet.setTimeout(8000);
-    while (_ttsNet.connected() && hdrLen < TTS_HDR_BUF) {
+    _ttsNet.setTimeout(2000);
+    uint32_t hdrDeadline = millis() + 8000;
+    while (_ttsNet.connected() && hdrLen < TTS_HDR_BUF && !foundEnd && millis() < hdrDeadline) {
+        if (!_ttsNet.available()) {
+            delay(20);
+            continue;
+        }
         int n = _ttsNet.read(hdr + hdrLen, TTS_HDR_BUF - hdrLen);
-        if (n <= 0) break;
+        if (n <= 0) continue;
         hdrLen += n;
         for (int i = 4; i <= hdrLen; i++) {
             if (memcmp(hdr + i - 4, "\r\n\r\n", 4) == 0) {
@@ -79,14 +85,13 @@ static bool _getTtsWav(const String &host, int port, const String &text) {
                 break;
             }
         }
-        if (foundEnd) break;
     }
     if (!foundEnd) {
         char dbg[64];
         int sl = hdrLen < (int)sizeof(dbg) - 1 ? hdrLen : (int)sizeof(dbg) - 1;
         memcpy(dbg, hdr, sl);
         dbg[sl] = '\0';
-        Serial.printf("[TTS] header incomplete len=%d peer_connected=%d\n%s\n", hdrLen, _ttsNet.connected(), dbg);
+        Serial.printf("[TTS] header incomplete len=%d peer_connected=%d elapsed=%lu\n%s\n", hdrLen, _ttsNet.connected(), (unsigned long)(millis() - (hdrDeadline - 8000)), dbg);
         _ttsNet.stop();
         return false;
     }
