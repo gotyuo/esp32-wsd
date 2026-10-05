@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <WiFiClient.h>
+#include <HTTPClient.h>
 #include <driver/i2s.h>
 #include <esp_err.h>
 
@@ -43,96 +44,76 @@ static int _readExact(WiFiClient &net, uint8_t *buf, int need) {
 }
 
 static bool _getTtsWav(const String &host, int port, const String &text) {
-    if (!_ttsNet.connect(host.c_str(), port)) {
-        Serial.printf("[TTS] connect fail: %s:%d\n", host.c_str(), port);
+    if (text.length() == 0) return false;
+
+    _ttsFree();
+    _ttsNet.stop();
+
+    String body = "{\"text\":\"" + text + "\"}";
+    WiFiClient tcpClient;
+    HTTPClient http;
+    http.setTimeout(20000);
+
+    String url = "http://" + host + ":" + String(port) + "/api/tts/speak";
+    if (!http.begin(tcpClient, url)) {
+        Serial.printf("[TTS] HTTP begin fail %s:%d\n", host.c_str(), port);
+        http.end();
+        tcpClient.stop();
         return false;
     }
-    String body = "{\"text\":\"";
-    body += text;
-    body += "\"}";
-    String req = "POST /api/tts/speak HTTP/1.1\r\n"
-                 "Host: " + host + ":" + String(port) + "\r\n"
-                 "Content-Type: application/json\r\n"
-                 "Content-Length: " + String(body.length()) + "\r\n"
-                 "User-Agent: EnvMon\r\n"
-                 "Connection: close\r\n\r\n";
-    int hlen = req.length();
-    int wr = _ttsNet.write((const uint8_t *)req.c_str(), (size_t)hlen);
-    for (int i = 0; i < body.length(); i += 512) {
-        int chunk = body.length() - i;
-        if (chunk > 512) chunk = 512;
-        wr += _ttsNet.write((const uint8_t *)(body.c_str() + i), (size_t)chunk);
-    }
-    Serial.printf("[TTS] POST %s:%d wrote %d/%d hdr+len\n", host.c_str(), port, wr, hlen + body.length());
-    _ttsNet.flush();
+    http.addHeader("Content-Type", "application/json");
 
-    uint8_t *hdr = _ttsHdr;
-    int hdrLen = 0;
-    bool foundEnd = false;
-    _ttsNet.setTimeout(2000);
-    uint32_t hdrDeadline = millis() + 8000;
-    while (_ttsNet.connected() && hdrLen < TTS_HDR_BUF && !foundEnd && millis() < hdrDeadline) {
-        if (!_ttsNet.available()) {
-            delay(20);
-            continue;
-        }
-        int n = _ttsNet.read(hdr + hdrLen, TTS_HDR_BUF - hdrLen);
-        if (n <= 0) continue;
-        hdrLen += n;
-        for (int i = 4; i <= hdrLen; i++) {
-            if (memcmp(hdr + i - 4, "\r\n\r\n", 4) == 0) {
-                foundEnd = true;
-                break;
-            }
-        }
-    }
-    if (!foundEnd) {
-        char dbg[64];
-        int sl = hdrLen < (int)sizeof(dbg) - 1 ? hdrLen : (int)sizeof(dbg) - 1;
-        memcpy(dbg, hdr, sl);
-        dbg[sl] = '\0';
-        Serial.printf("[TTS] header incomplete len=%d peer_connected=%d elapsed=%lu\n%s\n", hdrLen, _ttsNet.connected(), (unsigned long)(millis() - (hdrDeadline - 8000)), dbg);
-        _ttsNet.stop();
+    int code = http.POST(body);
+    if (code != HTTP_CODE_OK) {
+        Serial.printf("[TTS] POST HTTP %d\n", code);
+        http.end();
+        tcpClient.stop();
         return false;
     }
 
-    String h = String((const char *)hdr, hdrLen);
-    h.toLowerCase();
-    int cl = h.indexOf("content-length:");
-    if (cl < 0) {
-        Serial.println("[TTS] no content-length");
-        _ttsNet.stop();
-        return false;
-    }
-    String clStr = h.substring(cl + 15);
-    int idx = clStr.indexOf('\r');
-    if (idx >= 0) clStr = clStr.substring(0, idx);
-    int size = clStr.toInt();
+    int size = http.getSize();
     if (size <= 0 || size > TTS_MAX_SIZE) {
         Serial.printf("[TTS] bad size %d\n", size);
-        _ttsNet.stop();
+        http.end();
+        tcpClient.stop();
         return false;
     }
 
-    _ttsBuf = (uint8_t *)malloc(size);
+    _ttsBuf = (uint8_t *)malloc((size_t)size);
     if (!_ttsBuf) {
-        _ttsNet.stop();
+        Serial.println("[TTS] malloc fail");
+        http.end();
+        tcpClient.stop();
         return false;
     }
+
     int got = 0;
-    _ttsNet.setTimeout(3000);
-    while (got < size) {
-        int n = _ttsNet.read(_ttsBuf + got, size - got);
-        if (n <= 0) break;
-        got += n;
+    uint32_t bodyDeadline = millis() + 20000;
+    WiFiClient *stream = http.getStreamPtr();
+    if (stream) {
+        stream->setTimeout(1000);
+        while (got < size && stream->connected() && millis() < bodyDeadline) {
+            if (!stream->available()) {
+                delay(20);
+                continue;
+            }
+            int n = stream->read(_ttsBuf + got, (size - got));
+            if (n <= 0) continue;
+            got += n;
+        }
     }
+
     if (got != size) {
-        Serial.printf("[TTS] read %d/%d\n", got, size);
+        Serial.printf("[TTS] read %d/%d elapsed=%lu\n", got, size, (unsigned long)(millis() - (bodyDeadline - 20000)));
         _ttsFree();
-        _ttsNet.stop();
+        http.end();
+        tcpClient.stop();
         return false;
     }
-    _ttsNet.stop();
+
+    Serial.printf("[TTS] received %d bytes\n", size);
+    http.end();
+    tcpClient.stop();
     _ttsLen = size;
     _ttsPos = 0;
     return true;
