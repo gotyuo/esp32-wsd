@@ -45,14 +45,14 @@ Flash 占用 `357659 bytes` 与已烧录固件精确吻合，sha256 相同。
 ## SHA256 校验
 
 ```
-8bf2ee34fa927dc77016818564fae8aa7870a2a86407db709dbf9189cd9ae515  firmware_esp8266_oled_v1.0.0.bin
-db92e50d78fbd0ce27798581714dc066dc9d5ab5f7951f2378f2c3744324a249  firmware_esp8266_oled_v1.0.0.elf
+8bf2ee34fa927dc77016818564fae8aa7870a2a86407db709dbf9189cd9ae515  firmware_esp8266_oled_v6.1.3.bin
+db92e50d78fbd0ce27798581714dc066dc9d5ab5f7951f2378f2c3744324a249  firmware_esp8266_oled_v6.1.3.elf
 ```
 
 验证：
 
 ```bash
-sha256sum -c firmware_esp8266_oled_v1.0.0.bin.sha256 firmware_esp8266_oled_v1.0.0.elf.sha256
+sha256sum -c firmware_esp8266_oled_v6.1.3.bin.sha256 firmware_esp8266_oled_v6.1.3.elf.sha256
 ```
 
 ## 目录结构

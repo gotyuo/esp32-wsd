@@ -15,7 +15,7 @@ tio/
 │   ├── platformio.ini        [env:esp8266oled] board=esp12e，U8g2+ESP8266WebServer
 │   ├── src/                  main/max30102/sensors/aht20/bmp280/mqtt/net_mgr/alarm/history
 │   └── WIRING.md             0.96" SPI OLED + MAX30102+AHT20+BMP280 接线
-├── esp8266-oled-firmware-v1.0.0/  ESP8266 OLED 血氧版【发布归档】20261005-v1.0.0（已验证 bin/elf+sha256+完整 src）
+├── esp8266-oled-firmware-v6.1.3/  ESP8266 OLED 血氧版【发布归档】20261005-6.1.3（已验证 bin/elf+sha256+完整 src）
 ├── firmware/                 固件源码（PlatformIO，4 板型共享一套 platformio.ini）
 │   ├── platformio.ini        build_src_filter 分派到下方各 src_ 目录
 │   ├── src/                  ESP32-S3 主源码
@@ -68,7 +68,7 @@ cd server && docker compose up -d          # 端口 12090:Web / 18830:MQTT / 120
 > 前者自带 `platformio.ini` 单独编译，后者用一套 `firmware/platformio.ini` 通过 `build_src_filter` 分派到各 `src_*` 目录。
 > 两者互不影响，烧录时只需进对目录。
 >
-> **血氧版固件唯一可信来源**：`esp8266-oled-firmware-v1.0.0/`（已烧录验证通过的 `20261005-v1.0.0`，含 bin/elf + SHA256）。
+> **血氧版固件唯一可信来源**：`esp8266-oled-firmware-v6.1.3/`（已烧录验证通过的 `20261005-6.1.3`，含 bin/elf + SHA256）。
 > 修改代码在 `esp8266oled/`，发布前务必重新归档更新，禁止只改一边。
 
 ```bash
@@ -112,9 +112,9 @@ sudo docker run --rm -v "$PWD/..:/work/firmware" -w /work/firmware \
 ## 硬件接线
 
 - ESP32-S3：见 `docs/01-硬件接线.md`
-- ESP8266 OLED 血氧版（独立归档）：见 `esp8266-oled-firmware-v1.0.0/README.md` 与
+- ESP8266 OLED 血氧版（独立归档）：见 `esp8266-oled-firmware-v6.1.3/README.md` 与
   `WIRING.md`（OLED 0.96" **SPI** 7 引脚 SCK→D6/MOSI→D5/CS→D2/DC→D1/RST→D0/BL→3V3；
-  MAX30102+AHT20+BMP280 共用一条 I2C D4/D3；含 `firmware_esp8266_oled_v1.0.0.bin` 与 SHA256）
+  MAX30102+AHT20+BMP280 共用一条 I2C D4/D3；含 `firmware_esp8266_oled_v6.1.3.bin` 与 SHA256）
 - ESP8266：见 `firmware/docs/esp8266-wiring.md`（AHT20+BMP280 并联 I2C D1/D2；LED R/G D6/D7；蜂鸣 D5；串口 TXD→RXD / RXD→TXD，3.3V 电平，烧录拉低 GPIO0）
 
 ## 版本
@@ -204,7 +204,7 @@ sudo docker run --rm -v "$PWD/..:/work/firmware" -w /work/firmware \
 | v7.50 | 2026-09-20 | 修复「扫描局域网」同一设备重复出现：扫描按IP沿用真实id+去重、esp-<ip>存量行合并脚本、esp32-7oled固件/json补device_id（详见 RELEASE_v7.50.md） |
 | v7.51 | 2026-09-20 | 修复设备扫描不到/在线一会儿就离线：DISC_IP去硬编码改自动探测、esp8266掉线永不切AP、MQTT活性检测断链重连、离线窗口90→120s（详见 RELEASE_v7.51.md） |
 | v6.1.5(fw) | 2026-09-28 | ESP8266 v6.1.x 系列收尾：MAX30102 移出 GPIO15 修复黑屏启动，移除失效 D8 接线说明 |
-| v1.0.0(fw-esp8266oled) | 2026-10-05 | **ESP8266 OLED 血氧版独立归档** → `esp8266-oled-firmware-v1.0.0/`（DC/AC SpO2 算法、FIFO rd/wr 指针读取、心率峰值放宽；7 引脚 SPI OLED + 共用 I2C 传感器总线） |
+| v6.1.3(fw-esp8266oled) | 2026-10-05 | **ESP8266 OLED 血氧版独立归档** → `esp8266-oled-firmware-v6.1.3/`（DC/AC SpO2 算法、FIFO rd/wr 指针读取、心率峰值放宽；7 引脚 SPI OLED + 共用 I2C 传感器总线） |
 
 ## 引脚速查
 

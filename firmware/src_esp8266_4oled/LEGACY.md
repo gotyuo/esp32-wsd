@@ -7,7 +7,7 @@
 | 项 | 本目录（已废弃） | 新位置（维护中）|
 |---|---|---|
 | 路径 | `firmware/src_esp8266_4oled/` | **`esp8266oled/`**（仓库根目录）|
-| 版本 | `6.1.5` | `20261005-v1.0.0`（对应 commit `63658ef`）|
+| 版本 | `6.1.5` | `20261005-6.1.3`（对应 commit `63658ef`）|
 | 构建方式 | 依赖 `firmware/platformio.ini` 的 `[env:esp8266-4oled]` | **自带 `platformio.ini`，独立编译** |
 | MAX30102 | 无 FIFO wr/rd 稳定化 | 含 DC/AC 血氧算法 + FIFO 消费稳定化 |
 
@@ -27,4 +27,4 @@ cd esp8266oled
 pio run -e esp8266oled -t upload
 ```
 
-已验证的发布归档见 `esp8266-oled-firmware-v1.0.0/`（含 bin/elf 及说明）。
+已验证的发布归档见 `esp8266-oled-firmware-v6.1.3/`（含 bin/elf 及说明）。
