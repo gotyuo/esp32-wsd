@@ -23,7 +23,7 @@ static int     _ttsPos = 0;
 static int     _ttsChannels = 1;
 static uint16_t _ttsSampleRate = 16000;
 static WiFiClient _ttsNet;
-static const int TTS_MAX_SIZE = 128 * 1024;
+static const int TTS_MAX_SIZE = 256 * 1024;
 static const int TTS_HDR_BUF  = 4096;
 static uint8_t _ttsHdr[TTS_HDR_BUF];
 
