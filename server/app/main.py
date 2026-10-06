@@ -826,10 +826,15 @@ def _check_vital_alarms(device_id: str, pid: str, payload: dict):
             level = 2 if (v < lo * 0.85 or v > hi * 1.15) else 1
             reason = f"{label} {v} 超出正常范围 [{lo}, {hi}] (患者 {pid})"
             # 避免重复报警：同一设备同一级别 60 秒内不重复记录
+            # BUG-022: 原用 datetime('now','-60 seconds') 返回 'YYYY-MM-DD HH:MM:SS'
+            # （空格分隔），但 ts 列存 'YYYY-MM-DDTHH:MM:SSZ'（T 分隔）。
+            # 因 T(84) > 空格(32)，同日所有 ts 都 > 比较值，去重窗口变成
+            # 整个 UTC 日而非 60 秒，导致体征报警触发一次后当天全部被抑制。
+            # 改用 strftime 生成与 ts 列格式一致的比较值。
             import sqlite3 as _sqlite3
             conn = icu._get_conn()
             recent = conn.execute(
-                "SELECT 1 FROM alarms WHERE device_id=? AND level=? AND reason LIKE ? AND ts >= datetime('now','-60 seconds') LIMIT 1",
+                "SELECT 1 FROM alarms WHERE device_id=? AND level=? AND reason LIKE ? AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now','-60 seconds') LIMIT 1",
                 (device_id, level, f"{label}%" ),
             ).fetchone()
             if not recent:
