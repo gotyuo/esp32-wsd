@@ -3065,9 +3065,11 @@ async def vitals_upload(request: Request):
             log.warning("vitals_upload: insert_vital failed: %s", e)
 
     # 也存 telemetry（环境数据如果有）
-    temp_env = data.get("temp_c") or data.get("temp")
-    hum_env = data.get("hum_pct") or data.get("hum")
-    pres_env = data.get("pres_hpa") or data.get("pres")
+    # BUG-FIX(or 链吞 0): 用 next(...if v is not None) 显式判空，
+    # 避免 temp_c=0°C / hum_pct=0% 等合法 falsy 值被跳过。
+    temp_env = next((v for v in (data.get("temp_c"), data.get("temp")) if v is not None), None)
+    hum_env = next((v for v in (data.get("hum_pct"), data.get("hum")) if v is not None), None)
+    pres_env = next((v for v in (data.get("pres_hpa"), data.get("pres")) if v is not None), None)
     rssi = data.get("rssi")
     if temp_env is not None or hum_env is not None or pres_env is not None:
         try:
