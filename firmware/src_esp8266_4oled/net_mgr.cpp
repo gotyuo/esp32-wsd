@@ -350,17 +350,19 @@ void NetManager::begin() {
         Serial.println(F("[NET] No WiFi config, entering AP config mode"));
         startAP();
     } else {
-        Serial.printf("[NET] Has WiFi config (%s), trying STA first (AP fallback)\n",
+        // BUG-FIX(WiFi保存后失效): 原代码同时启 AP(channel 6)+STA，
+        // ESP8266 射频只支持单信道，若目标 WiFi 不在 channel 6，
+        // STA 永远连不上，15s 超时后回落 AP，表现为"WiFi 保存后失效"。
+        // 改为纯 STA 模式先尝试连接，超时后再启 AP 配网。
+        Serial.printf("[NET] Has WiFi config (%s), trying STA (pure STA first)\n",
                       _cfg->wifi_ssid);
         _mode = MODE_STA;
         _staStarted = true;
         _staAttemptStart = millis();
         _staAttemptTimeout = 15000;
         _retryDelay = 1000;
-        WiFi.mode(WIFI_AP_STA);
-        WiFi.softAP(_ap_ssid.c_str(), "", 6, 0);
+        WiFi.mode(WIFI_STA);
         WiFi.begin(_cfg->wifi_ssid, _cfg->wifi_pass);
-        startPortalServer();
         startDataService();
     }
 }
