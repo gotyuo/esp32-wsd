@@ -181,6 +181,17 @@ void loop() {
     AlarmLevel lvl = g_alarm.evaluate(g_last, g_cfg);
     g_alarm.update(lvl, g_cfg.alarm_sound);
 
+    // ---- TTS 语音播报提示音 ----
+    // 收到服务器下发的 TTS 消息时，先播放提示音
+    {
+        int ttsLevel = 0;
+        String ttsText = g_mqtt.takeTtsText(&ttsLevel);
+        if (ttsText.length() > 0) {
+            Serial.printf("[MAIN] TTS: %s (level=%d)\n", ttsText.c_str(), ttsLevel);
+            playTtsAlert(ttsLevel);
+        }
+    }
+
     // ---------- OLED 刷新（每 500ms）----------
     if (g_oledOk && (now - g_lastOled >= 500)) {
         g_lastOled = now;

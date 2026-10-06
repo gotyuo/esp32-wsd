@@ -1,7 +1,26 @@
 #include "alarm.h"
 #include "pins.h"
 
-#define BUZZ_CH 0
+// ============================================================
+// LEDC API 兼容层
+// ESP32 Arduino Core 2.x: 通道制 API (ledcSetup/ledcAttachPin/ledcWriteTone(ch,...))
+// ESP32 Arduino Core 3.x: 引脚制 API (ledcAttach/ledcWriteTone(pin,...))
+// Core 3.x 废弃了旧 API，编译能过但 ledcSetup/ledcAttachPin 不做事 → 无声
+// ============================================================
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  // ---- Core 3.x: 引脚制 ----
+  #define BUZZ_ATTACH(pin, freq, res)  ledcAttach(pin, freq, res)
+  #define BUZZ_TONE(pin, freq)         ledcWriteTone(pin, freq)
+  #define BUZZ_DUTY(pin, duty)         ledcWrite(pin, duty)
+  #define BUZZ_DETACH(pin)             ledcDetach(pin)
+#else
+  // ---- Core 2.x: 通道制 ----
+  #define BUZZ_CH 0
+  #define BUZZ_ATTACH(pin, freq, res)  do { ledcSetup(BUZZ_CH, freq, res); ledcAttachPin(pin, BUZZ_CH); } while(0)
+  #define BUZZ_TONE(pin, freq)         ledcWriteTone(BUZZ_CH, freq)
+  #define BUZZ_DUTY(pin, duty)         ledcWrite(BUZZ_CH, duty)
+  #define BUZZ_DETACH(pin)             ledcDetachPin(pin)
+#endif
 
 // 呼吸/闪烁节奏（ms）
 #define NORMAL_PERIOD   3000   // 绿色呼吸周期
@@ -15,8 +34,15 @@ void AlarmDevice::begin() {
     pinMode(PIN_LED_B, OUTPUT);
     setRGB(false, false, false);
     // 无源蜂鸣器：LEDC 产生方波
-    ledcSetup(BUZZ_CH, 2000, 8);
-    ledcAttachPin(PIN_BUZZER, BUZZ_CH);
+    // Core 3.x: ledcAttach(引脚, 频率, 分辨率位)
+    // Core 2.x: ledcSetup(通道, 频率, 分辨率位) + ledcAttachPin(引脚, 通道)
+    BUZZ_ATTACH(PIN_BUZZER, 2000, 8);
+    buzzerOff();
+
+    Serial.println(F("[ALARM] buzzer initialized"));
+    // 测试鸣叫一声，确认硬件正常
+    buzzerOn(2700);
+    delay(80);
     buzzerOff();
 }
 
@@ -27,12 +53,12 @@ void AlarmDevice::setRGB(bool r, bool g, bool b) {
 }
 
 void AlarmDevice::buzzerOn(uint32_t freq) {
-    ledcWriteTone(BUZZ_CH, freq);
-    ledcWrite(BUZZ_CH, 128);   // 50% 占空比，最响
+    BUZZ_TONE(PIN_BUZZER, freq);
+    BUZZ_DUTY(PIN_BUZZER, 128);   // 50% 占空比，最响
 }
 
 void AlarmDevice::buzzerOff() {
-    ledcWrite(BUZZ_CH, 0);
+    BUZZ_DUTY(PIN_BUZZER, 0);
 }
 
 // 判定单个值是否超出/接近 [lo, hi]：
@@ -135,36 +161,35 @@ void AlarmDevice::update(AlarmLevel level, bool alarm_sound) {
 // 播放短促提示音序列，表示收到 TTS 语音播报消息
 // level: 0=信息(两短低音) 1=预警(三短中音) 2=报警(连续高音)
 void playTtsAlert(int level) {
-    // 直接用 ledc 驱动 PIN_BUZZER，不经过 AlarmDevice（避免干扰报警状态机）
-    // 注：BUZZ_CH=0 已在 AlarmDevice::begin() 中 setup
+    // 直接用 LEDC 驱动 PIN_BUZZER，不经过 AlarmDevice（避免干扰报警状态机）
     const uint32_t freqs[] = {880, 1200, 2000};  // 低/中/高
     uint32_t freq = freqs[level > 2 ? 2 : level];
 
     if (level == 0) {
         // 信息：两短低音
-        ledcWriteTone(BUZZ_CH, freq);
-        ledcWrite(BUZZ_CH, 128);
+        BUZZ_TONE(PIN_BUZZER, freq);
+        BUZZ_DUTY(PIN_BUZZER, 128);
         delay(120);
-        ledcWrite(BUZZ_CH, 0);
+        BUZZ_DUTY(PIN_BUZZER, 0);
         delay(80);
-        ledcWriteTone(BUZZ_CH, freq);
-        ledcWrite(BUZZ_CH, 128);
+        BUZZ_TONE(PIN_BUZZER, freq);
+        BUZZ_DUTY(PIN_BUZZER, 128);
         delay(120);
-        ledcWrite(BUZZ_CH, 0);
+        BUZZ_DUTY(PIN_BUZZER, 0);
     } else if (level == 1) {
         // 预警：三短中音
         for (int i = 0; i < 3; i++) {
-            ledcWriteTone(BUZZ_CH, freq);
-            ledcWrite(BUZZ_CH, 128);
+            BUZZ_TONE(PIN_BUZZER, freq);
+            BUZZ_DUTY(PIN_BUZZER, 128);
             delay(100);
-            ledcWrite(BUZZ_CH, 0);
+            BUZZ_DUTY(PIN_BUZZER, 0);
             delay(60);
         }
     } else {
         // 报警：连续高音 500ms
-        ledcWriteTone(BUZZ_CH, freq);
-        ledcWrite(BUZZ_CH, 128);
+        BUZZ_TONE(PIN_BUZZER, freq);
+        BUZZ_DUTY(PIN_BUZZER, 128);
         delay(500);
-        ledcWrite(BUZZ_CH, 0);
+        BUZZ_DUTY(PIN_BUZZER, 0);
     }
 }
