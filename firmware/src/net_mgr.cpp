@@ -151,6 +151,7 @@ setTimeout(_doScan, 800);
 // ---------------- STA ----------------
 void NetManager::begin() {
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);           // 禁用省电 sleep，避免丢失 MQTT keepalive / AP deauth
     WiFi.setAutoReconnect(false);   // 自行实现带退避的重连
     if (_cfg->has_wifi()) {
         startSTA();
