@@ -513,9 +513,11 @@ def _build_alarm_prompt(device_id, pid, pname, dname, level, reason,
 
 # ================================================================ MQTT 处理器
 def handle_telemetry(device_id: str, payload: dict):
-    temp = payload.get("t") or payload.get("temp_c")
-    hum = payload.get("h") or payload.get("hum_pct")
-    pres = payload.get("p") or payload.get("pres_hpa")
+    # BUG-019: or 链会吞掉合法 0 值（如温度 0°C），与 HTTP 端点 BUG-011 同源。
+    # 改用 next(...if v is not None) 显式判空，与 telemetry_upload 保持一致。
+    temp = next((v for v in (payload.get("t"), payload.get("temp_c")) if v is not None), None)
+    hum = next((v for v in (payload.get("h"), payload.get("hum_pct")) if v is not None), None)
+    pres = next((v for v in (payload.get("p"), payload.get("pres_hpa")) if v is not None), None)
     rssi = payload.get("rssi")
     free_heap = payload.get("heap")
     fw = payload.get("fw")
