@@ -265,10 +265,23 @@ aggregator = Aggregator(on_device_offline=lambda dev_id: hub.broadcast_threadsaf
 
 # ================================================================ 报警判定
 def _band(v: Optional[float], lo: float, hi: float) -> int:
+    """判定单个值是否超出/接近 [lo, hi]：0=正常 1=接近边界(预警) 2=越界(报警)。
+
+    BUG-020: 原实现只返回 0 或 2，从不返回 1，导致 check_alarm() 中的
+    '接近边界'预警分支永远不触发。固件端 alarm.cpp 的 band() 有 10% margin
+    预警逻辑，服务端缺失。此处补齐，与固件行为一致。
+    """
     if v is None:
         return 0
     if v < lo or v > hi:
         return 2
+    # 距边界 10% 内视为预警（与固件 alarm.cpp band() 一致）
+    span = hi - lo
+    if span <= 0:
+        return 0
+    margin = span * 0.10
+    if v < lo + margin or v > hi - margin:
+        return 1
     return 0
 
 
