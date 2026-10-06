@@ -589,9 +589,12 @@ def _auto_ensure_session(device_id: str):
         (device_id,),
     ).fetchall()
     if not rows:
-        # 设备未绑定任何患者 — 尝试自动绑定到唯一患者
-        patients = conn.execute("SELECT id FROM patients ORDER BY created_at DESC LIMIT 1").fetchall()
-        if patients:
+        # BUG-021: 设备未绑定任何患者 — 仅当系统中恰好 1 个患者时才自动绑定
+        # （方便首次部署只有 1 个患者的场景，设备更换后即用）。
+        # 原实现用 LIMIT 1 总是取最近创建的患者，多患者时会把新设备误绑到
+        # 错误患者身上，导致遥测数据归属错误（医疗场景下可能误诊）。
+        patients = conn.execute("SELECT id FROM patients").fetchall()
+        if len(patients) == 1:
             pid = patients[0]["id"]
             try:
                 conn.execute(
