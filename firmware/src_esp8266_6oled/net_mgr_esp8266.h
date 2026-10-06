@@ -8,6 +8,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
+#include <WiFiUdp.h>
 #include "config_store_esp8266.h"
 
 enum NetMode : uint8_t { MODE_STA, MODE_AP };
@@ -22,6 +23,12 @@ public:
     bool staHasConfig() const { return _cfg->has_wifi(); }
     String apSSID() const { return _ap_ssid; }
     void setConfig(DeviceConfig *cfg) { _cfg = cfg; }
+
+    // UDP 局域网自动发现
+    void startDiscover();
+    void stopDiscover();
+    int  discoverLoop(uint32_t now);  // 0=继续, 1=发现成功, -1=超时
+    bool inDiscovery() const { return _discActive; }
 
 private:
     void startSTA();
@@ -41,6 +48,13 @@ private:
     bool     _portalRunning = false;
     String  _scanCache;
     bool    _scanBusy = false;
+
+    // UDP 发现
+    WiFiUDP  _udp;
+    bool     _udpBound = false;
+    bool     _discActive = false;
+    uint32_t _discLastSent = 0;
+    uint32_t _discStartAt = 0;
 
     ESP8266WebServer web;
     DNSServer dns;

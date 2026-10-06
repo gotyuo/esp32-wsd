@@ -422,6 +422,23 @@ void loop() {
         return;
     }
 
+    // ---------- LAN 自动发现 ----------
+    // ESP8266 4oled: server_mode==0 且无 mqtt_host 时，通过 UDP 多播找服务器。
+    // 发现成功后保存配置并重启，进入正常 MQTT 上报。
+    if (!g_mqttReady && g_net.wifiConnected()
+            && g_cfg.server_mode == 0 && !g_cfg.has_mqtt()) {
+        if (!g_net.inDiscovery()) g_net.startDiscover();
+        int disc = g_net.discoverLoop(now);
+        if (disc == 1) {
+            Serial.println(F("[MAIN] server discovered -> restarting to apply"));
+            delay(500);
+            ESP.restart();
+        } else if (disc == -1) {
+            Serial.println(F("[MAIN] discovery failed -> entering AP portal"));
+            g_net.startAP();
+        }
+    }
+
     // ---------- MQTT ----------
     if (!g_mqttReady && g_cfg.has_mqtt() && g_net.wifiConnected()) {
         g_mqtt.begin();

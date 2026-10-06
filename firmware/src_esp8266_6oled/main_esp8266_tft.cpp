@@ -302,6 +302,21 @@ void loop() {
         return;
     }
 
+    // LAN 自动发现
+    if (!g_mqttReady && g_net.wifiConnected()
+            && g_cfg.server_mode == 0 && !g_cfg.has_mqtt()) {
+        if (!g_net.inDiscovery()) g_net.startDiscover();
+        int disc = g_net.discoverLoop(now);
+        if (disc == 1) {
+            Serial.println(F("[MAIN] server discovered -> restarting to apply"));
+            delay(500);
+            ESP.restart();
+        } else if (disc == -1) {
+            Serial.println(F("[MAIN] discovery failed -> entering AP portal"));
+            g_net.startAP();
+        }
+    }
+
     // MQTT
     if (!g_mqttReady && g_cfg.has_mqtt() && g_net.wifiConnected()) {
         g_mqtt.begin();

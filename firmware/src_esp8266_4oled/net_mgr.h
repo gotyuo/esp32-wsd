@@ -36,6 +36,7 @@ public:
     bool wifiConnected() const { return WiFi.status() == WL_CONNECTED; }
     bool staHasConfig() const { return _cfg->has_wifi(); }
     String apSSID() const { return _ap_ssid; }
+    bool inDiscovery() const { return _discActive; }
     void setConfig(DeviceConfig *cfg) { _cfg = cfg; }
 
     // UDP 局域网自动发现
