@@ -51,4 +51,7 @@
 // ESP8266 无空闲 GPIO 接按键；factory reset 走串口命令 "factory"
 #define PIN_BOOT_KEY 255
 
+#ifndef FW_VERSION
+#define FW_VERSION "6.1.5"
+#endif
 #define FW_VER FW_VERSION

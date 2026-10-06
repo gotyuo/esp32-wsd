@@ -247,7 +247,13 @@ void NetManager::handleSave() {
     web.arg("pass").toCharArray(c.wifi_pass, sizeof(c.wifi_pass));
     c.server_mode = (uint8_t)web.arg("smode").toInt();
     String _h=web.arg("host");
-    if (_h.length()>0) _h.toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
+    // BUG-FIX: 自动发现模式下清空 mqtt_host（与 4-hole 变体一致），
+    // 否则旧配置残留导致切换模式后行为不一致。
+    if (c.server_mode == 0) {
+        memset(c.mqtt_host, 0, sizeof(c.mqtt_host));
+    } else if (_h.length()>0) {
+        _h.toCharArray(c.mqtt_host, sizeof(c.mqtt_host));
+    }
     c.mqtt_port = (uint16_t)web.arg("port").toInt();
     if (c.mqtt_port == 0) c.mqtt_port = 18830;
     web.arg("user").toCharArray(c.mqtt_user, sizeof(c.mqtt_user));
