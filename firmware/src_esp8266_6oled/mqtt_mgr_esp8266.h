@@ -13,6 +13,7 @@ public:
     bool connected() const;
     bool publishTelemetry(const EnvData &d, int alarm_level);
     bool publishVitals(const EnvData &d);
+    bool httpUploadTelemetry(const EnvData &d, int alarm_level);
     void applyConfigPayload(const String &json);
 
 private:

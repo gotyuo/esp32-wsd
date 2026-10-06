@@ -187,13 +187,22 @@ void loop() {
         renderOled();
     }
 
-    // ---------- MQTT 周期上报 ----------
-    if (g_mqttReady && g_mqtt.connected()
-            && now - g_lastPub >= (uint32_t)g_cfg.report_interval * 1000UL) {
-        g_lastPub = now;
-        if (g_mqtt.publishTelemetry(g_last, (int)lvl)) {
-            Serial.printf("[MAIN] telemetry published (t=%.1f h=%.1f p=%.1f)\n",
-                          g_last.temp_c, g_last.hum_pct, g_last.pres_hpa);
+    // ---------- 数据上报（MQTT 优先，HTTP 回退）----------
+    if (now - g_lastPub >= (uint32_t)g_cfg.report_interval * 1000UL) {
+        if (g_mqttReady && g_mqtt.connected()) {
+            // MQTT 通道
+            g_lastPub = now;
+            if (g_mqtt.publishTelemetry(g_last, (int)lvl)) {
+                Serial.printf("[MAIN] MQTT telemetry (t=%.1f h=%.1f p=%.1f)\n",
+                              g_last.temp_c, g_last.hum_pct, g_last.pres_hpa);
+            }
+        } else if (g_cfg.has_mqtt() && g_net.wifiConnected()) {
+            // MQTT 不通 → HTTP 回退：POST /api/telemetry
+            // 外网设备只要能访问 Web 端口即可上报，不需要 MQTT 端口
+            g_lastPub = now;
+            if (g_mqtt.httpUploadTelemetry(g_last, (int)lvl)) {
+                Serial.println(F("[MAIN] HTTP telemetry uploaded (MQTT fallback)"));
+            }
         }
     }
     delay(5);

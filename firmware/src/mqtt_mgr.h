@@ -14,6 +14,8 @@ public:
     // 发布一条遥测数据
     bool publishTelemetry(const EnvData &d, int alarm_level);
     bool publishVitals(const EnvData &d);
+    // HTTP 上传回退：MQTT 不通时通过 HTTP POST /api/telemetry 上报
+    bool httpUploadTelemetry(const EnvData &d, int alarm_level);
     // 应用服务器下发的配置 JSON（由接收回调调用）
     void applyConfigPayload(const String &json);
     // 应用服务器下发的 TTS 语音播报文本

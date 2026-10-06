@@ -10,6 +10,7 @@
 #include "net_mgr.h"
 #include "mqtt_client.h"
 #include <WiFi.h>
+#include <HTTPClient.h>
 
 MqttMgr g_mqtt;
 
@@ -192,6 +193,66 @@ bool MqttMgr::publishVitals(const EnvData &d) {
         ip_str);
 
     return _client.publish(_topicTele, buf, (size_t)n, false, 0);
+}
+
+// =================== HTTP 上传回退 ===================
+// MQTT 连不上时，通过 HTTP POST 把同样的 JSON 发到 /api/telemetry。
+// 外网设备只要能访问服务器 Web 端口（默认 12090），不需要 MQTT 端口即可上报。
+// Web 端口默认 12090（与 docker-compose 一致），可通过 build flag WEB_PORT 覆盖。
+#ifndef WEB_PORT
+#define WEB_PORT 12090
+#endif
+
+bool MqttMgr::httpUploadTelemetry(const EnvData &d, int alarm_level) {
+    if (!g_cfg.has_mqtt()) return false;
+    if (WiFi.status() != WL_CONNECTED) return false;
+
+    HTTPClient http;
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:%d/api/telemetry", g_cfg.mqtt_host, WEB_PORT);
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(5000);
+
+    char ip_str[16] = "";
+    IPAddress localIP = WiFi.localIP();
+    snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d",
+             localIP[0], localIP[1], localIP[2], localIP[3]);
+
+    uint32_t seq = (uint32_t)(millis() / 1000);
+    char buf[400];
+    int n = snprintf(buf, sizeof(buf),
+        "{"device_id":"%s""
+        ","seq":%lu"
+        ","t":%s,"h":%s,"p":%s"
+        ","rssi":%d,"alarm":%d"
+        ","fw":"%s","heap":%u,"ip":"%s""
+        ","sp_o2":%s,"pr_hr":%s,"ecg_hr":%s}",
+        g_cfg.device_id,
+        (unsigned long)seq,
+        isnan(d.temp_c)   ? "null" : String(d.temp_c, 2).c_str(),
+        isnan(d.hum_pct)  ? "null" : String(d.hum_pct, 2).c_str(),
+        isnan(d.pres_hpa) ? "null" : String(d.pres_hpa, 2).c_str(),
+        WiFi.RSSI(),
+        alarm_level,
+        FW_VERSION,
+        (unsigned)ESP.getFreeHeap(),
+        ip_str,
+        isnan(d.sp_o2)   ? "null" : String(d.sp_o2, 1).c_str(),
+        isnan(d.pr_hr)   ? "null" : String(d.pr_hr, 1).c_str(),
+        isnan(d.ecg_hr)  ? "null" : String(d.ecg_hr, 1).c_str());
+
+    int code = http.POST((uint8_t*)buf, n);
+    http.end();
+
+    if (code == 200) {
+        Serial.printf("[HTTP] telemetry uploaded OK (seq=%lu)\n", (unsigned long)seq);
+        return true;
+    } else {
+        Serial.printf("[HTTP] upload failed: %d (url=%s)\n", code, url);
+        return false;
+    }
 }
 
 void MqttMgr::applyConfigPayload(const String &json) {
